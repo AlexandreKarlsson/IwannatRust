@@ -1,0 +1,13 @@
+[application]
+name = "iwr-ui"
+
+[web.app]
+title = "IwannatRust"
+
+[web.resource]
+style = []
+script = []
+
+[web.resource.dev]
+style = []
+script = []
