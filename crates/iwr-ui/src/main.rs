@@ -55,7 +55,7 @@ pub struct State {
     pub hovered: Signal<Option<(String, f64, f64)>>,
     pub view: Signal<Transform>,
     pub canvas_rect: Signal<(f64, f64, f64, f64)>,
-    // ---- narration player
+    // ---- codecast player
     pub script: Signal<Option<Rc<iwr_core::script::Script>>>,
     pub part_idx: Signal<usize>,
     pub cue_idx: Signal<usize>,
@@ -81,6 +81,18 @@ pub struct State {
     pub theme: Signal<String>,
     /// Are the graph-view tabs revealed?
     pub views_open: Signal<bool>,
+    // ---- layout
+    pub files_tab: Signal<bool>,
+    pub closed_dirs: Signal<HashSet<String>>,
+    pub sidebar_open: Signal<bool>,
+    pub sidebar_w: Signal<f64>,
+    pub details_w: Signal<f64>,
+    /// blocks pane share of the code view, 0.2..0.8
+    pub split: Signal<f64>,
+    /// active drag: (which, start x, start value)
+    pub drag: Signal<Option<(u8, f64, f64)>>,
+    /// animate camera / scroll (set by the codecast player, cleared by manual pan/zoom)
+    pub animate: Signal<bool>,
 }
 
 impl State {
@@ -114,6 +126,16 @@ impl State {
             self.hover_span.set(None);
             self.fit_request += 1;
         }
+    }
+
+    pub fn save_layout(&self) {
+        document::eval(&format!(
+            "localStorage.setItem('iwr-layout', '{},{},{},{}');",
+            if *self.sidebar_open.read() { 1 } else { 0 },
+            *self.sidebar_w.read(),
+            *self.details_w.read(),
+            *self.split.read()
+        ));
     }
 
     pub fn set_theme(&mut self, t: &str) {
@@ -179,6 +201,12 @@ impl State {
             self.collapsed.write().remove(id);
             self.expanded.write().insert(id.to_string());
         }
+    }
+
+    /// Smooth scroll an element into view (codecast) or jump (manual).
+    pub fn scroll_to(&self, id: &str) {
+        let behavior = if *self.animate.read() { "smooth" } else { "auto" };
+        document::eval(&format!("setTimeout(() => {{ const el = document.getElementById('{}'); if (el) el.scrollIntoView({{block:'center', behavior:'{}'}}); }}, 30);", id, behavior));
     }
 
     /// Center the view on a node rect (graph coordinates).
@@ -256,6 +284,28 @@ fn App() -> Element {
         code_file: Signal::new(None),
         theme: Signal::new("dark".into()),
         views_open: Signal::new(false),
+        files_tab: Signal::new(true),
+        closed_dirs: Signal::new(HashSet::new()),
+        sidebar_open: Signal::new(true),
+        sidebar_w: Signal::new(250.0),
+        details_w: Signal::new(380.0),
+        split: Signal::new(0.5),
+        drag: Signal::new(None),
+        animate: Signal::new(false),
+    });
+
+    // layout persistence
+    use_future(move || async move {
+        if let Ok(v) = document::eval("return localStorage.getItem('iwr-layout') || '';").await {
+            if let Some(t) = v.as_str() {
+                let parts: Vec<f64> = t.split(',').filter_map(|x| x.parse().ok()).collect();
+                if parts.len() == 4 {
+                    state.sidebar_w.set(parts[1].clamp(140.0, 600.0));
+                    state.details_w.set(parts[2].clamp(240.0, 900.0));
+                    state.split.set(parts[3].clamp(0.2, 0.8));
+                }
+            }
+        }
     });
 
     // theme persistence
@@ -357,16 +407,38 @@ fn App() -> Element {
     let has_guide = state.script.read().is_some();
     let theme_name = state.theme.read().clone();
     let is_code = *state.mode.read() == Mode::Code;
+    let sidebar_open = *state.sidebar_open.read();
+    let dragging = state.drag.read().is_some();
     rsx! {
         style { {theme::CSS} }
-        div { class: "app theme-{theme_name}",
+        div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}
             div { class: "main",
-                panels::Sidebar {}
+                onmousemove: move |e| {
+                    if let Some((which, x0, v0)) = *state.drag.read() {
+                        let x = e.data().client_coordinates().x;
+                        match which {
+                            0 => state.sidebar_w.set((v0 + (x - x0)).clamp(140.0, 600.0)),
+                            1 => state.details_w.set((v0 - (x - x0)).clamp(240.0, 900.0)),
+                            _ => {
+                                let (_, _, cw, _) = *state.canvas_rect.read();
+                                let total = if cw > 0.0 { cw } else { 1000.0 };
+                                state.split.set((v0 + (x - x0) / total).clamp(0.2, 0.8));
+                            }
+                        }
+                    }
+                },
+                onmouseup: move |_| { if state.drag.read().is_some() { state.drag.set(None); state.save_layout(); } },
+                onmouseleave: move |_| { if state.drag.read().is_some() { state.drag.set(None); state.save_layout(); } },
+                if sidebar_open {
+                    panels::Sidebar {}
+                    div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((0, e.data().client_coordinates().x, *state.sidebar_w.read()))); } }
+                }
                 if is_code {
                     code::CodeView {}
                 } else {
                     canvas::Canvas {}
+                    div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     panels::Details {}
                 }
             }

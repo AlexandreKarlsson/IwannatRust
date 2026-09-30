@@ -1,4 +1,4 @@
-# Narration
+# Codecast
 
 A **script** is spoken text with references to what to show and highlight. The player runs it on top
 of the visualizer: switches views, glows the right boxes, highlights and underlines code, and speaks
@@ -47,6 +47,7 @@ Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highligh
 | item path | fn, method, struct, enum, trait, impl (`crate::` optional; unique suffix OK) | `crate::run`, `Task::weight`, `parse_all` |
 | module path | module (scopes module views, glows the module box) | `crate::storage`, `storage` |
 | `<item>/b<n>` | block *n* of that function, ids as printed by `iwr brief` | `crate::run/b5` |
+| `<file>` | a whole file (`@ code:src/parser.rs` opens it in the Code view) | `src/parser.rs` |
 | `<file>:<l>[-<l>]` | source lines | `src/main.rs:49-52` |
 | `<file>:<l>:<c1>-<c2>` | columns on a line (word underline, use with `=`) | `src/main.rs:49:17-44` |
 
@@ -77,8 +78,8 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 `b<n> <kind> <label> ＋defined used → callee`. Demo crate: ~2.3k tokens with bodies, ~600 without.
 `--fn crate::run` prints one function plus the signatures of what it calls and who calls it.
 
-Prompt that works: *"Here is a brief of a Rust project and the script format. Write a narration in
-2–4 parts that explains how it works to a newcomer. Reference blocks by their ids."* Then `iwr check`.
+**Writing one:** give an agent `iwr brief <path> --guide` (the writing guide from
+[writing-codecasts.md](writing-codecasts.md) followed by the brief), then `iwr check` its output.
 
 ## Player
 
@@ -90,7 +91,7 @@ Prompt that works: *"Here is a brief of a Rust project and the script format. Wr
 
 Parts are buttons in the player bar; playing stops at the end of a part (`next part ▶`).
 `load…` accepts pasted text, a script file and an audio file. `▶ Narrate` (or `g`) plays the built-in
-walkthrough as a script; `narrate from here` in the details panel starts it at a function.
+walkthrough as a script; `codecast from here` in the details panel starts it at a function.
 Keys: `←` `→` step, `space` play/pause, `Esc` close.
 
 `iwr serve` re-reads the script file on every page load, so edit and refresh.

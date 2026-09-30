@@ -17,8 +17,10 @@ pub fn TopBar() -> Element {
     let views_open = *state.views_open.read() || mode != Mode::Code;
     let theme_name = state.theme.read().clone();
     let show_source = *state.show_source.read();
+    let sidebar_open = *state.sidebar_open.read();
     rsx! {
         div { class: "topbar",
+            button { class: if sidebar_open { "small active" } else { "small" }, title: "Items panel", onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); }, "☰" }
             div { class: "brand", "IwannatRust" span { "{name}" } }
             div { class: "tabs",
                 button { class: if mode == Mode::Code { "active" } else { "" }, title: "{Mode::Code.description()}", onclick: move |_| { state.set_mode(Mode::Code); state.views_open.set(false); }, "Code" }
@@ -57,8 +59,8 @@ pub fn TopBar() -> Element {
             }
             }
             input { r#type: "text", placeholder: "search items…", value: "{search}", oninput: move |e| state.search.set(e.value()) }
-            button { class: if has_guide { "active" } else { "" }, title: "Play the built-in walkthrough (g). Load your own narration from the player bar.", onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } },
-                if has_guide { "■ Stop narration" } else { "▶ Narrate" }
+            button { class: if has_guide { "active" } else { "" }, title: "Play the codecast (g): the loaded script, or the built-in walkthrough. Load your own from the player bar.", onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } },
+                if has_guide { "■ Stop codecast" } else { "▶ Codecast" }
             }
         }
     }
@@ -81,11 +83,11 @@ fn kind_color(it: &iwr_core::model::Item) -> &'static str {
 
 #[component]
 pub fn Sidebar() -> Element {
-    let state = use_context::<State>();
+    let mut state = use_context::<State>();
     let _scope = *state.scope.read();
     let project = state.project.read().clone();
     let Some(p) = project else {
-        return rsx! { div { class: "sidebar", div { class: "status", "loading project…" } } };
+        return rsx! { div { class: "sidebar", style: "width:250px", div { class: "status", "loading project…" } } };
     };
     let search = state.search.read().to_lowercase();
     let selected = *state.selected.read();
@@ -98,10 +100,20 @@ pub fn Sidebar() -> Element {
         }
     }
     visit(&p, 0, &mut order);
+    let w = *state.sidebar_w.read();
+    let files_tab = *state.files_tab.read();
     rsx! {
-        div { class: "sidebar",
+        div { class: "sidebar", style: "width:{w:.0}px",
+            div { class: "sbtabs",
+                button { class: if files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(true), "📁 files" }
+                button { class: if !files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(false), "☰ items" }
+            }
+            if files_tab {
+                FileTree {}
+            }
             for m in order {
-                {
+                if !files_tab {
+                  {
                     let module = p.module(m);
                     let items: Vec<&iwr_core::model::Item> = module.items.iter().map(|i| p.item(*i))
                         .filter(|i| i.kind != ItemKind::Method)
@@ -132,6 +144,89 @@ pub fn Sidebar() -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                  }
+                }
+            }
+        }
+    }
+}
+
+/// Directory tree of the analyzed files. Click a file to open it in the Code view.
+#[component]
+fn FileTree() -> Element {
+    let mut state = use_context::<State>();
+    let Some(p) = state.project.read().clone() else { return rsx! {} };
+    // the file being shown: Code view file, else the file of the selected item / span
+    let current = if *state.mode.read() == Mode::Code {
+        (*state.code_file.read()).or_else(|| (*state.selected.read()).map(|id| p.item(id).span.file))
+    } else {
+        (*state.selected_span.read()).map(|s| s.file).or_else(|| (*state.selected.read()).map(|id| p.item(id).span.file))
+    };
+    // files targeted by the current codecast cue
+    let nar_files: std::collections::HashSet<usize> = state.hl.read().iter().map(|r| r.span.file).collect();
+    let closed = state.closed_dirs.read().clone();
+    // build (depth, name, is_dir, file id, dir path) rows in tree order
+    #[derive(Default)]
+    struct Dir { files: Vec<(String, usize)>, dirs: std::collections::BTreeMap<String, Dir> }
+    let mut root = Dir::default();
+    for f in &p.files {
+        let mut parts: Vec<&str> = f.path.split('/').collect();
+        let name = parts.pop().unwrap_or("").to_string();
+        let mut d = &mut root;
+        for part in parts {
+            d = d.dirs.entry(part.to_string()).or_default();
+        }
+        d.files.push((name, f.id));
+    }
+    fn rows(d: &Dir, depth: usize, path: &str, closed: &std::collections::HashSet<String>, out: &mut Vec<(usize, String, bool, Option<usize>, String)>) {
+        for (name, sub) in &d.dirs {
+            let dp = if path.is_empty() { name.clone() } else { format!("{}/{}", path, name) };
+            out.push((depth, name.clone(), true, None, dp.clone()));
+            if !closed.contains(&dp) {
+                rows(sub, depth + 1, &dp, closed, out);
+            }
+        }
+        let mut files = d.files.clone();
+        files.sort();
+        for (name, id) in files {
+            out.push((depth, name, false, Some(id), String::new()));
+        }
+    }
+    let mut list = Vec::new();
+    rows(&root, 0, "", &closed, &mut list);
+    let n_items = |fid: usize| p.items.iter().filter(|i| i.span.file == fid && i.kind != ItemKind::Method).count();
+    rsx! {
+        div { class: "ftree",
+            for (depth, name, is_dir, fid, dp) in list {
+                {
+                    let pad = 6 + depth * 14;
+                    if is_dir {
+                        let is_closed = closed.contains(&dp);
+                        let dp2 = dp.clone();
+                        rsx! {
+                            div { class: "frow dir", style: "padding-left:{pad}px", onclick: move |_| {
+                                    let mut c = state.closed_dirs.write();
+                                    if !c.remove(&dp2) { c.insert(dp2.clone()); }
+                                },
+                                span { class: "fic", if is_closed { "▸ 📁" } else { "▾ 📂" } }
+                                span { "{name}" }
+                            }
+                        }
+                    } else {
+                        let id = fid.unwrap();
+                        let f = p.file(id);
+                        let count = if f.rust { n_items(id) } else { 0 };
+                        let icon = if f.rust { "🦀" } else if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" };
+                        let cls = format!("frow file{}{}{}", if current == Some(id) { " sel" } else { "" }, if nar_files.contains(&id) { " nar" } else { "" }, if f.rust { "" } else { " other" });
+                        rsx! {
+                            div { class: "{cls}", style: "padding-left:{pad}px", title: if f.rust { format!("{} items", count) } else { name.clone() },
+                                onclick: move |_| { state.code_file.set(Some(id)); state.set_mode(Mode::Code); state.selected.set(None); state.selected_span.set(None); },
+                                span { class: "fic", "{icon}" }
+                                span { "{name}" }
+                                if f.rust { span { class: "fcount", "{count}" } }
                             }
                         }
                     }
@@ -184,13 +279,13 @@ pub fn Details() -> Element {
     // scroll the highlighted line into view when the span changes
     use_effect(move || {
         if let Some(s) = *state.selected_span.read() {
-            let line = s.line_start;
-            document::eval(&format!("setTimeout(() => {{ const el = document.getElementById('L{}'); if (el) el.scrollIntoView({{block:'center'}}); }}, 30);", line));
+            state.scroll_to(&format!("L{}", s.line_start));
         }
     });
 
+    let dw = *state.details_w.read();
     rsx! {
-        div { class: "details",
+        div { class: "details", style: "width:{dw:.0}px",
             div { class: "info",
                 if let Some(info) = &info {
                     h3 { "{info.title} " span { class: "pill", "{info.kind}" } }
@@ -221,7 +316,7 @@ pub fn Details() -> Element {
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::BranchTree); state.set_root(Some(id)); }, "branches" }
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "call tree" }
                                 if mode != Mode::ControlFlow {
-                                    button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), "narrate from here" }
+                                    button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), "codecast from here" }
                                 }
                             }
                         }

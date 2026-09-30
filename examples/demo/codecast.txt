@@ -40,3 +40,18 @@ All failures funnel into one enum, AppError.
 The parser and the storage each have their own error type.
 ! crate::AppError
 The two From implementations are what let the question mark convert them into AppError automatically.
+
+## Where things live
+@ code:src/main.rs
+main.rs holds the entry point, the top level error type, and the run function.
+@ code:src/parser.rs
+! crate::parser::parse_line
+parser.rs is three small functions; parse_line does the real work, one field at a time.
+@ code:src/storage.rs
+! crate::storage::Storage
+storage.rs declares the Storage trait first, then the in-memory implementation below it.
+@ code:src/scheduler.rs
+scheduler.rs is generic over any Storage, which is why it never mentions MemoryStorage.
+@ code:src/model.rs
+! crate::model::Describe
+model.rs ends with the Describe trait: a default method built on top of one required method.

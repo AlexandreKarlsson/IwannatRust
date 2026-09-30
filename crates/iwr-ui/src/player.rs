@@ -1,4 +1,4 @@
-//! Narration player: plays a `Script` (parts → cues) on top of the visualizer.
+//! Codecast player: plays a `Script` (parts → cues) on top of the visualizer.
 //! Voice: browser TTS, a recorded audio file, or silent reading.
 
 use crate::md::Markdown;
@@ -87,6 +87,7 @@ impl State {
         let Some(cue) = self.current_cue() else { return };
         self.hovered.set(None);
         self.hover_span.set(None);
+        self.animate.set(true);
         if let Some(show) = &cue.show {
             let (mode, r) = script::parse_show(show);
             if let Some(m) = mode {
@@ -100,6 +101,10 @@ impl State {
                     if let Some(res) = script::resolve(&p, r) {
                         if let Some(mid) = res.module {
                             self.set_scope(Some(mid));
+                        } else if res.item.is_none() {
+                            // a file: open it in the Code view
+                            self.code_file.set(Some(res.span.file));
+                            self.selected.set(None);
                         } else if let Some(item) = res.item {
                             match m {
                                 Mode::Code => self.open_in_code(item),
@@ -122,6 +127,9 @@ impl State {
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
                 for r in &resolved {
+                    if r.item.is_none() && r.module.is_none() {
+                        self.code_file.set(Some(r.span.file));
+                    }
                     if let Some(item) = r.item {
                         self.code_file.set(Some(r.span.file));
                         let mut ob = self.open_blocks.write();
@@ -360,7 +368,7 @@ pub fn PlayerBar() -> Element {
                 Markdown { text: say }
                 if show_load() {
                     div { class: "loader",
-                        div { class: "status", "Load a narration script (text format, see docs/narration.md). Paste it or pick a file; optional audio file for a recording." }
+                        div { class: "status", "Load a codecast script (text format, see docs/codecast.md). Paste it or pick a file; optional audio file for a recording." }
                         textarea { rows: 5, placeholder: "# Title\n## Part\n@ flow:crate::run\n! crate::run/b1\nSpoken sentence…", value: "{paste}", oninput: move |e| paste.set(e.value()) }
                         div { class: "row",
                             input { r#type: "file", accept: ".txt,.md,.script", onchange: move |e| {

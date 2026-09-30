@@ -1,12 +1,12 @@
 # CLI
 
 ```
-iwr serve   [PATH] [-p PORT] [--no-open] [--script S] [--audio A]   analyze + serve UI (default PATH ".", PORT 4321)
+iwr serve   [PATH] [-p PORT] [--no-open] [--script S] [--audio A]   analyze + serve UI (default PATH ".", PORT 4321); <PATH>/codecast.txt is loaded when present
 iwr export  [PATH] [-o DIR] [--script S] [--audio A]                 static site: index.html, assets/, project.json (+ script.txt, audio)
 iwr analyze [PATH] [-o FILE] [--pretty]    model as JSON (stdout when -o omitted)
 iwr summary [PATH]                         text dump: modules, items, calls, relations, block trees, view sizes, guide steps
-iwr brief   [PATH] [--fn P] [--no-body] [--no-overview]   compact text brief for writing a narration (see narration.md)
-iwr guide   [PATH] [--fn P]                built-in walkthrough as a narration script (text) on stdout
+iwr brief   [PATH] [--fn P] [--no-body] [--no-overview]   compact text brief for writing a codecast (see codecast.md)
+iwr guide   [PATH] [--fn P]                built-in walkthrough as a codecast script (text) on stdout
 iwr check   SCRIPT [--path PATH]           validate a script's refs; exit 1 if any is unresolved
 ```
 

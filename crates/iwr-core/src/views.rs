@@ -229,10 +229,11 @@ impl ViewOptions {
 
 const FONT: f64 = 13.0;
 
-fn node_size(label: &str, sublabel: &str) -> (f64, f64) {
-    let w = layout::text_width(label, FONT).max(layout::text_width(sublabel, FONT * 0.85)) + 28.0;
-    let lines = label.lines().count().max(1) + if sublabel.is_empty() { 0 } else { 1 };
-    (w.clamp(70.0, 300.0), 20.0 + 16.0 * lines as f64)
+/// Box size for the label only: details (signature, fields, badges) are shown by the UI on demand.
+fn node_size(label: &str, _sublabel: &str) -> (f64, f64) {
+    let w = layout::text_width(label, FONT) + 28.0;
+    let lines = label.lines().count().max(1);
+    (w.clamp(60.0, 300.0), 16.0 + 16.0 * lines as f64)
 }
 
 fn kind_of_item(it: &Item) -> NodeKind {
@@ -320,11 +321,7 @@ fn mk_node(id: String, it: &Item, depth: usize) -> VNode {
     };
     let sublabel = crate::shorten(&sublabel, 44);
     let badges = it.fn_info().map(fn_badges).unwrap_or_default();
-    let (mut w, h) = node_size(&label, &sublabel);
-    if let Some(b) = badges.first() {
-        // badge sits top-right next to the title
-        w = w.max(layout::text_width(&label, FONT) + layout::text_width(b, 9.0) + 40.0);
-    }
+    let (w, h) = node_size(&label, &sublabel);
     VNode {
         id,
         label,
@@ -829,7 +826,7 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     const COL_W: f64 = 300.0;
     const PAD: f64 = 10.0;
-    const ROW: f64 = 40.0;
+    const ROW: f64 = 32.0;
     const GAP: f64 = 24.0;
     // one column per module (in tree order), items stacked; impl blocks nest their methods
     let mut order: Vec<ModuleId> = Vec::new();
@@ -864,7 +861,7 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
                 v.x = x + PAD;
                 v.y = y;
                 v.w = COL_W - 2.0 * PAD;
-                v.h = if v.sublabel.is_empty() { 26.0 } else { ROW };
+                v.h = 26.0;
                 v.badges.clear();
                 let methods: Vec<ItemId> = match &it.extra {
                     ItemExtra::Impl(i) => i.methods.clone(),
@@ -889,9 +886,9 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
                         mv.x = x + 2.0 * PAD + 8.0;
                         mv.y = my;
                         mv.w = COL_W - 4.0 * PAD - 8.0;
-                        mv.h = ROW - 4.0;
+                        mv.h = 24.0;
                         g.nodes.push(mv);
-                        my += ROW;
+                        my += 28.0;
                     }
                     v.h = my - y + 4.0;
                 }
@@ -970,10 +967,9 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
             ItemExtra::TypeAlias { target } => format!("= {}", target),
             _ => String::new(),
         };
-        let lines = v.sublabel.lines().count();
-        let (w, _) = node_size(&v.label, &v.sublabel);
+        let (w, h) = node_size(&v.label, &v.sublabel);
         v.w = w;
-        v.h = 36.0 + 15.0 * lines as f64;
+        v.h = h;
         v.expandable = true; // expand: show functions using this type
         v.expanded = opts.expanded.contains(&nid);
         present.insert(it.id);

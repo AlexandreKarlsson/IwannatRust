@@ -10,7 +10,7 @@ cargo install dioxus-cli --version 0.7.10 --locked     # provides `dx` (in ~/.ca
 ## Launcher
 
 `scripts/iwr` with no argument prints every command with an icon (and lets you pick one on a TTY).
-`scripts/iwr build | serve | narrate | export | brief | guide | check | summary | test | shot | clean`.
+`scripts/iwr build | serve | codecast | export | brief | guide | check | summary | test | shot | clean`.
 
 ## Build / run
 

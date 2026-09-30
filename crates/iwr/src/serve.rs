@@ -48,6 +48,11 @@ fn analyze(path: &Path) -> Result<Project> {
 
 pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
+    // a `codecast.txt` next to the project is picked up automatically
+    let script = script.or_else(|| {
+        let p = if path.is_file() { path.parent().map(|d| d.join("codecast.txt")) } else { Some(path.join("codecast.txt")) };
+        p.filter(|p| p.exists())
+    });
     if let Some(s) = &script {
         let text = std::fs::read_to_string(s).with_context(|| format!("reading script {}", s.display()))?;
         let sc = iwr_core::script::parse(&text);
@@ -128,7 +133,7 @@ async fn api_version(State(s): State<AppState>) -> Json<u64> {
     Json(*s.version.read().unwrap())
 }
 
-/// The narration script as text (re-read on every request so edits show up on reload).
+/// The codecast script as text (re-read on every request so edits show up on reload).
 async fn api_script(State(s): State<AppState>) -> Response {
     match &s.script {
         Some(p) => match std::fs::read_to_string(p) {
@@ -182,6 +187,7 @@ async fn static_handler(uri: Uri) -> Response {
 /// served as static files (e.g. inside a documentation site).
 pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
+    let script = script.or_else(|| Some(path.join("codecast.txt")).filter(|p| p.exists()));
     if Assets::get("index.html").is_none() {
         anyhow::bail!("web UI not built into this binary; run ./build.sh first");
     }

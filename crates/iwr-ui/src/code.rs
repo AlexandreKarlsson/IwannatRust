@@ -91,6 +91,7 @@ pub fn CodeView() -> Element {
         .unwrap_or(0)
         .min(p.files.len().saturating_sub(1));
     let show_source = *state.show_source.read();
+    let split = *state.split.read();
     let hover = *state.hover_span.read();
     let sel_span = *state.selected_span.read();
     let hl_refs = state.hl.read().clone();
@@ -102,11 +103,13 @@ pub fn CodeView() -> Element {
     let n_files = p.files.len();
     let files: Vec<(usize, String)> = p.files.iter().map(|f| (f.id, f.path.clone())).collect();
     let module_doc = p.modules.iter().find(|m| m.file == Some(file)).and_then(|m| m.doc.clone());
+    // a non-Rust file needs the source pane to be useful
+    let show_source = show_source || !sf.rust;
 
     // scroll the source to the selection when it changes
     use_effect(move || {
         if let Some(s) = *state.selected_span.read() {
-            document::eval(&format!("setTimeout(() => {{ const el = document.getElementById('S{}'); if (el) el.scrollIntoView({{block:'center'}}); }}, 30);", s.line_start));
+            state.scroll_to(&format!("S{}", s.line_start));
         }
     });
 
@@ -130,7 +133,15 @@ pub fn CodeView() -> Element {
 
     rsx! {
         div { class: "code-view",
-            div { class: if show_source { "blocks-pane half" } else { "blocks-pane" }, onmouseleave: move |_| state.hover_span.set(None),
+            onmounted: move |e| {
+                let el = e.data();
+                spawn(async move {
+                    if let Ok(r) = el.get_client_rect().await {
+                        state.canvas_rect.set((r.origin.x, r.origin.y, r.size.width, r.size.height));
+                    }
+                });
+            },
+            div { class: if show_source { "blocks-pane half" } else { "blocks-pane" }, style: if show_source { format!("flex: 0 0 {:.1}%", split * 100.0) } else { String::new() }, onmouseleave: move |_| state.hover_span.set(None),
                 div { class: "file-bar",
                     if n_files > 1 {
                         select { value: "{file}", onchange: move |e| { if let Ok(id) = e.value().parse::<usize>() { state.code_file.set(Some(id)); } },
@@ -146,11 +157,17 @@ pub fn CodeView() -> Element {
                 if let Some(d) = module_doc {
                     div { class: "moddoc", "{d}" }
                 }
+                if !sf.rust {
+                    div { class: "status", style: "margin-top:20px",
+                        if sf.text { "Not a Rust source file: nothing to analyze. The content is shown on the right." } else { "Binary or large file: not shown." }
+                    }
+                }
                 for it in items {
                     ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
                 }
             }
             if show_source {
+                div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((2, e.data().client_coordinates().x, *state.split.read()))); } }
                 div { class: "source-pane", onmouseleave: move |_| state.hover_span.set(None),
                     div { class: "path", "{sf.path}" }
                     for (i, line) in sf.content.lines().enumerate() {

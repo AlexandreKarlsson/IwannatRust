@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 mod serve;
 
+/// The codecast writing guide, embedded so `iwr brief --guide` works from any directory.
+const WRITING_GUIDE: &str = include_str!("../../../docs/writing-codecasts.md");
+
 #[derive(Parser)]
 #[command(name = "iwr", version, about = "IwannatRust: visualize how Rust code works")]
 struct Cli {
@@ -23,10 +26,10 @@ enum Cmd {
         /// Do not open the browser
         #[arg(long)]
         no_open: bool,
-        /// Narration script (text format, see docs/narration.md) to load in the player
+        /// Codecast script (text format, see docs/codecast.md); defaults to <path>/codecast.txt when present
         #[arg(long)]
         script: Option<PathBuf>,
-        /// Recorded narration audio (mp3/ogg/wav) matching the script's [t] cues
+        /// Recorded codecast audio (mp3/ogg/wav) matching the script's [t] cues
         #[arg(long)]
         audio: Option<PathBuf>,
     },
@@ -53,7 +56,7 @@ enum Cmd {
         #[arg(long)]
         audio: Option<PathBuf>,
     },
-    /// Print a compact text brief of the project for writing a narration script (LLM-friendly)
+    /// Print a compact text brief of the project for writing a codecast script (LLM-friendly)
     Brief {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -66,8 +69,11 @@ enum Cmd {
         /// Skip the modules/types overview
         #[arg(long)]
         no_overview: bool,
+        /// Prepend the guide on how to write a good codecast (docs/writing-codecasts.md)
+        #[arg(long)]
+        guide: bool,
     },
-    /// Emit the built-in walkthrough as a narration script (text format)
+    /// Emit the built-in walkthrough as a codecast script (text format)
     Guide {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -75,7 +81,7 @@ enum Cmd {
         #[arg(long = "fn")]
         only: Option<String>,
     },
-    /// Validate a narration script's refs against the project
+    /// Validate a codecast script's refs against the project
     Check {
         script: PathBuf,
         #[arg(long, default_value = ".")]
@@ -102,8 +108,11 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Export { path, out, script, audio } => serve::export(path, out, script, audio),
-        Cmd::Brief { path, only, no_body, no_overview } => {
+        Cmd::Brief { path, only, no_body, no_overview, guide } => {
             let p = iwr_core::analyze_path(&path)?;
+            if guide {
+                println!("{}\n\n---\n", WRITING_GUIDE);
+            }
             print!("{}", iwr_core::brief::build(&p, &iwr_core::brief::BriefOptions { only, bodies: !no_body, overview: !no_overview }));
             Ok(())
         }

@@ -4,6 +4,7 @@
 - [CLI](cli.md) — `serve`, `export`, `analyze`, `summary`
 - [Architecture](architecture.md) — crates, pipeline, data model, layout engine
 - [Model reference](model.md) — the JSON produced by `iwr analyze` / `/api/project`
-- [Narration](narration.md) — script format, refs, brief for LLMs, player (TTS / recording / read)
+- [Writing codecasts](writing-codecasts.md) — the guide an agent follows to write a good one
+- [Codecast](codecast.md) — script format, refs, brief for LLMs, player (TTS / recording / read)
 - [Embedding](embedding.md) — static export, docs sites, Zensical plan
 - [Development](development.md) — build, test, QA loop, adding a view

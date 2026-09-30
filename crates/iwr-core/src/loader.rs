@@ -9,7 +9,17 @@ pub struct Loaded {
 }
 
 fn is_ignored_dir(name: &str) -> bool {
-    matches!(name, "target" | ".git" | "node_modules" | ".dx" | "dist")
+    matches!(name, "target" | ".git" | "node_modules" | ".dx" | "dist" | ".idea" | ".vscode" | "__pycache__")
+}
+
+const MAX_TEXT: u64 = 512 * 1024;
+
+/// Read a non-Rust file as text when it is small and valid UTF-8; empty string otherwise.
+fn read_other(p: &Path) -> String {
+    match std::fs::metadata(p) {
+        Ok(m) if m.len() <= MAX_TEXT => std::fs::read(p).ok().and_then(|b| String::from_utf8(b).ok()).unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 /// Walk `root` and collect `.rs` files (relative path, content).
@@ -39,12 +49,16 @@ pub fn load(root: &Path) -> std::io::Result<Loaded> {
             .filter_map(|e| e.ok())
         {
             let p = entry.path();
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let rel = p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
             if p.extension().map(|e| e == "rs").unwrap_or(false) {
-                let rel = p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
-                match std::fs::read_to_string(p) {
-                    Ok(c) => files.push((rel, c)),
-                    Err(_) => continue,
+                if let Ok(c) = std::fs::read_to_string(p) {
+                    files.push((rel, c));
                 }
+            } else {
+                files.push((rel, read_other(p)));
             }
         }
     }

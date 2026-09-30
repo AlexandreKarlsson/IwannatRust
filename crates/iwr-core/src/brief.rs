@@ -1,4 +1,4 @@
-//! Compact text brief of a project for an LLM (or a person) to write a narration script.
+//! Compact text brief of a project for an LLM (or a person) to write a codecast script.
 
 use crate::model::*;
 
@@ -72,7 +72,7 @@ fn fn_brief(p: &Project, it: &Item, bodies: bool, out: &mut String) {
 
 pub fn build(p: &Project, opts: &BriefOptions) -> String {
     let mut out = String::new();
-    out.push_str(&format!("# {}  ({} files, {} modules, {} functions)\n", p.name, p.files.len(), p.modules.len(), p.functions().count()));
+    out.push_str(&format!("# {}  ({} rust files, {} modules, {} functions)\n", p.name, p.files.iter().filter(|f| f.rust).count(), p.modules.len(), p.functions().count()));
     out.push_str("refs: <item path> | <item path>/b<n> (block n) | <file>:<line>[-<line>][:<c1>-<c2>]\nviews: code calls flow arch branches structure types errors\n\n");
     if let Some(only) = &opts.only {
         let Some(id) = crate::script::resolve(p, only).and_then(|r| r.item) else {

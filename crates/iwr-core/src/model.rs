@@ -17,6 +17,16 @@ pub struct SourceFile {
     /// Path relative to the project root, using `/` separators.
     pub path: String,
     pub content: String,
+    /// Rust source (parsed); other files are listed and shown but not analyzed.
+    #[serde(default = "default_true")]
+    pub rust: bool,
+    /// False for binary or oversized files (content empty).
+    #[serde(default = "default_true")]
+    pub text: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Location of something inside a file. Lines and columns are 1-based.

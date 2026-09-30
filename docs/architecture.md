@@ -15,7 +15,7 @@ examples/demo     sample crate used in docs/tests
 4. `views::build(project, mode, opts)` → `Graph { nodes, edges }` with positions. One builder per mode; `ViewOptions` carries root, module scope, expanded/collapsed node ids, toggles.
 5. `layout` — `layered` (Sugiyama-style: cycle removal, longest-path ranks, layer wrapping at `max_per_layer`, dummy nodes for long edges, barycenter ordering, relaxation, component packing into rows) and `tree` (tidy tree). Returns rects + edge polylines.
 6. `guide::build` → `Vec<GuideStep>`: DFS over CFGs from `main`, diving into callees (depth ≤ 6, each fn walked once). `script::from_guide` turns it into a `Script`.
-7. `script` — narration format (`parse` / `to_text`), ref resolver (`resolve`: item, block, module, file:line:cols → span), `check`. `brief` — compact text brief for LLMs.
+7. `script` — codecast format (`parse` / `to_text`), ref resolver (`resolve`: item, block, module, file:line:cols → span), `check`. `brief` — compact text brief for LLMs.
 
 Analysis is syntactic; no type checking. See `resolve_method` for the heuristics and their order.
 
@@ -24,7 +24,7 @@ Analysis is syntactic; no type checking. See `resolve_method` for the heuristics
 - `main.rs` — `State` (all `Signal`s, provided via context), fetch + 1.5 s version polling (static mode when `/api/version` is unreachable → `project.json`), keyboard via `document::eval` channel, theme persistence.
 - `code.rs` — Code view: `ItemBlock` / `BlockView` render `FnInfo.blocks`; `hover_span` drives two-way highlighting with the source pane.
 - `canvas.rs` — SVG canvas: pan/zoom transform, `Node`, `Edge` (bezier / spline through dummy points / orthogonal back edges, manual arrowheads), `Tooltip`, legend, guide highlighting (`focus_nodes`).
-- `panels.rs` — top bar, sidebar, details + source. `player.rs` — narration player: parts, cue application (view/root/scope, `hl` refs, code mark, camera), TTS via `speechSynthesis` through `document::eval`, recording sync via an `<audio>` element's `timeupdate`, script/audio loading. `md.rs` — markdown subset for guide text. `theme.rs` — colors per node/edge kind, legends, CSS (themes = CSS variables on `.app.theme-*`).
+- `panels.rs` — top bar, sidebar, details + source. `player.rs` — codecast player: parts, cue application (view/root/scope, `hl` refs, code mark, camera), TTS via `speechSynthesis` through `document::eval`, recording sync via an `<audio>` element's `timeupdate`, script/audio loading. `md.rs` — markdown subset for guide text. `theme.rs` — colors per node/edge kind, legends, CSS (themes = CSS variables on `.app.theme-*`).
 
 Graph is recomputed by `use_memo` from `State::build_graph()` whenever mode/root/scope/expansion/toggles change; layout runs in the browser (wasm), so expanding is instant.
 

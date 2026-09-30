@@ -124,6 +124,7 @@ pub fn Canvas() -> Element {
     let hover_span = *state.hover_span.read();
     let is_drag = dragging.read().is_some();
     let transform = format!("translate({:.1},{:.1}) scale({:.3})", t.tx, t.ty, t.k);
+    let animate = *state.animate.read();
     let legend = theme::legend(mode);
     let status = state.status.read().clone();
     let node_count = g.nodes.len();
@@ -144,6 +145,7 @@ pub fn Canvas() -> Element {
                 onmousedown: move |e| {
                     let c = e.data().client_coordinates();
                     let v = *state.view.read();
+                    state.animate.set(false);
                     dragging.set(Some((c.x, c.y, v.tx, v.ty)));
                     moved.set(false);
                     refresh_rect();
@@ -162,6 +164,7 @@ pub fn Canvas() -> Element {
                 onmouseleave: move |_| { dragging.set(None); state.hovered.set(None); },
                 onwheel: move |e| {
                     e.prevent_default();
+                    state.animate.set(false);
                     let dy = match e.data().delta() {
                         WheelDelta::Pixels(v) => v.y,
                         WheelDelta::Lines(v) => v.y * 30.0,
@@ -182,10 +185,10 @@ pub fn Canvas() -> Element {
                         feMerge { feMergeNode { "in": "blur" } feMergeNode { "in": "SourceGraphic" } }
                     }
                 }
-                g { transform: "{transform}",
+                g { class: if animate { "cam anim" } else { "cam" }, transform: "{transform}",
                     // containers first
                     for n in g.nodes.iter().filter(|n| n.container) {
-                        Node { key: "{n.id}", node: n.clone(), selected: false, highlighted: hi.contains(&n.id), mode, moved }
+                        Node { key: "{n.id}", node: n.clone(), selected: false, highlighted: hi.contains(&n.id), hovered: false, mode, moved }
                     }
                     for e in g.edges.iter() {
                         Edge {
@@ -202,6 +205,7 @@ pub fn Canvas() -> Element {
                             node: n.clone(),
                             selected: is_selected(n, selected, sel_span, mode),
                             highlighted: hi.contains(&n.id) || line_hit(n, hover_span),
+                            hovered: hovered_id.as_deref() == Some(n.id.as_str()),
                             mode,
                             moved,
                         }
@@ -283,7 +287,7 @@ fn is_selected(n: &VNode, selected: Option<usize>, sel_span: Option<iwr_core::mo
 }
 
 #[component]
-fn Node(node: VNode, selected: bool, highlighted: bool, mode: Mode, moved: Signal<bool>) -> Element {
+fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mode, moved: Signal<bool>) -> Element {
     let mut state = use_context::<State>();
     let color = theme::node_color(node.kind);
     let n = node.clone();
@@ -293,8 +297,21 @@ fn Node(node: VNode, selected: bool, highlighted: bool, mode: Mode, moved: Signa
     let expanded = node.expanded;
     let lines: Vec<String> = node.label.lines().map(|s| s.to_string()).collect();
     let multi = lines.len() > 1;
-    let sub_y = 20.0 + 15.0 * (lines.len().max(1) as f64 - 1.0) + 15.0;
     let container = node.container;
+    // details (signature, fields, badges) only when the node is the focus
+    let active = !container && (selected || highlighted || hovered);
+    let detail_lines: Vec<String> = if active {
+        let mut v: Vec<String> = node.sublabel.lines().filter(|l| !l.is_empty()).map(|s| s.to_string()).collect();
+        if !node.badges.is_empty() {
+            v.push(node.badges.join(" · "));
+        }
+        v
+    } else {
+        vec![]
+    };
+    let detail_w = detail_lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * 6.6 + 16.0;
+    let detail_w = detail_w.max(node.w);
+    let detail_h = 6.0 + 14.0 * detail_lines.len() as f64;
     let fill_op = if container { 0.10 } else if node.kind == NodeKind::Block { 0.18 } else { 0.28 };
     let rx = match node.kind {
         NodeKind::Entry | NodeKind::Exit => node.h / 2.0,
@@ -303,10 +320,8 @@ fn Node(node: VNode, selected: bool, highlighted: bool, mode: Mode, moved: Signa
         _ => 8.0,
     };
     let class = format!("node {}{}", if selected { "sel " } else { "" }, if highlighted { "hi" } else { "" });
-    let badge = node.badges.first().cloned();
     let exp_y = if container { 12.0 } else { node.h / 2.0 };
-    let badge_x = node.w - if node.expandable { 16.0 } else { 8.0 };
-    let title_y = if container { 17.0 } else if multi { 18.0 } else if node.sublabel.is_empty() { node.h / 2.0 + 4.5 } else { 20.0 };
+    let title_y = if container { 17.0 } else if multi { 18.0 } else { node.h / 2.0 + 4.5 };
     rsx! {
         g {
             class: "{class}",
@@ -383,16 +398,14 @@ fn Node(node: VNode, selected: bool, highlighted: bool, mode: Mode, moved: Signa
                     "{node.label}"
                 }
             }
-            if !node.sublabel.is_empty() {
-                text { x: "12", y: "{sub_y:.1}", class: "sub",
-                    for (i, l) in node.sublabel.lines().enumerate() {
-                        tspan { x: "12", dy: if i == 0 { "0" } else { "15" }, "{l}" }
+            if !detail_lines.is_empty() {
+                g { class: "detail",
+                    rect { x: "0", y: "{node.h + 3.0:.1}", width: "{detail_w:.1}", height: "{detail_h:.1}", rx: "5", fill: "var(--panel)", stroke: "{color}", "stroke-width": "1", "fill-opacity": "0.96" }
+                    text { x: "8", y: "{node.h + 16.0:.1}", class: "sub",
+                        for (i, l) in detail_lines.iter().enumerate() {
+                            tspan { x: "8", dy: if i == 0 { "0" } else { "14" }, "{l}" }
+                        }
                     }
-                }
-            }
-            if let Some(b) = badge {
-                if !container {
-                    text { x: "{badge_x:.1}", y: "13", class: "sub", "text-anchor": "end", "font-size": "9", fill: "{color}", "{b}" }
                 }
             }
             if node.expandable {

@@ -134,7 +134,12 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
 
     for (path, content) in files {
         let file_id = ctx.project.files.len();
-        ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone() });
+        let rust = path.ends_with(".rs");
+        let text = !content.is_empty() || rust;
+        ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone(), rust, text });
+        if !rust {
+            continue;
+        }
         let ast = match syn::parse_file(&content) {
             Ok(a) => a,
             Err(e) => {

@@ -14,11 +14,11 @@ commands() {
 cat <<'MENU'
   🔨  build       Build the web UI (dx) and the CLI with the UI embedded
   🚀  serve  [P]  Analyze a project (default: examples/demo) and open the interactive UI
-  🎙️  narrate [P] [S] [A]   Serve with a narration script (default: examples/demo/narration.txt), optional audio
+  🎙️  codecast [P] [S] [A]  Serve with a codecast script (default: <P>/codecast.txt), optional audio
   📦  export [P] [-o DIR]   Static site (index.html + project.json + script) for docs
-  📝  brief  [P] [--fn F]   Compact text brief of the code for an AI to write a narration
-  🧭  guide  [P]  Print the built-in walkthrough as a narration script
-  ✅  check  S [P]          Validate a narration script's refs against a project
+  📝  brief  [P] [--fn F]   Compact text brief of the code for an AI to write a codecast
+  🧭  guide  [P]  Print the built-in walkthrough as a codecast script
+  ✅  check  S [P]          Validate a codecast script's refs against a project
   🔍  summary [P] Text dump: modules, items, calls, block trees, views, guide steps
   🧪  test        Run tests and clippy
   🖼️  shot  [P]   Headless screenshot of the UI (needs google-chrome)
@@ -55,15 +55,15 @@ case "$cmd" in
     echo "✔ built $BIN" ;;
   serve)
     need_bin; exec "$BIN" serve "${1:-$DEMO}" "${@:2}" ;;
-  narrate)
+  codecast|narrate)
     need_bin
-    P="${1:-$DEMO}"; S="${2:-$P/narration.txt}"
-    [ -f "$S" ] || { echo "no script at $S — write one (docs/narration.md) or: scripts/iwr guide $P > $S" >&2; exit 1; }
+    P="${1:-$DEMO}"; S="${2:-$P/codecast.txt}"
+    [ -f "$S" ] || { echo "no script at $S — write one (docs/codecast.md) or: scripts/iwr guide $P > $S" >&2; exit 1; }
     args=(serve "$P" --script "$S"); [ -n "${3:-}" ] && args+=(--audio "$3")
     exec "$BIN" "${args[@]}" ;;
   export)
     need_bin; P="${1:-$DEMO}"; shift || true
-    args=(export "$P" "$@"); [ -f "$P/narration.txt" ] && ! printf '%s\n' "$@" | grep -q -- --script && args+=(--script "$P/narration.txt")
+    args=(export "$P" "$@"); [ -f "$P/codecast.txt" ] && ! printf '%s\n' "$@" | grep -q -- --script && args+=(--script "$P/codecast.txt")
     exec "$BIN" "${args[@]}" ;;
   brief)   need_bin; exec "$BIN" brief "${1:-$DEMO}" "${@:2}" ;;
   guide)   need_bin; exec "$BIN" guide "${1:-$DEMO}" "${@:2}" ;;

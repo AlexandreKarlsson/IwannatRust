@@ -1,10 +1,10 @@
-//! Narration scripts: spoken text with references to what to show and highlight.
+//! Codecast scripts: spoken text with references to what to show and highlight.
 //!
-//! Plain-text format (see docs/narration.md):
+//! Plain-text format (see docs/codecast.md):
 //!
 //! ```text
 //! # Title                     script title (first line)
-//! audio: narration.mp3        optional recorded voice
+//! audio: codecast.mp3        optional recorded voice
 //!
 //! ## Part name                a part; users can play one part alone
 //! @ flow:crate::run           show <view>[:<ref>]  (sticky)
@@ -54,7 +54,7 @@ impl Script {
 /// Parse the text format. Never fails: unknown lines become spoken text.
 pub fn parse(text: &str) -> Script {
     let mut s = Script::default();
-    let mut part = Part { name: "Narration".into(), cues: vec![] };
+    let mut part = Part { name: "Codecast".into(), cues: vec![] };
     let mut pending = Cue::default();
     for raw in text.lines() {
         let line = raw.trim_end();
@@ -115,7 +115,7 @@ pub fn parse(text: &str) -> Script {
         s.parts.push(part);
     }
     if s.title.is_empty() {
-        s.title = "Narration".into();
+        s.title = "Codecast".into();
     }
     s
 }
@@ -217,6 +217,18 @@ fn find_item(p: &Project, path: &str) -> Option<ItemId> {
 /// Resolve a ref against the project.
 pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
     let r = r.trim();
+    // whole file (any file of the repository)
+    if !r.contains(':') && !r.contains("::") {
+        if let Some(f) = p.files.iter().find(|f| f.path == r || f.path.ends_with(&format!("/{}", r))) {
+            let n = f.content.lines().count().max(1);
+            return Some(Resolved { span: Span { file: f.id, line_start: 1, col_start: 1, line_end: n, col_end: 1 }, item: None, module: None, inner: false });
+        }
+    }
+    if r.ends_with(".rs") && !r.contains(':') {
+        let f = p.files.iter().find(|f| f.path == r || f.path.ends_with(&format!("/{}", r)))?;
+        let n = f.content.lines().count().max(1);
+        return Some(Resolved { span: Span { file: f.id, line_start: 1, col_start: 1, line_end: n, col_end: 1 }, item: None, module: None, inner: false });
+    }
     // file:line[-line][:c1-c2]
     if let Some((file, rest)) = r.split_once(':') {
         if file.ends_with(".rs") {
