@@ -1,7 +1,8 @@
 //! SVG canvas: pan/zoom, nodes, edges, tooltip, legend.
 
 use crate::theme;
-use crate::{focus_nodes, State, Transform};
+use crate::{State, Transform};
+use iwr_core::script::Resolved;
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
 use iwr_core::views::{EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
@@ -117,9 +118,8 @@ pub fn Canvas() -> Element {
     let mode = *state.mode.read();
     let selected = *state.selected.read();
     let sel_span = *state.selected_span.read();
-    let guide = state.guide.read().clone();
-    let gidx = *state.guide_idx.read();
-    let hi: Vec<String> = guide.as_ref().and_then(|g2| g2.get(gidx)).map(|s| focus_nodes(&g, s)).unwrap_or_default();
+    let hl_refs = state.hl.read().clone();
+    let hi: Vec<String> = if state.script.read().is_some() { g.nodes.iter().filter(|n| hl_hit(n, &hl_refs)).map(|n| n.id.clone()).collect() } else { vec![] };
     let hovered = state.hovered.read().clone();
     let hover_span = *state.hover_span.read();
     let is_drag = dragging.read().is_some();
@@ -242,6 +242,26 @@ pub fn Canvas() -> Element {
             }
         }
     }
+}
+
+/// Is this node covered by one of the cue's highlight refs?
+pub fn hl_hit(n: &VNode, refs: &[Resolved]) -> bool {
+    if n.container {
+        return false;
+    }
+    refs.iter().any(|r| {
+        if let Some(m) = r.module {
+            return n.id == format!("m{}", m);
+        }
+        if r.inner {
+            match n.span {
+                Some(s) => n.cfg_node.is_some() && s.file == r.span.file && s.line_start >= r.span.line_start && s.line_end <= r.span.line_end && n.kind != NodeKind::Entry && n.kind != NodeKind::Exit,
+                None => false,
+            }
+        } else {
+            n.item == r.item && r.item.is_some() && n.cfg_node.is_none()
+        }
+    })
 }
 
 /// Does a hovered source line fall inside this (statement-level) node?

@@ -1,0 +1,42 @@
+# How the demo task runner works
+
+## Architecture
+@ arch
+The demo is four modules around a tiny entry point: parser, scheduler, storage and model.
+! crate::parser
+The parser turns text lines into tasks.
+! crate::storage
+Storage keeps them, behind a trait so the backend can change.
+! crate::scheduler
+The scheduler picks the heaviest task each round.
+@ types
+! crate::model::Task crate::model::Priority
+A task is just a name, a priority and a number of steps.
+! crate::storage::Storage crate::storage::MemoryStorage
+Storage is a trait; MemoryStorage is the only implementation, backed by a HashMap.
+
+## Running a task list
+@ flow:crate::run
+! crate::run/b1
+= src/main.rs:49:17-44
+run starts by parsing the input. The question mark at the end means: if parsing fails, stop here and hand the error to main.
+! crate::run/b2 crate::run/b3
+If nothing was parsed, run refuses to continue and returns Empty.
+! crate::run/b5 crate::run/b6
+Every parsed task is saved into storage, one per loop iteration. Saving can fail too, so the question mark is back.
+! crate::run/b9
+Then the main loop: ask the scheduler for the next task until it says None.
+@ code:crate::run
+! crate::run/b10 crate::run/b11
+Low priority tasks are skipped once three tasks have already run.
+! crate::run/b12
+Each task is executed.
+
+## Error handling
+@ errors
+! crate::AppError
+All failures funnel into one enum, AppError.
+! crate::parser::ParseError crate::storage::StorageError
+The parser and the storage each have their own error type.
+! crate::AppError
+The two From implementations are what let the question mark convert them into AppError automatically.

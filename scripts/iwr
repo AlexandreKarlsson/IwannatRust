@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# IwannatRust launcher. No argument: menu of everything you can do. `scripts/iwr <cmd> [args]` runs one.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+BIN="$ROOT/target/release/iwr"
+DEMO="$ROOT/examples/demo"
+export PATH="$HOME/.cargo/bin:$PATH"
+
+have_bin() { [ -x "$BIN" ]; }
+need_bin() { have_bin || { echo "iwr not built yet → scripts/iwr build" >&2; exit 1; }; }
+
+commands() {
+cat <<'MENU'
+  🔨  build       Build the web UI (dx) and the CLI with the UI embedded
+  🚀  serve  [P]  Analyze a project (default: examples/demo) and open the interactive UI
+  🎙️  narrate [P] [S] [A]   Serve with a narration script (default: examples/demo/narration.txt), optional audio
+  📦  export [P] [-o DIR]   Static site (index.html + project.json + script) for docs
+  📝  brief  [P] [--fn F]   Compact text brief of the code for an AI to write a narration
+  🧭  guide  [P]  Print the built-in walkthrough as a narration script
+  ✅  check  S [P]          Validate a narration script's refs against a project
+  🔍  summary [P] Text dump: modules, items, calls, block trees, views, guide steps
+  🧪  test        Run tests and clippy
+  🖼️  shot  [P]   Headless screenshot of the UI (needs google-chrome)
+  🧹  clean       Remove build outputs
+MENU
+}
+
+usage() {
+  echo "IwannatRust — visualize how Rust code works"
+  echo
+  commands
+  echo
+  echo "usage: scripts/iwr <command> [args]      P = project path"
+}
+
+pick() {
+  usage
+  [ -t 0 ] || exit 0
+  echo
+  read -r -p "command (or enter to quit): " choice rest || exit 0
+  [ -n "${choice:-}" ] || exit 0
+  # shellcheck disable=SC2086
+  exec "$0" "$choice" $rest
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  "" ) pick ;;
+  build)
+    command -v dx >/dev/null || { echo "dioxus CLI missing: cargo install dioxus-cli --version 0.7.10 --locked" >&2; exit 1; }
+    rm -rf target/dx/iwr-ui/release/web/public
+    (cd crates/iwr-ui && dx build --release)
+    cargo build --release -p iwr
+    echo "✔ built $BIN" ;;
+  serve)
+    need_bin; exec "$BIN" serve "${1:-$DEMO}" "${@:2}" ;;
+  narrate)
+    need_bin
+    P="${1:-$DEMO}"; S="${2:-$P/narration.txt}"
+    [ -f "$S" ] || { echo "no script at $S — write one (docs/narration.md) or: scripts/iwr guide $P > $S" >&2; exit 1; }
+    args=(serve "$P" --script "$S"); [ -n "${3:-}" ] && args+=(--audio "$3")
+    exec "$BIN" "${args[@]}" ;;
+  export)
+    need_bin; P="${1:-$DEMO}"; shift || true
+    args=(export "$P" "$@"); [ -f "$P/narration.txt" ] && ! printf '%s\n' "$@" | grep -q -- --script && args+=(--script "$P/narration.txt")
+    exec "$BIN" "${args[@]}" ;;
+  brief)   need_bin; exec "$BIN" brief "${1:-$DEMO}" "${@:2}" ;;
+  guide)   need_bin; exec "$BIN" guide "${1:-$DEMO}" "${@:2}" ;;
+  check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$1" --path "${2:-$DEMO}" ;;
+  summary) need_bin; exec "$BIN" summary "${1:-$DEMO}" ;;
+  test)
+    cargo test -p iwr-core
+    cargo clippy --workspace --exclude iwr-ui -- -D warnings
+    cargo check -p iwr-ui --target wasm32-unknown-unknown
+    echo "✔ tests + clippy + wasm check" ;;
+  shot)
+    need_bin; P="${1:-$DEMO}"; OUT="${2:-iwr-shot.png}"
+    "$BIN" serve "$P" --port 4399 --no-open >/dev/null 2>&1 & pid=$!
+    trap 'kill $pid 2>/dev/null || true' EXIT
+    sleep 1.5
+    google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1600,1000 --virtual-time-budget=6000 --screenshot="$OUT" http://127.0.0.1:4399/ 2>/dev/null
+    echo "✔ $OUT" ;;
+  clean) rm -rf target/dx iwr-site; cargo clean; echo "✔ clean" ;;
+  -h|--help|help) usage ;;
+  *) echo "unknown command: $cmd" >&2; echo; usage >&2; exit 1 ;;
+esac

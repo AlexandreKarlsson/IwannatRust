@@ -1,11 +1,9 @@
 //! Top bar, sidebar (item tree), details/source panel, guide bar.
 
-use crate::md::Markdown;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project};
 use iwr_core::views::{self, Mode, NodeKind};
-use std::rc::Rc;
 
 #[component]
 pub fn TopBar() -> Element {
@@ -14,7 +12,7 @@ pub fn TopBar() -> Element {
     let flags = *state.flags.read();
     let depth = *state.depth.read();
     let name = state.project.read().as_ref().map(|p| p.name.clone()).unwrap_or_default();
-    let has_guide = state.guide.read().is_some();
+    let has_guide = state.script.read().is_some();
     let search = state.search.read().clone();
     let views_open = *state.views_open.read() || mode != Mode::Code;
     let theme_name = state.theme.read().clone();
@@ -59,8 +57,8 @@ pub fn TopBar() -> Element {
             }
             }
             input { r#type: "text", placeholder: "search items…", value: "{search}", oninput: move |e| state.search.set(e.value()) }
-            button { class: if has_guide { "active" } else { "" }, onclick: move |_| { if has_guide { state.stop_guide() } else { state.start_guide() } },
-                if has_guide { "■ Stop guide" } else { "▶ Guide me" }
+            button { class: if has_guide { "active" } else { "" }, title: "Play the built-in walkthrough (g). Load your own narration from the player bar.", onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } },
+                if has_guide { "■ Stop narration" } else { "▶ Narrate" }
             }
         }
     }
@@ -180,6 +178,8 @@ pub fn Details() -> Element {
     let item_span = selected.map(|id| p.item(id).span);
     let file = span.or(item_span).map(|s| s.file);
     let mode = *state.mode.read();
+    let hl_refs = state.hl.read().clone();
+    let code_mark = *state.code_mark.read();
 
     // scroll the highlighted line into view when the span changes
     use_effect(move || {
@@ -221,14 +221,7 @@ pub fn Details() -> Element {
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::BranchTree); state.set_root(Some(id)); }, "branches" }
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "call tree" }
                                 if mode != Mode::ControlFlow {
-                                    button { class: "small", onclick: move |_| {
-                                        let Some(p) = state.project.read().clone() else { return };
-                                        let steps = iwr_core::guide::build(&p, Some(id), &iwr_core::guide::GuideOptions::default());
-                                        state.guide.set(Some(Rc::new(steps)));
-                                        state.guide_idx.set(0);
-                                        state.playing.set(false);
-                                        state.apply_step(0);
-                                    }, "guide from here" }
+                                    button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), "narrate from here" }
                                 }
                             }
                         }
@@ -249,13 +242,23 @@ pub fn Details() -> Element {
                             for (i, line) in sf.content.lines().enumerate() {
                                 {
                                     let ln = i + 1;
-                                    let is_hl = hl.map(|s| s.contains_line(ln)).unwrap_or(false);
+                                    let is_hl = hl.map(|s| s.contains_line(ln)).unwrap_or(false) || hl_refs.iter().any(|r| r.inner && r.span.file == f && r.span.contains_line(ln));
                                     let in_fn = fn_span.map(|s| s.contains_line(ln)).unwrap_or(false);
+                                    let (pre, mid, post) = match code_mark.filter(|m| m.file == f && m.contains_line(ln)) {
+                                        Some(m) if m.col_end > 1 && m.line_start == m.line_end => {
+                                            let chars: Vec<char> = line.chars().collect();
+                                            let a = m.col_start.saturating_sub(1).min(chars.len());
+                                            let b = m.col_end.min(chars.len()).max(a);
+                                            (chars[..a].iter().collect::<String>(), chars[a..b].iter().collect::<String>(), chars[b..].iter().collect::<String>())
+                                        }
+                                        Some(_) => (String::new(), line.to_string(), String::new()),
+                                        None => (line.to_string(), String::new(), String::new()),
+                                    };
                                     rsx! {
                                         div { class: format!("line{}{}", if is_hl { " hl" } else { "" }, if in_fn { " fn" } else { "" }), id: "L{ln}",
                                             onmouseenter: move |_| state.hover_span.set(Some(iwr_core::model::Span { file: f, line_start: ln, col_start: 1, line_end: ln, col_end: 1 })),
                                             span { class: "ln", "{ln}" }
-                                            span { "{line}" }
+                                            span { "{pre}" if !mid.is_empty() { span { class: "mark", "{mid}" } } "{post}" }
                                         }
                                     }
                                 }
@@ -270,42 +273,3 @@ pub fn Details() -> Element {
     }
 }
 
-#[component]
-pub fn GuideBar() -> Element {
-    let mut state = use_context::<State>();
-    let Some(steps) = state.guide.read().clone() else { return rsx! {} };
-    let idx = *state.guide_idx.read();
-    let playing = *state.playing.read();
-    let Some(step) = steps.get(idx) else { return rsx! {} };
-    let total = steps.len();
-    let pct = (idx + 1) as f64 / total as f64 * 100.0;
-    let p = state.project.read().clone();
-    let stack: Vec<String> = p.as_ref().map(|p| step.stack.iter().map(|i| p.item(*i).name.clone()).collect()).unwrap_or_default();
-    let text = step.text.clone();
-    let title = step.title.clone();
-    let mode_label = step.mode.label();
-    rsx! {
-        div { class: "guide",
-            div { class: "ctl",
-                div { class: "row",
-                    button { onclick: move |_| state.guide_step(-1), disabled: idx == 0, "◀ prev" }
-                    button { class: if playing { "active" } else { "" }, onclick: move |_| { let p = *state.playing.read(); state.playing.set(!p); }, if playing { "❚❚ pause" } else { "▶ play" } }
-                    button { onclick: move |_| state.guide_step(1), disabled: idx + 1 >= total, "next ▶" }
-                }
-                div { class: "status", "step {idx + 1} / {total} · {mode_label}" }
-                div { class: "progress", div { style: "width:{pct:.1}%" } }
-                div { class: "row",
-                    button { class: "small", onclick: move |_| { state.guide_idx.set(0); state.apply_step(0); }, "⏮ restart" }
-                    button { class: "small", onclick: move |_| state.stop_guide(), "✕ close" }
-                }
-            }
-            div { class: "body",
-                h3 { "{title}" }
-                Markdown { text }
-                if !stack.is_empty() {
-                    div { class: "stack", "call stack: " for (i, s) in stack.iter().enumerate() { if i > 0 { " → " } span { "{s}" } } }
-                }
-            }
-        }
-    }
-}

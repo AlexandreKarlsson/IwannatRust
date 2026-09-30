@@ -8,8 +8,10 @@
 //! type relations) → [`model::Project`] → [`views`] (per-mode graphs) → [`layout`]
 //! (positions) → [`guide`] (step-by-step walkthrough).
 
+pub mod brief;
 pub mod model;
 pub mod guide;
+pub mod script;
 pub mod layout;
 pub mod views;
 

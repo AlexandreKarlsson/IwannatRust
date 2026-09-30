@@ -14,6 +14,7 @@ Everything is Rust: the analyzer (`syn`), the layout engine and the web UI
 ```
 iwr serve path/to/project     # analyze + open the interactive UI (live reload on edits)
 iwr export path/to/project    # static site (index.html + project.json), embeddable in docs
+iwr brief  path/to/project    # compact text brief for writing a narration (LLM-friendly)
 iwr analyze path/to/project   # raw model as JSON
 ```
 
@@ -55,14 +56,32 @@ Interactions, in every mode:
 - Pan by dragging, zoom with the wheel, `f` to fit.
 - Toggles: show external calls, macros, constructors, tests; call-tree depth.
 
-### Guide mode
+### Narration
 
-`▶ Guide me` (or `g`) generates a step-by-step walkthrough: overview of modules and
-types, then execution from `main()` — entering each function, explaining
-branches, loops, `?` propagation, panics and recursion, diving into callees and
-returning. Each step switches to the right view, highlights the relevant node and
-source lines, and shows the current call stack. `←`/`→` to step, `space` to
-autoplay, `Esc` to close. "Guide from here" in the details panel starts at any function.
+`▶ Narrate` (or `g`) plays a step-by-step walkthrough on top of the views: overview
+of modules and types, then execution from `main()` — entering each function,
+explaining branches, loops, `?` propagation, panics and recursion. Each cue switches
+to the right view, glows the relevant boxes, highlights source lines, and is spoken
+by the browser (or played from a recording, or read silently). Scripts are split into
+parts you can play alone.
+
+Scripts are plain text and cheap to write, by hand or by an AI:
+
+```sh
+iwr brief examples/demo            # compact, LLM-friendly description with block ids
+iwr check narration.txt --path examples/demo
+iwr serve examples/demo --script narration.txt [--audio voice.mp3]
+```
+
+```
+## Running a task list
+@ flow:crate::run
+! crate::run/b1
+= src/main.rs:49:17-44
+run starts by parsing the input. If that fails, the ? hands the error to main.
+```
+
+See [docs/narration.md](docs/narration.md).
 
 ## Building
 
@@ -71,8 +90,9 @@ Requirements: Rust (stable), the `wasm32-unknown-unknown` target and the Dioxus 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install dioxus-cli --version 0.7.10 --locked
-./build.sh                      # builds the web UI, then the CLI with the UI embedded
-./target/release/iwr serve examples/demo
+scripts/iwr build               # builds the web UI, then the CLI with the UI embedded
+scripts/iwr serve examples/demo
+scripts/iwr                     # menu of everything: build, serve, narrate, export, brief, guide, check, …
 ```
 
 `iwr` embeds the compiled UI, so the release binary is self-contained. The

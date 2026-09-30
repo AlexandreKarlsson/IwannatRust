@@ -289,6 +289,14 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .guide .stack { color:var(--muted); font-size:11px; margin-top:4px; }
 .guide .stack span { color:#cbd5e1; }
 .md p { margin:3px 0; }
+.iblk.nar, .blk.nar { box-shadow: 0 0 0 2px var(--hi), 0 0 12px color-mix(in srgb, var(--hi) 60%, transparent); }
+.source-pane .line.nar, .source .line.nar { background:var(--hl-bg); }
+.source .mark, .source-pane .mark { text-decoration: underline 2px var(--hi); text-underline-offset:3px; background:color-mix(in srgb, var(--hi) 35%, transparent); border-radius:2px; }
+.guide .parts { display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+.guide .loader { margin-top:8px; border-top:1px solid var(--border); padding-top:6px; }
+.guide .loader textarea { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font: 12px ui-monospace, Menlo, Consolas, monospace; padding:6px; }
+.guide .loader .row { display:flex; gap:8px; align-items:center; margin-top:4px; }
+.guide .loader input[type=file] { font-size:11px; color:var(--muted); }
 .md ul { margin:3px 0 3px 18px; padding:0; }
 .progress { height:3px; background:var(--panel3); border-radius:2px; overflow:hidden; }
 .progress div { height:100%; background:var(--hi); }

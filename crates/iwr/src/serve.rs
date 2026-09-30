@@ -23,6 +23,8 @@ struct Shared {
     project: RwLock<Arc<Project>>,
     version: RwLock<u64>,
     path: PathBuf,
+    script: Option<PathBuf>,
+    audio: Option<PathBuf>,
 }
 
 type AppState = Arc<Shared>;
@@ -44,9 +46,17 @@ fn analyze(path: &Path) -> Result<Project> {
     Ok(p)
 }
 
-pub fn serve(path: PathBuf, port: u16, open_browser: bool) -> Result<()> {
+pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
-    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(project)), version: RwLock::new(1), path: path.clone() });
+    if let Some(s) = &script {
+        let text = std::fs::read_to_string(s).with_context(|| format!("reading script {}", s.display()))?;
+        let sc = iwr_core::script::parse(&text);
+        for b in iwr_core::script::check(&project, &sc) {
+            eprintln!("script: {}", b);
+        }
+        eprintln!("script {}: {} part(s), {} cue(s)", sc.title, sc.parts.len(), sc.cue_count());
+    }
+    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(project)), version: RwLock::new(1), path: path.clone(), script, audio });
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         // file watcher → re-analyze (debounced)
@@ -87,6 +97,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool) -> Result<()> {
         let app = Router::new()
             .route("/api/project", get(api_project))
             .route("/api/version", get(api_version))
+            .route("/api/script", get(api_script))
+            .route("/api/audio", get(api_audio))
             .fallback(static_handler)
             .layer(tower_http::cors::CorsLayer::permissive())
             .with_state(shared);
@@ -114,6 +126,30 @@ async fn api_project(State(s): State<AppState>) -> Response {
 
 async fn api_version(State(s): State<AppState>) -> Json<u64> {
     Json(*s.version.read().unwrap())
+}
+
+/// The narration script as text (re-read on every request so edits show up on reload).
+async fn api_script(State(s): State<AppState>) -> Response {
+    match &s.script {
+        Some(p) => match std::fs::read_to_string(p) {
+            Ok(t) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], t).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        },
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn api_audio(State(s): State<AppState>) -> Response {
+    match &s.audio {
+        Some(p) => match std::fs::read(p) {
+            Ok(b) => {
+                let mime = mime_guess::from_path(p).first_or_octet_stream();
+                ([(header::CONTENT_TYPE, mime.as_ref().to_string())], b).into_response()
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        },
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn static_handler(uri: Uri) -> Response {
@@ -144,7 +180,7 @@ async fn static_handler(uri: Uri) -> Response {
 
 /// Write the UI assets plus `project.json` into `out` so the visualization can be
 /// served as static files (e.g. inside a documentation site).
-pub fn export(path: PathBuf, out: PathBuf) -> Result<()> {
+pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
     if Assets::get("index.html").is_none() {
         anyhow::bail!("web UI not built into this binary; run ./build.sh first");
@@ -165,6 +201,19 @@ pub fn export(path: PathBuf, out: PathBuf) -> Result<()> {
         std::fs::write(&dest, data)?;
     }
     std::fs::write(out.join("project.json"), serde_json::to_vec(&project)?)?;
+    if let Some(s) = &script {
+        let text = std::fs::read_to_string(s)?;
+        let sc = iwr_core::script::parse(&text);
+        for b in iwr_core::script::check(&project, &sc) {
+            eprintln!("script: {}", b);
+        }
+        std::fs::write(out.join("script.txt"), text)?;
+    }
+    if let Some(a) = &audio {
+        let ext = a.extension().and_then(|e| e.to_str()).unwrap_or("mp3");
+        std::fs::copy(a, out.join(format!("audio.{}", ext)))?;
+        std::fs::write(out.join("audio.txt"), format!("audio.{}", ext))?;
+    }
     eprintln!("exported {} to {}", project.name, out.display());
     Ok(())
 }

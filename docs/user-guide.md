@@ -8,7 +8,7 @@ iwr serve path/to/project      # opens http://127.0.0.1:4321
 
 | Area | Content |
 |------|---------|
-| Top bar | `Code` (default) · `Views ▸` reveals analysis tabs · `Source ½` split · theme · search · `▶ Guide me` |
+| Top bar | `Code` (default) · `Views ▸` reveals analysis tabs · `Source ½` split · theme · search · `▶ Narrate` |
 | Sidebar | Every item grouped by module. Click = select + show source. Double-click a function = open its control flow. Click a **module header** = scope the module-level views to that subtree (chip in the canvas clears it). |
 | Center | Code view or graph canvas |
 | Right | Details + source (graph modes) or the source pane (Code view) |
@@ -41,21 +41,21 @@ Every node: **hover** = tooltip (signature, doc, params, return, facts, callers/
 
 Toggles (graph modes): external calls, macros, constructors, tests.
 
-## Guide mode
+## Narration
 
-`▶ Guide me` or `g`. Steps: project overview → types → call tree → walks execution from `main()`: enters each function, explains branches, loops, `?`, panics, recursion, trait dispatch; dives into callees and returns. Each step switches view, centers and highlights the node, highlights source lines, shows the call stack.
+`▶ Narrate` or `g` plays the built-in walkthrough: overview → types → call tree → execution from `main()` (branches, loops, `?`, panics, recursion, trait dispatch), one part per top-level function. Every cue switches view, glows the relevant boxes, highlights source lines and can underline a code range. Voice: browser TTS, a recording, or silent reading. `narrate from here` in the details panel starts at any function.
 
-Controls: `◀ prev` / `next ▶`, `▶ play` (auto-advance every 2.6 s), `⏮ restart`, `✕ close`. Details panel → `guide from here` starts at any function.
+Scripts can also be written by an AI or by hand and loaded with `iwr serve --script`, or `load…` in the player bar. See [narration.md](narration.md) for the format, the brief and the player.
 
 ## Keyboard
 
 | Key | Action |
 |-----|--------|
-| `←` `→` | previous / next guide step |
-| `space` | play / pause guide |
-| `g` | start / stop guide |
+| `←` `→` | previous / next cue |
+| `space` | play / pause |
+| `g` | start / stop the built-in narration |
 | `f` | fit graph to view |
-| `Esc` | close guide |
+| `Esc` | close the player |
 
 ## Themes
 

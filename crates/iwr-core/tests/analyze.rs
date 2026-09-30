@@ -216,3 +216,39 @@ fn block_tree() {
     let sig = p.item(p.main.unwrap()).signature.clone();
     assert_eq!(sig, "fn main()");
 }
+
+#[test]
+fn script_roundtrip_and_refs() {
+    use iwr_core::script::{self, Cue};
+    let p = project();
+    let text = "# T\naudio: a.mp3\n\n## One\n@ flow:crate::main\n! crate::main/b1 src/main.rs:3-4\n= src/main.rs:3:5-9\n[1.5] first\nsecond\n## Two\n!\nthird\n";
+    let s = script::parse(text);
+    assert_eq!(s.title, "T");
+    assert_eq!(s.audio.as_deref(), Some("a.mp3"));
+    assert_eq!(s.parts.len(), 2);
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5) });
+    assert_eq!(s.parts[0].cues[1].say, "second");
+    assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    assert!(script::check(&p, &s).is_empty(), "{:?}", script::check(&p, &s));
+    let r = script::resolve(&p, "crate::main/b1").unwrap();
+    assert!(r.inner && r.item == p.main);
+    let r = script::resolve(&p, "main").unwrap();
+    assert!(!r.inner && r.item == p.main);
+    let r = script::resolve(&p, "util").unwrap();
+    assert!(r.module.is_some());
+    let r = script::resolve(&p, "src/main.rs:3:5-9").unwrap();
+    assert_eq!((r.span.line_start, r.span.col_start, r.span.col_end), (3, 5, 9));
+    assert!(script::resolve(&p, "crate::nope").is_none());
+    assert!(script::resolve(&p, "crate::main/b999").is_none());
+    let bad = script::check(&p, &script::parse("@ nowhere:crate::main\n! crate::nope\nx"));
+    assert_eq!(bad.len(), 2);
+    // built-in guide becomes a valid script
+    let steps = iwr_core::guide::build(&p, None, &iwr_core::guide::GuideOptions::default());
+    let g = script::from_guide(&p, &steps);
+    assert!(g.parts.len() >= 2);
+    assert!(script::check(&p, &g).is_empty());
+    assert_eq!(script::speakable("a `b` **c**\n```rust\nx\n```\n• d"), "a b c d");
+    let brief = iwr_core::brief::build(&p, &iwr_core::brief::BriefOptions { only: None, bodies: true, overview: true });
+    assert!(brief.contains("fn crate::main") && brief.contains("b1 ") && brief.contains("trait crate::util::Shape"));
+}

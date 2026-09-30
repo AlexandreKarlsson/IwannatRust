@@ -5,6 +5,7 @@ use crate::theme::node_color;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::model::{Block, BlockKind, Item, ItemExtra, ItemKind, Span};
+use iwr_core::script::Resolved;
 use iwr_core::views::{Mode, NodeKind};
 use std::rc::Rc;
 
@@ -92,6 +93,8 @@ pub fn CodeView() -> Element {
     let show_source = *state.show_source.read();
     let hover = *state.hover_span.read();
     let sel_span = *state.selected_span.read();
+    let hl_refs = state.hl.read().clone();
+    let code_mark = *state.code_mark.read();
     let sf = p.file(file);
     // top-level items of this file (methods are rendered under their impl)
     let mut items: Vec<&Item> = p.items.iter().filter(|i| i.span.file == file && i.kind != ItemKind::Method).collect();
@@ -144,7 +147,7 @@ pub fn CodeView() -> Element {
                     div { class: "moddoc", "{d}" }
                 }
                 for it in items {
-                    ItemBlock { id: it.id, hover, sel_span }
+                    ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
                 }
             }
             if show_source {
@@ -155,12 +158,24 @@ pub fn CodeView() -> Element {
                             let ln = i + 1;
                             let is_hover = hover.map(|h| h.file == file && h.contains_line(ln)).unwrap_or(false);
                             let is_sel = sel_span.map(|s| s.file == file && s.contains_line(ln)).unwrap_or(false);
+                            let is_nar = hl_refs.iter().any(|r| r.span.file == file && r.inner && r.span.contains_line(ln));
+                            let mark = code_mark.filter(|m| m.file == file && m.contains_line(ln));
                             let mut lh = line_hover.clone();
+                            let (pre, mid, post) = match mark {
+                                Some(m) if m.col_end > 1 && m.line_start == m.line_end => {
+                                    let chars: Vec<char> = line.chars().collect();
+                                    let a = (m.col_start.saturating_sub(1)).min(chars.len());
+                                    let b = m.col_end.min(chars.len()).max(a);
+                                    (chars[..a].iter().collect::<String>(), chars[a..b].iter().collect::<String>(), chars[b..].iter().collect::<String>())
+                                }
+                                Some(_) => (String::new(), line.to_string(), String::new()),
+                                None => (line.to_string(), String::new(), String::new()),
+                            };
                             rsx! {
-                                div { class: format!("line{}{}", if is_hover { " hl" } else { "" }, if is_sel { " fn" } else { "" }), id: "S{ln}",
+                                div { class: format!("line{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " fn" } else { "" }, if is_nar { " nar" } else { "" }), id: "S{ln}",
                                     onmouseenter: move |_| lh(ln),
                                     span { class: "ln", "{ln}" }
-                                    span { "{line}" }
+                                    span { "{pre}" if !mid.is_empty() { span { class: "mark", "{mid}" } } "{post}" }
                                 }
                             }
                         }
@@ -186,7 +201,7 @@ fn item_kind_color(it: &Item) -> &'static str {
 }
 
 #[component]
-fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>) -> Element {
+fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Resolved>) -> Element {
     let mut state = use_context::<State>();
     let Some(p) = state.project.read().clone() else { return rsx! {} };
     let it = p.item(id);
@@ -195,6 +210,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>) -> Element 
     let color = item_kind_color(it);
     let span = it.span;
     let is_hover = hover.map(|h| h == span || (!open && contains(&span, &h))).unwrap_or(false);
+    let is_nar = hl.iter().any(|r| (!r.inner && r.item == Some(id)) || (r.inner && !open && contains(&span, &r.span)));
     let is_sel = *state.selected.read() == Some(id);
     let (children_items, has_body): (Vec<usize>, bool) = match &it.extra {
         ItemExtra::Impl(i) => (i.methods.clone(), true),
@@ -226,7 +242,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>) -> Element 
         b
     }).unwrap_or_default();
     rsx! {
-        div { class: format!("iblk{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " sel" } else { "" }, if open { " open" } else { "" }), style: "--c: {color}",
+        div { class: format!("iblk{}{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " sel" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }), style: "--c: {color}",
             div { class: "ihead",
                 onmouseenter: move |_| state.hover_span.set(Some(span)),
                 onclick: move |_| {
@@ -263,11 +279,11 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>) -> Element 
                 div { class: "ibody",
                     if let Some(b) = blocks {
                         for c in b.children.iter() {
-                            BlockView { item: id, block: Rc::new(c.clone()), hover, depth: 0 }
+                            BlockView { item: id, block: Rc::new(c.clone()), hover, depth: 0, hl: hl.clone() }
                         }
                     }
                     for m in children_items.iter() {
-                        ItemBlock { id: *m, hover, sel_span }
+                        ItemBlock { id: *m, hover, sel_span, hl: hl.clone() }
                     }
                 }
             }
@@ -276,7 +292,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>) -> Element 
 }
 
 #[component]
-fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize) -> Element {
+fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize, hl: Vec<Resolved>) -> Element {
     let mut state = use_context::<State>();
     let key = format!("i{}/b{}", item, block.id);
     let compound = block.kind.is_compound() || !block.children.is_empty();
@@ -292,8 +308,9 @@ fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize) -
     let calls: Vec<(usize, String)> = block.calls.iter().filter_map(|c| project.as_ref().map(|p| (*c, p.item(*c).name.clone()))).collect();
     let uses: Vec<String> = block.uses.iter().filter(|u| !block.defines.contains(u)).cloned().collect();
     let hover_is_child = !open && hover.map(|h| contains(&span, &h) && h != span).unwrap_or(false);
+    let is_nar = hl.iter().any(|r| r.inner && r.span.file == span.file && (contains(&r.span, &span) || (!open && contains(&span, &r.span))));
     rsx! {
-        div { class: format!("blk k-{}{}{}", word.replace(' ', "-").replace('?', "try"), if is_hover || hover_is_child { " hl" } else { "" }, if open { " open" } else { "" }), style: "--c: {color}",
+        div { class: format!("blk k-{}{}{}{}", word.replace(' ', "-").replace('?', "try"), if is_hover || hover_is_child { " hl" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }), style: "--c: {color}",
             div { class: "bhead",
                 onmouseenter: move |e| { e.stop_propagation(); state.hover_span.set(Some(span)); },
                 onclick: move |e| {
@@ -318,7 +335,7 @@ fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize) -
             if open {
                 div { class: "bbody",
                     for c in block.children.iter() {
-                        BlockView { item, block: Rc::new(c.clone()), hover, depth: depth + 1 }
+                        BlockView { item, block: Rc::new(c.clone()), hover, depth: depth + 1, hl: hl.clone() }
                     }
                 }
             }
