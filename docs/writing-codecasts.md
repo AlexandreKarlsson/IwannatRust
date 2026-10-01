@@ -25,21 +25,30 @@ when the name is unique. `//` starts a comment line.
 
 ## How to structure it
 
-1. **Parts are subjects**, not files: *Architecture*, *How a request flows*, *Error handling*,
-   *The scheduler*. 2–5 parts. The first part is the big picture, later parts go deeper.
-2. **One idea per cue.** One or two sentences, ≤ 30 words each. The listener also sees the caption.
-3. **Show, then glow.** Start each part with `@` on the view that fits the subject, then move the
-   `!` highlight cue by cue. Do not change `@` on every cue: staying on one diagram while the glow
-   moves is what makes it feel like a tour.
-4. **Point at code when it matters.** Use `= file:line:c1-c2` for the exact token you are talking
+1. **Write it as a tour, not a list of facts.** The whole script is played in a row (*full tour*),
+   so it should read like one person showing a visitor around: a *Welcome* part that says what the
+   project is for and where we will go, then parts that follow from each other, and a one-sentence
+   wrap-up at the very end.
+2. **Parts are subjects**, not files: *Welcome*, *How a request flows*, *Where errors go*,
+   *The scheduler*. 4–8 parts. The first part is the big picture, later parts go deeper.
+3. **Stay on one view per part and say everything there is to say.** It is better to spend ten cues
+   on one function, moving only the glow, than to jump between views every sentence. Change `@` only
+   when the subject really moves (e.g. from the control flow of a function to its code to read a
+   loop). The listener keeps their bearings when the picture stays still.
+4. **Link the parts.** End each part with a sentence that hands over to the next one ("Next, let's
+   see what executing a task means."), and begin the next with a sentence that picks it up ("`execute`
+   is the smallest function with the most interesting shape, because it calls itself."). The
+   listener should never wonder why the view just changed.
+5. **One idea per cue.** One or two sentences, ≤ 30 words each. The listener also sees the caption.
+   Use natural connectors between cues: *First, … Then … Notice … Otherwise … Finally …*
+6. **Point at code when it matters.** Use `= file:line:c1-c2` for the exact token you are talking
    about (the `?`, the `.await`, a condition). Column numbers are 1-based, `c2` is inclusive.
-5. **Say what it does and why**, not what it is called. "The scheduler picks the heaviest task
+7. **Say what it does and why**, not what it is called. "The scheduler picks the heaviest task
    each round" beats "`next_task` returns an `Option<Task>`".
-6. **Name the mechanism** when it is a Rust idiom the reader may not know: `?` propagation, trait
+8. **Name the mechanism** when it is a Rust idiom the reader may not know: `?` propagation, trait
    dispatch, ownership moves, recursion base case. One sentence, in place.
-7. **Every ref must exist.** Use ids from the brief, never invented line numbers. Prefer block refs
+9. **Every ref must exist.** Use ids from the brief, never invented line numbers. Prefer block refs
    (`fn/bN`) over line refs; they survive edits.
-8. **End each part with a one-sentence takeaway.**
 
 ## Which view for which subject
 
@@ -58,29 +67,34 @@ when the name is unique. `//` starts a comment line.
 ## Example
 
 ```
-# How the demo task runner works
+# A tour of the demo task runner
 
-## Architecture
+## Welcome
 @ arch
-The demo is four modules around a tiny entry point: parser, scheduler, storage and model.
+Welcome to the demo task runner. It reads a list of tasks from text, stores them, and runs them in priority order.
+We start with the big picture: every box is a module, and the arrows show who depends on whom.
 ! crate::parser
-The parser turns text lines into tasks.
+The parser turns text lines into tasks. It is the first thing the program touches, and the first place things can go wrong.
 ! crate::storage
 Storage keeps them, behind a trait so the backend can change.
+!
+That is the whole map. Now let's follow the program as it runs.
 
-## Running a task list
+## How a run works
 @ flow:crate::run
+Everything starts in main, which only calls run. So run is where the story is, and we will stay here for a while.
 ! crate::run/b1
-= src/main.rs:49:17-44
-run starts by parsing the input. The question mark means: if parsing fails, stop here and hand the error to main.
+= src/main.rs:49:41-41
+First, run hands the input to the parser. Notice the question mark: if parsing fails, run stops right here and gives the error to main.
 ! crate::run/b5 crate::run/b6
-Every parsed task is saved into storage, one per loop iteration.
+Then every parsed task is saved into storage, one per loop iteration.
 ```
 
 ## Checklist before you hand it in
 
 - `iwr check` prints "all refs resolve".
-- Each part has a title a listener would pick from a menu.
-- No cue longer than two sentences; no part longer than ten cues.
+- The first part welcomes the listener and says what the project is for; the last cue wraps up.
+- Each part has a title a listener would pick from a menu, and ends by handing over to the next.
+- No cue longer than two sentences; no part longer than twelve cues; `@` changes at most two or three times per part.
 - The first cue of every part sets `@`.
 - At least one `=` per part that walks through code.

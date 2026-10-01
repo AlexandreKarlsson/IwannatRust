@@ -137,7 +137,7 @@ pub fn to_text(s: &Script) -> String {
             if let Some(cd) = &c.code {
                 out.push_str(&format!("= {}\n", cd));
             }
-            let say = c.say.replace('\n', " ");
+            let say = flatten(&c.say);
             match c.t {
                 Some(t) => out.push_str(&format!("[{}] {}\n", t, say)),
                 None => out.push_str(&format!("{}\n", say)),
@@ -145,6 +145,35 @@ pub fn to_text(s: &Script) -> String {
         }
     }
     out
+}
+
+/// One-line form of a cue text: fenced code blocks become inline code, newlines become spaces.
+fn flatten(say: &str) -> String {
+    let mut out = String::new();
+    let mut in_code = false;
+    let mut code = String::new();
+    for line in say.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            if in_code {
+                let c: String = code.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !c.is_empty() {
+                    out.push_str(&format!("`{}` ", c));
+                }
+                code.clear();
+            }
+            in_code = !in_code;
+            continue;
+        }
+        if in_code {
+            code.push_str(line);
+            code.push(' ');
+        } else if !t.is_empty() {
+            out.push_str(t);
+            out.push(' ');
+        }
+    }
+    out.trim().to_string()
 }
 
 // ------------------------------------------------------------------ refs
@@ -317,35 +346,37 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
 
 // ------------------------------------------------------------------ built-in guide as a script
 
-/// Turn the generated guide into a script with one part per top-level function.
+/// Turn the generated tour into a script: one part per chapter (`GuideStep::part`).
 pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
-    let mut s = Script { title: format!("Walkthrough of {}", p.name), audio: None, parts: vec![] };
-    let mut part = Part { name: "Overview".into(), cues: vec![] };
+    let mut s = Script { title: format!("Tour of {}", p.name), audio: None, parts: vec![] };
+    let mut part = Part { name: String::new(), cues: vec![] };
     let mut last_show: Option<String> = None;
     for st in steps {
-        if st.kind == crate::guide::StepKind::Enter && st.stack.len() <= 2 {
-            let name = st.focus_item.map(|f| p.item(f).name.clone()).unwrap_or_default();
+        if st.part != part.name {
             if !part.cues.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
-            part.name = format!("{}()", name);
+            part.name = st.part.clone();
         }
         let show = format!("{}{}", view_name(st.mode), st.focus_item.map(|f| format!(":{}", p.item(f).path)).unwrap_or_default());
-        let mut hl: Vec<String> = Vec::new();
-        if let Some(sp) = st.span {
-            let f = &p.files[sp.file].path;
-            hl.push(if sp.line_start == sp.line_end { format!("{}:{}", f, sp.line_start) } else { format!("{}:{}-{}", f, sp.line_start, sp.line_end) });
-        } else {
-            for h in &st.highlight_items {
-                hl.push(p.item(*h).path.clone());
+        let mut hl: Vec<String> = st.refs.clone();
+        if hl.is_empty() {
+            if let Some(sp) = st.span {
+                let f = &p.files[sp.file].path;
+                hl.push(if sp.line_start == sp.line_end { format!("{}:{}", f, sp.line_start) } else { format!("{}:{}-{}", f, sp.line_start, sp.line_end) });
+            } else {
+                for h in &st.highlight_items {
+                    hl.push(p.item(*h).path.clone());
+                }
             }
         }
-        let body = speakable(&st.text);
-        let say = if body.is_empty() { st.title.clone() } else { format!("{}. {}", st.title, body) };
+        let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
         part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None });
         last_show = Some(show);
     }
-    s.parts.push(part);
+    if !part.cues.is_empty() {
+        s.parts.push(part);
+    }
     s
 }
 

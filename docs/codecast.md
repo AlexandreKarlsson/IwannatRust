@@ -89,7 +89,8 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 | 🎧 recording | by time: cue with the largest `[t] ≤` position | `--audio` file, `audio:` line, or a file picked in *load…* |
 | 📖 read | prev / next, or autoplay every 3 s | |
 
-Parts are buttons in the player bar; playing stops at the end of a part (`next part ▶`).
+Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing
+continues with the next part until the script ends; unticked, it stops at the end of each part (`next part ▶`).
 `load…` accepts pasted text, a script file and an audio file. `▶ Narrate` (or `g`) plays the built-in
 walkthrough as a script; `codecast from here` in the details panel starts it at a function.
 Keys: `←` `→` step, `space` play/pause, `Esc` close.

@@ -154,10 +154,31 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
     }
 }
 
+/// (id, label, dark?) of every theme; the id is the CSS class suffix.
+pub const THEMES: &[(&str, &str, bool)] = &[
+    ("dark", "Dark", true),
+    ("light", "Light", false),
+    ("paper", "Paper", false),
+    ("midnight", "Midnight", true),
+    ("forest", "Forest", true),
+    ("nord", "Nord", true),
+    ("solar", "Solar", false),
+    ("dusk", "Dusk", true),
+];
+
+pub fn is_theme(id: &str) -> bool {
+    THEMES.iter().any(|(t, _, _)| *t == id)
+}
+
 pub const CSS: &str = r#"
-:root { --bg:#0b1020; --panel:#111827; --panel2:#0f172a; --panel3:#1f2937; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; --hi:#fbbf24; --hl-bg:#3b2f0b; --sel-bg:#0f1a2e; --code:#93c5fd; --grid:#1f2937; --fill-op:0.28; }
-.app.theme-light { --bg:#f8fafc; --panel:#ffffff; --panel2:#f1f5f9; --panel3:#e2e8f0; --border:#cbd5e1; --text:#0f172a; --muted:#64748b; --accent:#2563eb; --hi:#b45309; --hl-bg:#fef3c7; --sel-bg:#e0f2fe; --code:#1d4ed8; --grid:#e2e8f0; --fill-op:0.18; }
-.app.theme-paper { --bg:#f5efe0; --panel:#fbf7ec; --panel2:#f1eadb; --panel3:#e6dcc5; --border:#d6c9a8; --text:#2b2416; --muted:#7a6d52; --accent:#8a4b08; --hi:#9a3412; --hl-bg:#fde68a; --sel-bg:#e9dfc2; --code:#7c2d12; --grid:#e3d8bd; --fill-op:0.2; }
+:root, .theme-dark { --bg:#0b1020; --panel:#111827; --panel2:#0f172a; --panel3:#1f2937; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; --hi:#fbbf24; --hl-bg:#3b2f0b; --sel-bg:#0f1a2e; --code:#93c5fd; --grid:#1f2937; --fill-op:0.28; --icon-filter:invert(.88); --icon-active:none; }
+.theme-light { --bg:#f8fafc; --panel:#ffffff; --panel2:#f1f5f9; --panel3:#e2e8f0; --border:#cbd5e1; --text:#0f172a; --muted:#64748b; --accent:#2563eb; --hi:#b45309; --hl-bg:#fef3c7; --sel-bg:#e0f2fe; --code:#1d4ed8; --grid:#e2e8f0; --fill-op:0.18; --icon-filter:invert(.2); --icon-active:invert(1); }
+.theme-paper { --bg:#f5efe0; --panel:#fbf7ec; --panel2:#f1eadb; --panel3:#e6dcc5; --border:#d6c9a8; --text:#2b2416; --muted:#7a6d52; --accent:#8a4b08; --hi:#9a3412; --hl-bg:#fde68a; --sel-bg:#e9dfc2; --code:#7c2d12; --grid:#e3d8bd; --fill-op:0.2; --icon-filter:invert(.25) sepia(.5); --icon-active:invert(1); }
+.theme-midnight { --bg:#0a0a14; --panel:#12121f; --panel2:#0e0e1a; --panel3:#1c1c30; --border:#26263d; --text:#ececf6; --muted:#8f8fb0; --accent:#a78bfa; --hi:#f0abfc; --hl-bg:#3b1d4a; --sel-bg:#1e1540; --code:#c4b5fd; --grid:#1a1a2e; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; }
+.theme-forest { --bg:#0c1a12; --panel:#112419; --panel2:#0e1f15; --panel3:#1a3324; --border:#234231; --text:#e3f2e8; --muted:#8fb39d; --accent:#4ade80; --hi:#fbbf24; --hl-bg:#3a3410; --sel-bg:#15301f; --code:#86efac; --grid:#16281d; --fill-op:0.28; --icon-filter:invert(.9); --icon-active:none; }
+.theme-nord { --bg:#2e3440; --panel:#3b4252; --panel2:#353b4a; --panel3:#434c5e; --border:#4c566a; --text:#eceff4; --muted:#a3adc2; --accent:#88c0d0; --hi:#ebcb8b; --hl-bg:#4a4330; --sel-bg:#3f4a60; --code:#8fbcbb; --grid:#3b4252; --fill-op:0.3; --icon-filter:invert(.92); --icon-active:none; }
+.theme-solar { --bg:#fdf6e3; --panel:#fffbf0; --panel2:#f7efd9; --panel3:#eee8d5; --border:#d9d2b8; --text:#073642; --muted:#657b83; --accent:#268bd2; --hi:#b58900; --hl-bg:#f5e6a8; --sel-bg:#e3eef5; --code:#2aa198; --grid:#ece5cf; --fill-op:0.2; --icon-filter:invert(.15) sepia(.4); --icon-active:invert(1); }
+.theme-dusk { --bg:#1a1016; --panel:#241720; --panel2:#1f1319; --panel3:#33202c; --border:#3f2a37; --text:#f5e8ef; --muted:#b48ca2; --accent:#fb7185; --hi:#fcd34d; --hl-bg:#4a3414; --sel-bg:#3a1f30; --code:#fda4af; --grid:#2a1a24; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; }
 .app { color:var(--text); background:var(--bg); }
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
@@ -169,7 +190,7 @@ input[type=text], select { background:var(--panel2); color:var(--text); border:1
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:12px; }
 .app { display:flex; flex-direction:column; height:100vh; }
-.topbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; }
+.topbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; position:relative; z-index:20; }
 .topbar .brand { font-weight:700; color:var(--accent); margin-right:8px; letter-spacing:.3px; }
 .topbar .brand span { color:var(--muted); font-weight:400; font-size:11px; margin-left:6px; }
 .tabs { display:flex; gap:4px; flex-wrap:wrap; }
@@ -321,4 +342,38 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .progress div { height:100%; background:var(--hi); }
 .status { color:var(--muted); font-size:11px; }
 .kbd { border:1px solid var(--border); border-radius:4px; padding:0 4px; font-size:10px; color:var(--muted); }
+/* ---- icons, icon buttons with hover labels */
+.ico { display:inline-block; vertical-align:middle; filter:var(--icon-filter); pointer-events:none; }
+.ibtn { display:inline-flex; align-items:center; gap:5px; position:relative; padding:4px 7px; }
+.ibtn.active .ico { filter:var(--icon-active); }
+.ibtn[data-tip]::after { content:attr(data-tip); position:absolute; top:calc(100% + 7px); left:50%; transform:translateX(-50%) translateY(-4px); background:var(--panel3); color:var(--text); border:1px solid var(--border); padding:3px 9px; border-radius:6px; font-size:11px; font-weight:400; white-space:nowrap; z-index:80; pointer-events:none; box-shadow:0 6px 16px rgba(0,0,0,.35); opacity:0; transition:opacity .15s .3s, transform .15s .3s; }
+.ibtn[data-tip]:hover::after { opacity:1; transform:translateX(-50%) translateY(0); }
+.ibtn.tip-left[data-tip]::after { left:auto; right:0; transform:none; }
+.topbar .tabs .ibtn { padding:4px 6px; }
+.topbar .tabs .ibtn.view .ico { width:18px; height:18px; }
+.topbar .sep { width:1px; height:20px; background:var(--border); margin:0 2px; }
+.hud .depth { display:flex; gap:3px; align-items:center; color:var(--muted); font-size:11px; }
+
+/* ---- settings page */
+.settings { flex:1; min-height:0; overflow:auto; padding:18px 28px 60px; background:var(--bg); }
+.settings .wrap { max-width:920px; margin:0 auto; }
+.settings h2 { display:flex; align-items:center; gap:10px; margin:0 0 14px; font-size:20px; }
+.settings h2 .spacer { flex:1; }
+.settings section { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:14px; }
+.settings h3 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+.settings .row { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+.settings label.opt { display:flex; gap:6px; align-items:center; cursor:pointer; font-size:12px; }
+.settings .hint { color:var(--muted); font-size:12px; margin:2px 0 8px; }
+.settings input[type=range] { width:170px; accent-color:var(--accent); }
+.settings .val { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; min-width:40px; }
+.themes { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+.tcard { border:2px solid var(--border); border-radius:10px; overflow:hidden; cursor:pointer; background:var(--bg); color:var(--text); transition:transform .12s, border-color .2s; }
+.tcard:hover { transform:translateY(-2px); }
+.tcard.sel { border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+.tcard .prev { display:flex; gap:4px; padding:12px 10px; background:var(--bg); }
+.tcard .prev i { display:block; height:16px; border-radius:4px; flex:1; }
+.tcard .name { padding:6px 10px; font-size:12px; background:var(--panel); border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.settings table.keys { border-collapse:collapse; font-size:12px; }
+.settings table.keys td { padding:3px 14px 3px 0; }
+.settings table.keys .kbd { font-size:11px; padding:1px 6px; }
 "#;

@@ -74,6 +74,34 @@ impl State {
         true
     }
 
+    /// Next cue; at the end of a part, the next part when the full tour is on.
+    /// Returns false when there is nothing more to play.
+    pub fn advance(&mut self) -> bool {
+        if self.step(1) {
+            return true;
+        }
+        let n = self.script.read().as_ref().map(|s| s.parts.len()).unwrap_or(0);
+        let part = *self.part_idx.read();
+        if *self.tour.read() && part + 1 < n {
+            self.goto_part(part + 1);
+            return true;
+        }
+        false
+    }
+
+    /// Play the whole codecast from its first cue, part after part.
+    pub fn start_tour(&mut self) {
+        if self.script.read().is_none() {
+            self.start_builtin_guide(None);
+        }
+        self.tour.set(true);
+        self.part_idx.set(0);
+        self.cue_idx.set(0);
+        self.tts_gen += 1;
+        self.apply_cue();
+        self.playing.set(true);
+    }
+
     pub fn goto_part(&mut self, part: usize) {
         self.part_idx.set(part);
         self.cue_idx.set(0);
@@ -227,6 +255,7 @@ pub fn PlayerBar() -> Element {
     let title = s.title.clone();
     let say = cue.say.clone();
     let n_parts = s.parts.len();
+    let tour = *state.tour.read();
     let mut show_load = use_signal(|| false);
     let mut paste = use_signal(String::new);
 
@@ -247,10 +276,11 @@ pub fn PlayerBar() -> Element {
         }
         let Some(cue) = state.current_cue() else { return };
         let text = script::speakable(&cue.say);
+        let rate = *state.tts_rate.peek();
         let js = format!(
             r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
                const u = new SpeechSynthesisUtterance({});
-               u.rate = 1.0;
+               u.rate = {rate:.2};
                u.onend = () => dioxus.send("end");
                u.onerror = (e) => dioxus.send("error:" + e.error);
                speechSynthesis.speak(u);
@@ -266,7 +296,7 @@ pub fn PlayerBar() -> Element {
                 }
                 if msg == "end" || msg.starts_with("error") {
                     gloo_timers::future::sleep(std::time::Duration::from_millis(350)).await;
-                    if *state.tts_gen.peek() == my_gen && *state.playing.peek() && !state.step(1) {
+                    if *state.tts_gen.peek() == my_gen && *state.playing.peek() && !state.advance() {
                         state.playing.set(false);
                     }
                 }
@@ -333,14 +363,20 @@ pub fn PlayerBar() -> Element {
                     button { class: if playing { "active" } else { "" }, onclick: move |_| { let p = *state.playing.read(); state.tts_gen += 1; state.playing.set(!p); }, if playing { "❚❚ pause" } else { "▶ play" } }
                     button { onclick: move |_| { state.tts_gen += 1; state.step(1); }, disabled: cue_idx + 1 >= total, "▶|" }
                 }
-                div { class: "status", "{cue_idx + 1} / {total}" }
+                div { class: "status", "{cue_idx + 1} / {total} · part {part_idx + 1} / {n_parts}" }
                 div { class: "progress", div { style: "width:{pct:.1}%" } }
                 div { class: "row",
                     select { class: "theme-select", value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
-                        onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); },
+                        onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
                         option { value: "tts", "🔊 voice (TTS)" }
                         if audio_url.is_some() { option { value: "audio", "🎧 recording" } }
                         option { value: "read", "📖 read" }
+                    }
+                }
+                div { class: "row",
+                    label { class: "status", style: "display:flex; gap:4px; align-items:center; cursor:pointer", title: "Full tour: continue with the next part when one ends",
+                        input { r#type: "checkbox", checked: tour, onchange: move |e| { state.tour.set(e.checked()); state.save_settings(); } }
+                        "full tour"
                     }
                 }
                 div { class: "row",
@@ -385,7 +421,7 @@ pub fn PlayerBar() -> Element {
                                     if let Some(f) = files.first() {
                                         if let Ok(bytes) = f.read_bytes().await {
                                             // hand the bytes to the browser as an object URL
-                                            let b64 = base64_encode(&bytes);
+                                            let b64 = crate::icons::base64(&bytes);
                                             let mime = if f.name().ends_with(".wav") { "audio/wav" } else if f.name().ends_with(".ogg") { "audio/ogg" } else { "audio/mpeg" };
                                             state.audio_url.set(Some(format!("data:{};base64,{}", mime, b64)));
                                             state.voice.set(Voice::Audio);
@@ -406,18 +442,4 @@ pub fn PlayerBar() -> Element {
             }
         }
     }
-}
-
-fn base64_encode(bytes: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len() * 4 / 3 + 4);
-    for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
-        out.push(T[(n >> 18) as usize & 63] as char);
-        out.push(T[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[n as usize & 63] as char } else { '=' });
-    }
-    out
 }

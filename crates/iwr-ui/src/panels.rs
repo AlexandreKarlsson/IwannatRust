@@ -1,5 +1,6 @@
 //! Top bar, sidebar (item tree), details/source panel, guide bar.
 
+use crate::icons::{self, IconButton};
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project};
@@ -9,59 +10,42 @@ use iwr_core::views::{self, Mode, NodeKind};
 pub fn TopBar() -> Element {
     let mut state = use_context::<State>();
     let mode = *state.mode.read();
-    let flags = *state.flags.read();
-    let depth = *state.depth.read();
     let name = state.project.read().as_ref().map(|p| p.name.clone()).unwrap_or_default();
     let has_guide = state.script.read().is_some();
     let search = state.search.read().clone();
     let views_open = *state.views_open.read() || mode != Mode::Code;
-    let theme_name = state.theme.read().clone();
     let show_source = *state.show_source.read();
     let sidebar_open = *state.sidebar_open.read();
+    let settings_open = *state.settings_open.read();
+    let tour_on = *state.tour.read() && has_guide && *state.playing.read();
     rsx! {
         div { class: "topbar",
-            button { class: if sidebar_open { "small active" } else { "small" }, title: "Items panel", onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); }, "☰" }
+            IconButton { name: "panel", tip: "Files and items panel".to_string(), active: sidebar_open, onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); } }
             div { class: "brand", "IwannatRust" span { "{name}" } }
             div { class: "tabs",
-                button { class: if mode == Mode::Code { "active" } else { "" }, title: "{Mode::Code.description()}", onclick: move |_| { state.set_mode(Mode::Code); state.views_open.set(false); }, "Code" }
+                IconButton { name: "code", tip: Mode::Code.description().to_string(), active: mode == Mode::Code && !settings_open, text: "Code", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Code); state.views_open.set(false); } }
                 button { class: if views_open { "active" } else { "" }, title: "Show the analysis views", onclick: move |_| { let v = *state.views_open.read(); state.views_open.set(!v); },
                     if views_open { "Views ▾" } else { "Views ▸" }
                 }
                 if views_open {
                     for m in Mode::GRAPHS {
-                        button { class: if m == mode { "active" } else { "" }, title: "{m.description()}", onclick: move |_| state.set_mode(m), "{m.label()}" }
+                        button { class: if m == mode && !settings_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{m.label()} — {m.description()}", "aria-label": "{m.label()}",
+                            onclick: move |_| { state.settings_open.set(false); state.set_mode(m) },
+                            img { class: "ico", src: icons::uri(icons::for_mode(m)), width: "18", height: "18", alt: "", draggable: false }
+                        }
                     }
                 }
             }
             if mode == Mode::Code {
-                button { class: if show_source { "active" } else { "" }, title: "Show the source next to the blocks (hover either side to highlight both)", onclick: move |_| { let v = *state.show_source.read(); state.show_source.set(!v); }, "Source ½" }
+                IconButton { name: "split", tip: "Show the source next to the blocks (hover either side to highlight both)".to_string(), active: show_source, onclick: move |_| { let v = *state.show_source.read(); state.show_source.set(!v); state.save_settings(); } }
             }
             div { class: "spacer" }
-            select { class: "theme-select", value: "{theme_name}", onchange: move |e| state.set_theme(&e.value()),
-                option { value: "dark", "Dark" }
-                option { value: "light", "Light" }
-                option { value: "paper", "Paper" }
-            }
-            if mode == Mode::CallTree {
-                div { class: "toggles",
-                    "depth"
-                    button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set(d.saturating_sub(1).max(1)); }, "−" }
-                    span { "{depth}" }
-                    button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set((d + 1).min(12)); }, "+" }
-                }
-            }
-            if mode != Mode::Code {
-            div { class: "toggles",
-                label { input { r#type: "checkbox", checked: flags.external, onchange: move |e| { let mut f = *state.flags.read(); f.external = e.checked(); state.flags.set(f); } } "external" }
-                label { input { r#type: "checkbox", checked: flags.macros, onchange: move |e| { let mut f = *state.flags.read(); f.macros = e.checked(); state.flags.set(f); } } "macros" }
-                label { input { r#type: "checkbox", checked: flags.constructs, onchange: move |e| { let mut f = *state.flags.read(); f.constructs = e.checked(); state.flags.set(f); } } "constructors" }
-                label { input { r#type: "checkbox", checked: flags.tests, onchange: move |e| { let mut f = *state.flags.read(); f.tests = e.checked(); state.flags.set(f); } } "tests" }
-            }
-            }
             input { r#type: "text", placeholder: "search items…", value: "{search}", oninput: move |e| state.search.set(e.value()) }
-            button { class: if has_guide { "active" } else { "" }, title: "Play the codecast (g): the loaded script, or the built-in walkthrough. Load your own from the player bar.", onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } },
-                if has_guide { "■ Stop codecast" } else { "▶ Codecast" }
-            }
+            div { class: "sep" }
+            IconButton { name: "codecast", tip: if has_guide { "Stop the codecast (g)".to_string() } else { "Play the codecast (g): the loaded script, or the built-in tour. Load your own from the player bar.".to_string() }, active: has_guide, text: if has_guide { "stop".to_string() } else { "codecast".to_string() },
+                onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } } }
+            IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.settings_open.set(false); state.start_tour() } }
+            IconButton { name: "settings", tip: "Settings (,): theme, views, voice, layout".to_string(), active: settings_open, onclick: move |_| { let v = *state.settings_open.read(); state.settings_open.set(!v); } }
         }
     }
 }

@@ -6,7 +6,8 @@ IwannatRust parses a Rust project and turns it into interactive, colour-coded
 schematics: call trees, control-flow graphs, module architecture, branch trees,
 block structure, type/trait relationships and error flow. Hover anything to see
 what the code says about it, click to jump to the source, expand nodes to go
-deeper, or let the **guide mode** walk you through the program from `main()`.
+deeper, or let the **full tour** walk you through the whole program, from a welcome
+to the last function.
 
 Everything is Rust: the analyzer (`syn`), the layout engine and the web UI
 ([Dioxus](https://dioxuslabs.com) → WebAssembly). No JavaScript dependencies.
@@ -32,7 +33,9 @@ Hovering a block highlights its lines; hovering a line highlights its block.
 Every function block has `flow` / `calls` shortcuts into the analysis views,
 which are otherwise tucked away behind **Views ▸**.
 
-Three themes (Dark, Light, Paper) via the selector in the top bar; the choice is remembered.
+The analysis views are icons in the top bar (hover one for its name). Eight themes
+(Dark, Light, Paper, Midnight, Forest, Nord, Solar, Dusk), the view toggles, the voice
+and the layout live on the **settings page** (⚙ or `,`); everything is remembered.
 
 ## Analysis views
 
@@ -54,16 +57,19 @@ Interactions, in every mode:
 - **⊕ / double-click** → expand or collapse; double-click a function to open its control flow.
 - **Sidebar** lists every item; click a module header to *scope* the module-level views to that subtree (useful on big projects).
 - Pan by dragging, zoom with the wheel, `f` to fit.
-- Toggles: show external calls, macros, constructors, tests; call-tree depth.
+- Settings page (⚙): show external calls, macros, constructors, tests; call-tree depth
+  (also in the call-tree toolbar).
 
 ### Codecast
 
-`▶ Codecast` (or `g`) plays a step-by-step walkthrough on top of the views: overview
-of modules and types, then execution from `main()` — entering each function,
-explaining branches, loops, `?` propagation, panics and recursion. Each cue switches
-to the right view, glows the relevant boxes, highlights source lines, and is spoken
-by the browser (or played from a recording, or read silently). Scripts are split into
-parts you can play alone.
+📣 *codecast* (or `g`) plays a walkthrough on top of the views, and 📍 *full tour* (or `t`)
+plays every part of it in a row. The built-in tour is told like a visit: a welcome with the
+project's goal, the architecture module by module, the data types, the call tree, then one
+part per function, walked statement by statement and staying there until it is fully
+explained ("First, the question mark: parse_all can fail, and if it does, run stops right
+here…"). Each cue switches to the right view, glows the relevant boxes, highlights source
+lines, and is spoken by the browser (or played from a recording, or read silently).
+Scripts are split into parts you can also play alone.
 
 Scripts are plain text and cheap to write, by hand or by an AI:
 

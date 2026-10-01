@@ -5,9 +5,11 @@
 
 mod canvas;
 mod code;
+mod icons;
 mod md;
 mod panels;
 mod player;
+mod settings;
 mod theme;
 
 use dioxus::prelude::*;
@@ -93,6 +95,13 @@ pub struct State {
     pub drag: Signal<Option<(u8, f64, f64)>>,
     /// animate camera / scroll (set by the codecast player, cleared by manual pan/zoom)
     pub animate: Signal<bool>,
+    // ---- settings
+    pub settings_open: Signal<bool>,
+    /// full tour: continue with the next part when one ends
+    pub tour: Signal<bool>,
+    pub tts_rate: Signal<f64>,
+    /// seconds per cue in silent reading mode
+    pub read_delay: Signal<f64>,
 }
 
 impl State {
@@ -292,6 +301,10 @@ fn App() -> Element {
         split: Signal::new(0.5),
         drag: Signal::new(None),
         animate: Signal::new(false),
+        settings_open: Signal::new(false),
+        tour: Signal::new(true),
+        tts_rate: Signal::new(1.0),
+        read_delay: Signal::new(4.0),
     });
 
     // layout persistence
@@ -312,8 +325,19 @@ fn App() -> Element {
     use_future(move || async move {
         if let Ok(v) = document::eval("return localStorage.getItem('iwr-theme') || 'dark';").await {
             if let Some(t) = v.as_str() {
-                if ["dark", "light", "paper"].contains(&t) {
+                if theme::is_theme(t) {
                     state.theme.set(t.to_string());
+                }
+            }
+        }
+    });
+
+    // settings persistence
+    use_future(move || async move {
+        if let Ok(v) = document::eval("return localStorage.getItem('iwr-settings') || '';").await {
+            if let Some(t) = v.as_str() {
+                if let Ok(s) = serde_json::from_str::<settings::Saved>(t) {
+                    state.apply_settings(s);
                 }
             }
         }
@@ -360,8 +384,9 @@ fn App() -> Element {
     // autoplay in silent reading mode (voice modes advance themselves)
     use_future(move || async move {
         loop {
-            gloo_timers::future::sleep(std::time::Duration::from_millis(3000)).await;
-            if *state.playing.read() && *state.voice.read() == player::Voice::Read && !state.step(1) {
+            let ms = (*state.read_delay.peek() * 1000.0).clamp(1000.0, 20000.0) as u64;
+            gloo_timers::future::sleep(std::time::Duration::from_millis(ms)).await;
+            if *state.playing.read() && *state.voice.read() == player::Voice::Read && !state.advance() {
                 state.playing.set(false);
             }
         }
@@ -373,7 +398,7 @@ fn App() -> Element {
             r#"window.addEventListener('keydown', e => {
                 const tag = (document.activeElement && document.activeElement.tagName) || '';
                 if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-                if (['ArrowLeft','ArrowRight',' ','f','g','Escape'].includes(e.key)) { e.preventDefault(); dioxus.send(e.key); }
+                if (['ArrowLeft','ArrowRight',' ','f','g','t',',','Escape'].includes(e.key)) { e.preventDefault(); dioxus.send(e.key); }
             });"#,
         );
         loop {
@@ -396,7 +421,15 @@ fn App() -> Element {
                             state.start_builtin_guide(None)
                         }
                     }
-                    "Escape" => state.stop_script(),
+                    "t" => { state.settings_open.set(false); state.start_tour() }
+                    "," => { let v = *state.settings_open.read(); state.settings_open.set(!v) }
+                    "Escape" => {
+                        if *state.settings_open.read() {
+                            state.settings_open.set(false)
+                        } else {
+                            state.stop_script()
+                        }
+                    }
                     _ => {}
                 },
                 Err(_) => break,
@@ -409,10 +442,14 @@ fn App() -> Element {
     let is_code = *state.mode.read() == Mode::Code;
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
+    let settings_open = *state.settings_open.read();
     rsx! {
         style { {theme::CSS} }
         div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}
+            if settings_open {
+                settings::SettingsPage {}
+            } else {
             div { class: "main",
                 onmousemove: move |e| {
                     if let Some((which, x0, v0)) = *state.drag.read() {
@@ -441,6 +478,7 @@ fn App() -> Element {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     panels::Details {}
                 }
+            }
             }
             if has_guide {
                 player::PlayerBar {}

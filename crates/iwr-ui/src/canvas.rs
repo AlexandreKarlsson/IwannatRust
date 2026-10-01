@@ -127,6 +127,7 @@ pub fn Canvas() -> Element {
     let animate = *state.animate.read();
     let legend = theme::legend(mode);
     let status = state.status.read().clone();
+    let depth = *state.depth.read();
     let node_count = g.nodes.len();
     let root_label = state.root.read().and_then(|r| state.project.read().as_ref().map(|p| p.item(r).name.clone()));
     let scope_label = state.scope.read().and_then(|m| state.project.read().as_ref().map(|p| p.module(m).path.clone()));
@@ -219,11 +220,19 @@ pub fn Canvas() -> Element {
                 if let Some(r) = root_label {
                     span { class: "status", "root: " b { "{r}" } }
                 }
+                if mode == Mode::CallTree {
+                    span { class: "depth", title: "how many call levels to open from the root",
+                        "depth"
+                        button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set(d.saturating_sub(1).max(1)); state.save_settings(); }, "−" }
+                        span { "{depth}" }
+                        button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set((d + 1).min(12)); state.save_settings(); }, "+" }
+                    }
+                }
                 if let Some(sc) = scope_label {
                     span { class: "chip", title: "clear module scope", onclick: move |_| state.set_scope(None), "scope: {sc} ✕" }
                 }
                 span { class: "status", "{node_count} nodes · {status}" }
-                span { class: "status", " · " span { class: "kbd", "f" } " fit  " span { class: "kbd", "g" } " guide  " span { class: "kbd", "←" } span { class: "kbd", "→" } " steps" }
+                span { class: "status", " · " span { class: "kbd", "f" } " fit  " span { class: "kbd", "g" } " codecast  " span { class: "kbd", "t" } " tour  " span { class: "kbd", "←" } span { class: "kbd", "→" } " steps" }
             }
             if let Some(note) = &g.note {
                 div { class: "note", "{note}" }

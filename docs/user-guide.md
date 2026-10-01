@@ -8,7 +8,7 @@ iwr serve path/to/project      # opens http://127.0.0.1:4321
 
 | Area | Content |
 |------|---------|
-| Top bar | `Code` (default) · `Views ▸` reveals analysis tabs · `Source ½` split · theme · search · `▶ Codecast` |
+| Top bar | `Code` (default) · `Views ▸` reveals the analysis views as icons (hover for the name and what it shows) · split icon (source next to the blocks) · search · 📣 codecast · 📍 full tour · ⚙ settings |
 | Sidebar (`☰` toggles, open by default) | Two tabs. **📁 files** (default, like an editor's explorer): the whole repository tree, Rust files with their item count, other text files viewable in the source pane; the file being shown is highlighted, files a codecast cue points at glow; click a file to open it in the Code view (item count on the right). **☰ items**: every item grouped by module. Click = select + show source. Double-click a function = open its control flow. Click a **module header** = scope the module-level views to that subtree (chip in the canvas clears it). |
 | Center | Code view or graph canvas |
 | Right | Details + source (graph modes) or the source pane (Code view) |
@@ -43,13 +43,28 @@ Nodes show only their name; the signature, fields or badges appear in a small pa
 
 Every node: **hover** = tooltip (signature, doc, params, return, facts, callers/callees, location; statement source for flow nodes). **Click** = details + source highlight. **Double-click** = expand, or open a function's control flow. Drag = pan, wheel = zoom.
 
-Toggles (graph modes): external calls, macros, constructors, tests.
+What the graph views include (external calls, macros, constructors, tests) is set on the settings page; the call-tree depth is also in the canvas toolbar.
 
-## Codecast
+## Codecast and the full tour
 
-`▶ Codecast` or `g` plays the built-in walkthrough: overview → types → call tree → execution from `main()` (branches, loops, `?`, panics, recursion, trait dispatch), one part per top-level function. Every cue switches view, glows the relevant boxes, highlights source lines and can underline a code range. Voice: browser TTS, a recording, or silent reading. `codecast from here` in the details panel starts at any function.
+📣 *codecast* (or `g`) opens the player with the loaded script, or with the built-in tour of the
+project. 📍 *full tour* (or `t`) plays it from the first cue and goes on to the next part when one
+ends, until the last one; with the *full tour* box unticked (player bar or settings) playing stops
+at the end of each part and `next part ▶` continues.
 
-Scripts can also be written by an AI or by hand and loaded with `iwr serve --script`, or `load…` in the player bar. See [codecast.md](codecast.md) for the format, the brief and the player.
+The built-in tour is told like a visit: a welcome with the project's goal (its crate doc), the
+architecture module by module, the data types one by one, the call tree, then one part per function.
+Each function is walked statement by statement in reading order, in plain sentences ("First, the
+question mark: `parse_all` can fail, and if it does, `run` stops right here…"), and the tour stays
+in that function until it is fully explained; the functions it calls come next, each once.
+`codecast from here` in the details panel starts the same tour at any function.
+
+Every cue switches view, glows the relevant boxes, highlights source lines and can underline a code
+range. Voice: browser TTS (rate in settings), a recording, or silent reading (seconds per cue in
+settings).
+
+Scripts can also be written by an AI or by hand and loaded with `iwr serve --script`, or `load…` in
+the player bar. See [codecast.md](codecast.md) for the format, the brief and the player.
 
 ## Keyboard
 
@@ -57,13 +72,15 @@ Scripts can also be written by an AI or by hand and loaded with `iwr serve --scr
 |-----|--------|
 | `←` `→` | previous / next cue |
 | `space` | play / pause |
-| `g` | start / stop the built-in codecast |
+| `g` | start / stop the codecast |
+| `t` | start the full tour |
 | `f` | fit graph to view |
-| `Esc` | close the player |
+| `,` | open / close the settings page |
+| `Esc` | close the settings page, or the player |
 
-## Themes
+## Settings
 
-Top-bar selector: **Dark**, **Light**, **Paper**. Remembered in the browser.
+⚙ (or `,`) opens the settings page: theme (**Dark**, **Light**, **Paper**, **Midnight**, **Forest**, **Nord**, **Solar**, **Dusk**), what the analysis views include, call-tree depth, source split, voice / speech rate / reading time, full tour, panel layout, and the keyboard reference. Everything is remembered in the browser.
 
 ## Live reload
 
