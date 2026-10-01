@@ -80,7 +80,7 @@ pub fn SettingsPage() -> Element {
         div { class: "settings",
             div { class: "wrap",
                 h2 {
-                    Icon { name: "settings", size: 22 }
+                    crate::icons::Logo { size: 26 }
                     "Settings"
                     div { class: "spacer" }
                     IconButton { name: "back", tip: "Back to the code (Esc)".to_string(), text: "back", onclick: move |_| state.settings_open.set(false) }

@@ -444,6 +444,7 @@ fn App() -> Element {
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
     rsx! {
+        document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}

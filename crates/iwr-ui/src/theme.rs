@@ -343,6 +343,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .status { color:var(--muted); font-size:11px; }
 .kbd { border:1px solid var(--border); border-radius:4px; padding:0 4px; font-size:10px; color:var(--muted); }
 /* ---- icons, icon buttons with hover labels */
+.logo { display:inline-block; flex:none; vertical-align:middle; -webkit-mask-size:contain; mask-size:contain; -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; -webkit-mask-position:center; mask-position:center; }
+.topbar .brand { display:flex; align-items:center; gap:7px; }
 .ico { display:inline-block; vertical-align:middle; filter:var(--icon-filter); pointer-events:none; }
 .ibtn { display:inline-flex; align-items:center; gap:5px; position:relative; padding:4px 7px; }
 .ibtn.active .ico { filter:var(--icon-active); }

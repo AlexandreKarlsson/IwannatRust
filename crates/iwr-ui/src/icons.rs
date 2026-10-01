@@ -13,7 +13,7 @@ macro_rules! icons {
     };
 }
 
-icons!["code", "calls", "flow", "arch", "branches", "structure", "types", "errors", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home"];
+icons!["code", "calls", "flow", "arch", "branches", "structure", "types", "errors", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home", "logo", "favicon"];
 
 fn table() -> &'static HashMap<&'static str, String> {
     static T: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
@@ -36,6 +36,13 @@ pub fn for_mode(m: Mode) -> &'static str {
         Mode::Types => "types",
         Mode::ErrorFlow => "errors",
     }
+}
+
+/// The IwannatRust logo, painted in a CSS colour (default: the theme accent) through a mask.
+#[component]
+pub fn Logo(#[props(default = 22)] size: u32, #[props(default = "var(--accent)".to_string())] color: String) -> Element {
+    let src = uri("logo");
+    rsx! { span { class: "logo", style: "width:{size}px; height:{size}px; background:{color}; -webkit-mask-image:url({src}); mask-image:url({src});" } }
 }
 
 /// An icon image. `size` in px (default 16).

@@ -1,4 +1,4 @@
-# IwannatRust
+# <img src="images/logo.png" width="40" align="top"> IwannatRust
 
 **Make unfamiliar Rust code visually understandable.**
 

@@ -21,7 +21,7 @@ pub fn TopBar() -> Element {
     rsx! {
         div { class: "topbar",
             IconButton { name: "panel", tip: "Files and items panel".to_string(), active: sidebar_open, onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); } }
-            div { class: "brand", "IwannatRust" span { "{name}" } }
+            div { class: "brand", icons::Logo { size: 24 } "IwannatRust" span { "{name}" } }
             div { class: "tabs",
                 IconButton { name: "code", tip: Mode::Code.description().to_string(), active: mode == Mode::Code && !settings_open, text: "Code", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Code); state.views_open.set(false); } }
                 button { class: if views_open { "active" } else { "" }, title: "Show the analysis views", onclick: move |_| { let v = *state.views_open.read(); state.views_open.set(!v); },
