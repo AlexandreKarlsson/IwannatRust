@@ -2,21 +2,47 @@
 
 A **script** is spoken text with references to what to show and highlight. The player runs it on top
 of the visualizer: switches views, glows the right boxes, highlights and underlines code, and speaks
-(browser TTS), plays a recording, or just lets you read. Scripts are split into **parts** you can play
+(browser TTS), plays a recording, or just lets you read. **Questions** appear under the caption
+("What is a crate?"); clicking one pauses the codecast, answers, and resumes. Scripts are split into **parts** you can play
 independently ("Architecture", "Error handling", …). Any LLM, or a person, can write one from the
-**brief**. No API key, no provider, no JSON.
+**brief**. No API key, no provider, no JSON. Scripts are markdown files: they read fine on GitHub.
 
 ```
 iwr brief  <path> [--fn P] [--no-body] [--no-overview]   # what the AI reads
-iwr guide  <path> [--fn P]  > script.txt                  # the built-in walkthrough, as a script
-iwr check  script.txt --path <path>                       # every ref must resolve
-iwr serve  <path> --script script.txt [--audio voice.mp3] # play it (also load… in the player bar)
-iwr export <path> --script script.txt [--audio voice.mp3] # bundled in the static site
+iwr guide  <path> [--fn P]  > codecast.md                 # the built-in walkthrough, as a script
+iwr check  codecast.md --path <path>                      # every ref must resolve (also: iwr check codecast/)
+iwr serve  <path> --script codecast.md [--audio voice.mp3] # play it (also load… in the player bar)
+iwr export <path> --script codecast.md [--audio voice.mp3] # bundled in the static site
 ```
+
+`iwr serve <path>` and `iwr export <path>` pick up a codecast next to the project automatically:
+a `codecast/` directory, else `codecast.md`, else the legacy `codecast.txt`.
+
+## Layout: one file or a directory
+
+**One file** (`codecast.md`): the whole script, parts as `##` headings.
+
+**A directory** (`codecast/`), one file per part, so each part can be written, reviewed and recorded alone:
+
+```
+codecast/
+  index.md            # Title            (+ optional `audio:` for one recording of the whole tour)
+                      - [Welcome](01-welcome.md)      optional: the part order as a markdown list
+                      - [The data](02-the-data.md)    (unlisted files follow, sorted by name)
+  01-welcome.md       ## Welcome  …cues…   (no `##`? the file name becomes the part name: "Welcome")
+  01-welcome.mp3      recording of that part, picked up by name (mp3/ogg/wav/m4a/webm)
+  02-the-data.md
+  glossary.md         optional: the project's own glossary (see Questions); never a part
+```
+
+A part file may start with its own `# heading`; after the title in `index.md`, further `#` lines are
+ignored. `iwr check codecast/` validates the whole directory;
+[examples/demo/codecast/](../examples/demo/codecast/) is one.
 
 ## Script format
 
-Line based. One spoken line = one cue. Directive lines above a cue attach to it.
+Line based. One spoken line = one cue. Directive lines above a cue attach to it. Everything is
+valid markdown: the title and parts are headings, the directives are short lines.
 
 ```
 # How the demo task runner works        title (first line)
@@ -29,6 +55,7 @@ The demo is four modules around main.    cue: spoken + shown as caption
 The parser turns text lines into tasks.
 
 ## Running a task list
+audio: 02-running.mp3                    optional recording of this part only
 @ flow:crate::run
 ! crate::run/b1
 = src/main.rs:49:17-44                   underline this code            this cue only
@@ -36,9 +63,74 @@ The parser turns text lines into tasks.
 ! crate::run/b5 crate::run/b6
 Every task is saved, in a loop.
 // comment lines are ignored
+? What is a crate?                       question offered under this cue (click → pause, answer, resume)
+  = src/main.rs:49:17-44                 an answer may carry its own @ ! = directives
+  A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `##` part, `#` title, `audio:`.
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`.
+
+`audio:` before the first part names a recording of the whole script; inside a part, a recording of that
+part only (then its `[t]` times count from the start of that file). Names are relative to the script's
+directory. A per-part recording wins over the script-level one and over `--audio`.
+
+## Questions
+
+Two sources, kept apart:
+
+- **Written in the script**: a `? Question text` line followed by indented answer lines. The block
+  belongs to the cue just above it (or, when it comes after `@` / `!` / `=` lines, to the next cue).
+  Indented `@` `!` `=` lines inside the block are applied while the answer is shown, so an answer can
+  point at the code it talks about. `iwr check` flags questions without an answer.
+- **The built-in Rust glossary** (`crates/iwr-core/glossary.md`, ~30 entries: crate, module, impl,
+  trait, enum, match, Option, Result, question mark, ownership, borrow, clone, derive, closure,
+  iterator, generics…). When a cue's text says a term (whole word, case-insensitive, plural tolerated),
+  "What is a …?" is offered; each term once per session. Off for a script with `glossary: off` in
+  its header, or for a viewer who unticks it in Settings.
+- **A project glossary**: `glossary.md` next to the script (in the `codecast/` directory, or beside
+  `codecast.md`), same format as the built-in one, for the project's own words. Its entries win over
+  built-in ones with the same term and may carry `@` `!` `=` directives.
+
+Glossary format: `## term`, optional `aliases: a, b`, optional `ask: …` (default "What is a term?"),
+then the answer. Script questions come first, then glossary matches, four chips at most.
+
+While an answer is shown the codecast is paused; the answer is spoken (TTS mode) and the player
+resumes by itself when it ends, or on *continue* / `space` / `Esc`. In recording mode the recording
+pauses and plays on again afterwards.
+
+## How code is spoken
+
+TTS would read `crate::parser::parse_all` as "crate colon colon parser colon colon parse underscore
+all". The player rewrites code into words before speaking; the caption keeps the code as written,
+with a dotted underline and the spoken form as a tooltip (Settings → *show how code is spoken* puts
+it in parentheses instead: `parse_all` *(parse all)*). Rules (`iwr-core/src/speech.rs`):
+
+| Written | Spoken |
+|---|---|
+| `crate::parser::parse_all` · `parse_all` | parse all (module path dropped, snake_case split) |
+| `Task::weight` · `Priority::Low` | Task weight · Priority Low |
+| `MemoryStorage` · `HashMap` · `INPUT` | Memory Storage · hash map · INPUT (CamelCase split, all-caps kept) |
+| `t.clone()` · `storage.save(t.clone())?` | t dot clone · storage dot save of t dot clone, question mark |
+| `Option<Task>` · `Result<usize, AppError>` | Option of Task · Result of u size and App Error |
+| `&tasks` · `&mut x` · `&self` · `&str` | a reference to tasks · a mutable reference to x · self by reference · string slice |
+| `-> T` · `?` · `==` · `&&` · `0..n` · `=>` | returns T · question mark · equals · and · 0 up to n · gives |
+| `\|t\| t.weight()` | the closure taking t, t dot weight |
+| `println!(…)` · `#[derive(Debug)]` · `'a` · `u32` | print line · the attribute derive of Debug · lifetime a · u 32 |
+| `fn` · `mod` · `mut` · `impl` · `dyn` | function · module · mute · impul · dine |
+
+Applied to backtick spans, and to bare words that look like code (`::`, `_`, `()`, `<…>`, leading
+`&`, known macros, CamelCase with two humps, primitive types). Plain English is never touched.
+After a spoken expression (not a single name) a comma gives TTS a breath when the sentence goes on.
+
+**Pronunciations**: `pronounce: written = spoken` lines in the script header or in `glossary.md`
+override the rules (`pronounce: Dioxus = dee ox us`); the script's lines win over the glossary's,
+both over the built-in list (IwannatRust, iwr, TTS, usize, str, dyn, impl, enum, println, Vec…).
+
+```
+iwr speak codecast/            # the whole codecast as it will be spoken, to review the TTS text
+```
+
+`iwr check` prints a note for a code token whose spoken form still looks like code.
 
 ## Refs
 
@@ -86,7 +178,7 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 | Voice | Advance | Notes |
 |-------|---------|-------|
 | 🔊 TTS | when the utterance ends | browser `speechSynthesis`; markdown/code stripped before speaking |
-| 🎧 recording | by time: cue with the largest `[t] ≤` position | `--audio` file, `audio:` line, or a file picked in *load…* |
+| 🎧 recording | by time: cue with the largest `[t] ≤` position | `audio:` lines (per part or whole script), `--audio`, or a file picked in *load…*; with per-part recordings the tour continues into the next part's file |
 | 📖 read | prev / next, or autoplay every 3 s | |
 
 Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing
@@ -95,4 +187,4 @@ continues with the next part until the script ends; unticked, it stops at the en
 walkthrough as a script; `codecast from here` in the details panel starts it at a function.
 Keys: `←` `→` step, `space` play/pause, `Esc` close.
 
-`iwr serve` re-reads the script file on every page load, so edit and refresh.
+`iwr serve` re-reads the script file (or directory) and `glossary.md` on every page load, so edit and refresh.

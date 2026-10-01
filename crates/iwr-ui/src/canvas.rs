@@ -231,8 +231,15 @@ pub fn Canvas() -> Element {
                 if let Some(sc) = scope_label {
                     span { class: "chip", title: "clear module scope", onclick: move |_| state.set_scope(None), "scope: {sc} ✕" }
                 }
+
                 span { class: "status", "{node_count} nodes · {status}" }
                 span { class: "status", " · " span { class: "kbd", "f" } " fit  " span { class: "kbd", "g" } " codecast  " span { class: "kbd", "t" } " tour  " span { class: "kbd", "←" } span { class: "kbd", "→" } " steps" }
+            }
+            if mode == Mode::Structure {
+                div { class: "hud hud2", title: "tick what the Structure view shows",
+                    span { class: "status", "show" }
+                    crate::settings::KindChips { compact: true }
+                }
             }
             if let Some(note) = &g.note {
                 div { class: "note", "{note}" }

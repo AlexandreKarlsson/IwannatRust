@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod codecast;
 mod serve;
 
 /// The codecast writing guide, embedded so `iwr brief --guide` works from any directory.
@@ -26,7 +27,7 @@ enum Cmd {
         /// Do not open the browser
         #[arg(long)]
         no_open: bool,
-        /// Codecast script (text format, see docs/codecast.md); defaults to <path>/codecast.txt when present
+        /// Codecast: a script file or a `codecast/` directory (docs/codecast.md); defaults to <path>/codecast{/,.md,.txt} when present
         #[arg(long)]
         script: Option<PathBuf>,
         /// Recorded codecast audio (mp3/ogg/wav) matching the script's [t] cues
@@ -81,7 +82,15 @@ enum Cmd {
         #[arg(long = "fn")]
         only: Option<String>,
     },
-    /// Validate a codecast script's refs against the project
+    /// Print a codecast as it will be spoken (code said as words), to review the TTS text
+    Speak {
+        /// A script file or a `codecast/` directory
+        script: PathBuf,
+        /// Project path, for the project glossary's `pronounce:` lines (defaults to the script's parent)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Validate a codecast's refs against the project (a script file or a `codecast/` directory)
     Check {
         script: PathBuf,
         #[arg(long, default_value = ".")]
@@ -123,11 +132,47 @@ fn main() -> Result<()> {
             print!("{}", iwr_core::script::to_text(&iwr_core::script::from_guide(&p, &steps)));
             Ok(())
         }
+        Cmd::Speak { script, path: _ } => {
+            let loaded = codecast::load(&script)?;
+            let s = iwr_core::script::parse(&loaded.text);
+            let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
+            println!("# {}", s.title);
+            for p in &s.parts {
+                println!("\n## {}", p.name);
+                for c in &p.cues {
+                    println!("{}", iwr_core::speech::spoken(&c.say, &pron));
+                    for q in &c.questions {
+                        println!("  ? {}", iwr_core::speech::spoken(&q.ask, &pron));
+                        println!("    {}", iwr_core::speech::spoken(&q.answer, &pron));
+                    }
+                }
+            }
+            Ok(())
+        }
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
-            let s = iwr_core::script::parse(&std::fs::read_to_string(&script)?);
-            let bad = iwr_core::script::check(&p, &s);
-            println!("{}: {} part(s), {} cue(s)", s.title, s.parts.len(), s.cue_count());
+            let loaded = codecast::load(&script)?;
+            let s = iwr_core::script::parse(&loaded.text);
+            let mut bad = iwr_core::script::check(&p, &s);
+            if let Some(g) = &loaded.glossary {
+                bad.extend(codecast::check_glossary(&p, g));
+            }
+            for a in codecast::audio_files(&s) {
+                if !loaded.dir.join(&a).is_file() {
+                    bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
+                }
+            }
+            let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
+            for p in &s.parts {
+                for (i, c) in p.cues.iter().enumerate() {
+                    for u in iwr_core::speech::unspoken(&c.say, &pron) {
+                        println!("  note: {} / cue {}: `{}` will be spoken as written; add a `pronounce:` line", p.name, i + 1, u);
+                    }
+                }
+            }
+            let nq: usize = s.parts.iter().flat_map(|p| &p.cues).map(|c| c.questions.len()).sum();
+            let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
+            println!("{}: {} part(s), {} cue(s), {} question(s){}{}", s.title, s.parts.len(), s.cue_count(), nq, if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() }, if s.glossary { "" } else { ", built-in glossary off" });
             for b in &bad {
                 println!("  {}", b);
             }

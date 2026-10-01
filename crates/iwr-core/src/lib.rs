@@ -12,6 +12,8 @@ pub mod brief;
 pub mod model;
 pub mod guide;
 pub mod script;
+pub mod glossary;
+pub mod speech;
 pub mod layout;
 pub mod views;
 

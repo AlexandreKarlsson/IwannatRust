@@ -51,6 +51,8 @@ pub struct State {
     pub collapsed: Signal<HashSet<String>>,
     pub depth: Signal<usize>,
     pub flags: Signal<Flags>,
+    /// item kinds hidden in the Structure view
+    pub hidden_kinds: Signal<HashSet<iwr_core::model::ItemKind>>,
     /// selected item + optional cfg node
     pub selected: Signal<Option<ItemId>>,
     pub selected_span: Signal<Option<Span>>,
@@ -63,13 +65,32 @@ pub struct State {
     pub cue_idx: Signal<usize>,
     pub playing: Signal<bool>,
     pub voice: Signal<player::Voice>,
+    /// recording given from outside the script (`--audio` or a picked file); `audio:` lines win over it
     pub audio_url: Signal<Option<String>>,
+    /// where relative `audio:` names resolve (`/api/codecast/` live, `codecast/` in an export)
+    pub audio_base: Signal<String>,
     /// bumps cancel in-flight speech
     pub tts_gen: Signal<u32>,
     /// resolved highlight refs of the current cue
     pub hl: Signal<Vec<iwr_core::script::Resolved>>,
     /// code span to underline (may have columns)
     pub code_mark: Signal<Option<Span>>,
+    /// question being answered (the codecast is paused meanwhile)
+    pub answering: Signal<Option<iwr_core::script::Question>>,
+    /// was the codecast playing when the question was clicked? resume after the answer
+    pub resume_after_answer: Signal<bool>,
+    /// glossary terms (and script questions) already answered this session
+    pub asked: Signal<Vec<String>>,
+    /// built-in glossary merged with the project's own (`glossary.md` next to the codecast)
+    pub glossary: Signal<Rc<Vec<iwr_core::glossary::Entry>>>,
+    /// offer glossary questions at all (setting)
+    pub glossary_on: Signal<bool>,
+    /// how code is spoken: built-in + project glossary `pronounce:` + the script's own
+    pub pronounce: Signal<Rc<Vec<(String, String)>>>,
+    /// `pronounce:` lines of the project glossary (kept to re-merge when a script loads)
+    pub glossary_pronounce: Signal<Vec<(String, String)>>,
+    /// caption shows the spoken form in parentheses after code (setting, off by default)
+    pub speech_parens: Signal<bool>,
     pub search: Signal<String>,
     pub fit_request: Signal<u32>,
     /// Span under the mouse (blocks pane or source pane) for two-way highlighting.
@@ -118,6 +139,7 @@ impl State {
             show_tests: f.tests,
             show_constructs: f.constructs,
             max_nodes: 400,
+            hidden_kinds: self.hidden_kinds.read().clone(),
         }
     }
 
@@ -271,6 +293,7 @@ fn App() -> Element {
         collapsed: Signal::new(HashSet::new()),
         depth: Signal::new(2),
         flags: Signal::new(Flags::default()),
+        hidden_kinds: Signal::new(HashSet::new()),
         selected: Signal::new(None),
         selected_span: Signal::new(None),
         hovered: Signal::new(None),
@@ -282,9 +305,18 @@ fn App() -> Element {
         playing: Signal::new(false),
         voice: Signal::new(player::Voice::Tts),
         audio_url: Signal::new(None),
+        audio_base: Signal::new("/api/codecast/".into()),
         tts_gen: Signal::new(0),
         hl: Signal::new(vec![]),
         code_mark: Signal::new(None),
+        answering: Signal::new(None),
+        resume_after_answer: Signal::new(false),
+        asked: Signal::new(vec![]),
+        glossary: Signal::new(Rc::new(iwr_core::glossary::builtin())),
+        glossary_on: Signal::new(true),
+        pronounce: Signal::new(Rc::new(iwr_core::speech::builtin_pronounce())),
+        glossary_pronounce: Signal::new(vec![]),
+        speech_parens: Signal::new(false),
         search: Signal::new(String::new()),
         fit_request: Signal::new(0),
         hover_span: Signal::new(None),
@@ -361,8 +393,14 @@ fn App() -> Element {
                         state.status.set(if first { "ready".into() } else { "reloaded".into() });
                         state.fit_request += 1;
                         if first {
-                            if let Some((text, audio)) = player::fetch_script(live).await {
+                            if let Some((text, audio, base, glossary)) = player::fetch_script(live).await {
                                 state.audio_url.set(audio);
+                                state.audio_base.set(base);
+                                if let Some(g) = glossary {
+                                    let own = iwr_core::glossary::parse(&g);
+                                    state.glossary.set(Rc::new(iwr_core::glossary::merge(&[iwr_core::glossary::builtin(), own])));
+                                    state.glossary_pronounce.set(iwr_core::speech::parse_pronounce(&g));
+                                }
                                 state.load_script(iwr_core::script::parse(&text));
                             }
                         } else if state.script.read().is_some() {
@@ -407,7 +445,9 @@ fn App() -> Element {
                     "ArrowLeft" => { state.tts_gen += 1; state.step(-1); }
                     "ArrowRight" => { state.tts_gen += 1; state.step(1); }
                     " " => {
-                        if state.script.read().is_some() {
+                        if state.answering.read().is_some() {
+                            state.finish_answer();
+                        } else if state.script.read().is_some() {
                             let p = *state.playing.read();
                             state.tts_gen += 1;
                             state.playing.set(!p);
@@ -426,6 +466,8 @@ fn App() -> Element {
                     "Escape" => {
                         if *state.settings_open.read() {
                             state.settings_open.set(false)
+                        } else if state.answering.read().is_some() {
+                            state.finish_answer()
                         } else {
                             state.stop_script()
                         }

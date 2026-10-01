@@ -1,47 +1,33 @@
 //! Tiny markdown subset renderer for guide text: fenced code, bullets, `code`, **bold**.
+//! Code is shown as written and carries its spoken form (see `iwr_core::speech`).
 
+use crate::State;
 use dioxus::prelude::*;
+use iwr_core::speech::{self, Segment};
 
-fn inline(s: &str) -> Vec<Element> {
+/// Inline markdown: `**bold**`, then code. Code (backtick spans and bare tokens that look like
+/// code) is rendered as written with its spoken form as a tooltip, or in parentheses after it
+/// when the viewer asked for that in Settings ([`crate::State::speech_parens`]).
+fn inline(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
     let mut out = Vec::new();
     let mut rest = s;
     while !rest.is_empty() {
-        let ci = rest.find('`');
-        let bi = rest.find("**");
-        match (ci, bi) {
-            (Some(c), b) if b.map(|b| c < b).unwrap_or(true) => {
-                if c > 0 {
-                    let t = rest[..c].to_string();
-                    out.push(rsx! { "{t}" });
-                }
-                if let Some(end) = rest[c + 1..].find('`') {
-                    let code = rest[c + 1..c + 1 + end].to_string();
-                    out.push(rsx! { code { "{code}" } });
-                    rest = &rest[c + 2 + end..];
-                } else {
-                    let t = rest[c..].to_string();
-                    out.push(rsx! { "{t}" });
-                    rest = "";
-                }
-            }
-            (_, Some(b)) => {
+        match rest.find("**") {
+            Some(b) => {
                 if b > 0 {
-                    let t = rest[..b].to_string();
-                    out.push(rsx! { "{t}" });
+                    out.extend(speech_spans(&rest[..b], pron, parens));
                 }
                 if let Some(end) = rest[b + 2..].find("**") {
                     let bold = rest[b + 2..b + 2 + end].to_string();
                     out.push(rsx! { b { "{bold}" } });
                     rest = &rest[b + 4 + end..];
                 } else {
-                    let t = rest[b..].to_string();
-                    out.push(rsx! { "{t}" });
+                    out.extend(speech_spans(&rest[b..], pron, parens));
                     rest = "";
                 }
             }
-            _ => {
-                let t = rest.to_string();
-                out.push(rsx! { "{t}" });
+            None => {
+                out.extend(speech_spans(rest, pron, parens));
                 rest = "";
             }
         }
@@ -49,8 +35,30 @@ fn inline(s: &str) -> Vec<Element> {
     out
 }
 
+fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
+    speech::segments(s, pron)
+        .into_iter()
+        .map(|seg| match seg {
+            Segment::Text(t) => rsx! { "{t}" },
+            Segment::Code { code, say } => {
+                let tip = format!("spoken: {}", say);
+                let same = say.eq_ignore_ascii_case(code.trim());
+                let backtick_like = code.contains(' ') || code.contains("::") || code.contains('(') || code.contains('<') || code.starts_with('&') || code.starts_with('#');
+                rsx! {
+                    if backtick_like { code { class: if same { "" } else { "spk" }, title: "{tip}", "{code}" } } else { span { class: if same { "" } else { "spk" }, title: "{tip}", "{code}" } }
+                    if parens && !same { span { class: "spk-say", " ({say})" } }
+                }
+            }
+        })
+        .collect()
+}
+
 #[component]
 pub fn Markdown(text: String) -> Element {
+    let state = use_context::<State>();
+    let pron = state.pronounce.read().clone();
+    let parens = *state.speech_parens.read();
+    let inline = |t: &str| inline(t, &pron, parens);
     let mut blocks: Vec<Element> = Vec::new();
     let mut code: Option<Vec<String>> = None;
     let mut bullets: Vec<String> = Vec::new();

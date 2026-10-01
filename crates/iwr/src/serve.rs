@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::State,
+    extract::{Path as AxPath, State},
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::get,
@@ -48,18 +48,25 @@ fn analyze(path: &Path) -> Result<Project> {
 
 pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
-    // a `codecast.txt` next to the project is picked up automatically
-    let script = script.or_else(|| {
-        let p = if path.is_file() { path.parent().map(|d| d.join("codecast.txt")) } else { Some(path.join("codecast.txt")) };
-        p.filter(|p| p.exists())
-    });
+    // a `codecast/` directory or `codecast.md` next to the project is picked up automatically
+    let script = script.or_else(|| crate::codecast::locate(&path));
     if let Some(s) = &script {
-        let text = std::fs::read_to_string(s).with_context(|| format!("reading script {}", s.display()))?;
-        let sc = iwr_core::script::parse(&text);
+        let loaded = crate::codecast::load(s)?;
+        let sc = iwr_core::script::parse(&loaded.text);
         for b in iwr_core::script::check(&project, &sc) {
             eprintln!("script: {}", b);
         }
-        eprintln!("script {}: {} part(s), {} cue(s)", sc.title, sc.parts.len(), sc.cue_count());
+        if let Some(g) = &loaded.glossary {
+            for b in crate::codecast::check_glossary(&project, g) {
+                eprintln!("script: {}", b);
+            }
+        }
+        for a in crate::codecast::audio_files(&sc) {
+            if !loaded.dir.join(&a).is_file() {
+                eprintln!("script: audio file not found: {}", loaded.dir.join(&a).display());
+            }
+        }
+        eprintln!("script {} ({}): {} part(s), {} cue(s)", sc.title, s.display(), sc.parts.len(), sc.cue_count());
     }
     let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(project)), version: RwLock::new(1), path: path.clone(), script, audio });
     let rt = tokio::runtime::Runtime::new()?;
@@ -103,7 +110,9 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/project", get(api_project))
             .route("/api/version", get(api_version))
             .route("/api/script", get(api_script))
+            .route("/api/glossary", get(api_glossary))
             .route("/api/audio", get(api_audio))
+            .route("/api/codecast/{name}", get(api_codecast_file))
             .fallback(static_handler)
             .layer(tower_http::cors::CorsLayer::permissive())
             .with_state(shared);
@@ -134,13 +143,39 @@ async fn api_version(State(s): State<AppState>) -> Json<u64> {
 }
 
 /// The codecast script as text (re-read on every request so edits show up on reload).
+/// A `codecast/` directory is assembled into one text.
 async fn api_script(State(s): State<AppState>) -> Response {
     match &s.script {
-        Some(p) => match std::fs::read_to_string(p) {
-            Ok(t) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], t).into_response(),
+        Some(p) => match crate::codecast::load(p) {
+            Ok(l) => ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], l.text).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
         },
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// The project's own glossary (`glossary.md` next to the script), re-read on every request.
+async fn api_glossary(State(s): State<AppState>) -> Response {
+    let Some(p) = &s.script else { return StatusCode::NOT_FOUND.into_response() };
+    match std::fs::read_to_string(crate::codecast::glossary_path(p)) {
+        Ok(t) => ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], t).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// An audio file named by an `audio:` line, relative to the script's directory.
+async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<String>) -> Response {
+    let Some(script) = &s.script else { return StatusCode::NOT_FOUND.into_response() };
+    if !crate::codecast::is_safe_audio_name(&name) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let dir = if script.is_dir() { script.clone() } else { script.parent().map(Path::to_path_buf).unwrap_or_default() };
+    match std::fs::read(dir.join(&name)) {
+        Ok(b) => {
+            let mime = mime_guess::from_path(&name).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.as_ref().to_string())], b).into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -187,7 +222,7 @@ async fn static_handler(uri: Uri) -> Response {
 /// served as static files (e.g. inside a documentation site).
 pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
     let project = analyze(&path)?;
-    let script = script.or_else(|| Some(path.join("codecast.txt")).filter(|p| p.exists()));
+    let script = script.or_else(|| crate::codecast::locate(&path));
     if Assets::get("index.html").is_none() {
         anyhow::bail!("web UI not built into this binary; run ./build.sh first");
     }
@@ -208,12 +243,25 @@ pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Optio
     }
     std::fs::write(out.join("project.json"), serde_json::to_vec(&project)?)?;
     if let Some(s) = &script {
-        let text = std::fs::read_to_string(s)?;
-        let sc = iwr_core::script::parse(&text);
+        let loaded = crate::codecast::load(s)?;
+        let sc = iwr_core::script::parse(&loaded.text);
         for b in iwr_core::script::check(&project, &sc) {
             eprintln!("script: {}", b);
         }
-        std::fs::write(out.join("script.txt"), text)?;
+        std::fs::write(out.join("codecast.md"), &loaded.text)?;
+        if let Some(g) = &loaded.glossary {
+            std::fs::write(out.join("glossary.md"), g)?;
+        }
+        // recordings named by `audio:` lines go to out/codecast/
+        for a in crate::codecast::audio_files(&sc) {
+            let src = loaded.dir.join(&a);
+            if src.is_file() && crate::codecast::is_safe_audio_name(&a) {
+                std::fs::create_dir_all(out.join("codecast"))?;
+                std::fs::copy(&src, out.join("codecast").join(&a))?;
+            } else {
+                eprintln!("script: audio file not found or not allowed: {}", src.display());
+            }
+        }
     }
     if let Some(a) = &audio {
         let ext = a.extension().and_then(|e| e.to_str()).unwrap_or("mp3");

@@ -1,33 +1,59 @@
 //! Codecast scripts: spoken text with references to what to show and highlight.
 //!
-//! Plain-text format (see docs/codecast.md):
+//! Markdown-compatible text format (see docs/codecast.md). One file (`codecast.md`) or a
+//! `codecast/` directory with `index.md` plus one file per part (`01-welcome.md`, …; see [`assemble`]).
 //!
 //! ```text
 //! # Title                     script title (first line)
-//! audio: codecast.mp3        optional recorded voice
+//! audio: codecast.mp3        optional recorded voice for the whole script
 //!
 //! ## Part name                a part; users can play one part alone
+//! audio: 01-welcome.mp3       optional recording of this part only ([t] times are then relative to it)
 //! @ flow:crate::run           show <view>[:<ref>]  (sticky)
 //! ! crate::run/b1 crate::run  highlight refs       (sticky; `!` alone clears)
 //! = src/main.rs:49:18-44      underline code       (this cue only)
 //! [9.4]                       start time in seconds (audio mode)
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
+//! ? What is a crate?          a question the listener can click (pauses the codecast)
+//!   The answer, indented.     answer lines; may hold their own `@` `!` `=` directives
 //! ```
+//!
+//! `glossary: off` in the header turns the built-in glossary questions off for this script
+//! (see [`crate::glossary`]); `pronounce: Dioxus = dee ox us` fixes how TTS says a word
+//! (see [`crate::speech`]).
 
 use crate::model::*;
 use crate::views::Mode;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Script {
     pub title: String,
     pub audio: Option<String>,
+    /// `glossary: off` → false: no automatic questions from the built-in glossary
+    #[serde(default = "yes")]
+    pub glossary: bool,
+    /// `pronounce: written = spoken` header lines (see [`crate::speech`])
+    #[serde(default)]
+    pub pronounce: Vec<(String, String)>,
     pub parts: Vec<Part>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Script {
+    fn default() -> Self {
+        Script { title: String::new(), audio: None, glossary: true, pronounce: vec![], parts: vec![] }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Part {
     pub name: String,
+    /// Recording of this part alone (relative to the script's directory); overrides `Script::audio`.
+    pub audio: Option<String>,
     pub cues: Vec<Cue>,
 }
 
@@ -41,6 +67,25 @@ pub struct Cue {
     /// code ref to underline
     pub code: Option<String>,
     pub t: Option<f64>,
+    /// questions offered while this cue is shown (`?` lines)
+    #[serde(default)]
+    pub questions: Vec<Question>,
+}
+
+/// A question the listener can click. Answering pauses the codecast, shows and speaks the
+/// answer (applying its directives), then resumes. Written in the script with `?`, or taken
+/// from a glossary when the cue text mentions the term.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Question {
+    pub ask: String,
+    /// markdown; spoken with [`speakable`]
+    pub answer: String,
+    pub show: Option<String>,
+    pub hl: Option<Vec<String>>,
+    pub code: Option<String>,
+    /// glossary term this came from (`None` for questions written in the script)
+    #[serde(default)]
+    pub term: Option<String>,
 }
 
 impl Script {
@@ -54,29 +99,83 @@ impl Script {
 /// Parse the text format. Never fails: unknown lines become spoken text.
 pub fn parse(text: &str) -> Script {
     let mut s = Script::default();
-    let mut part = Part { name: "Codecast".into(), cues: vec![] };
+    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![] };
     let mut pending = Cue::default();
+    let mut in_part = false;
+    // a `?` block being read: it goes to the previous cue when no directive is pending for the
+    // next one, else to the next cue
+    let mut question: Option<(Question, bool)> = None;
+    fn flush(q: &mut Option<(Question, bool)>, part: &mut Part, pending: &mut Cue) {
+        if let Some((mut q, prev)) = q.take() {
+            q.answer = q.answer.trim().to_string();
+            match (prev, part.cues.last_mut()) {
+                (true, Some(c)) => c.questions.push(q),
+                _ => pending.questions.push(q),
+            }
+        }
+    }
     for raw in text.lines() {
         let line = raw.trim_end();
         let t = line.trim_start();
         if t.is_empty() {
             continue;
         }
+        let indented = line.starts_with(' ') || line.starts_with('\t');
+        if let Some((q, _)) = question.as_mut() {
+            if indented {
+                // answer body; its own directives apply while the answer is shown
+                if let Some(rest) = t.strip_prefix("@ ").or_else(|| t.strip_prefix('@').filter(|r| !r.starts_with(' '))) {
+                    q.show = Some(rest.trim().to_string());
+                } else if let Some(rest) = t.strip_prefix("! ").or_else(|| (t == "!").then_some("")) {
+                    q.hl = Some(rest.split_whitespace().map(|r| r.to_string()).collect());
+                } else if let Some(rest) = t.strip_prefix("= ") {
+                    q.code = Some(rest.trim().to_string());
+                } else if !t.starts_with("//") {
+                    q.answer.push_str(t);
+                    q.answer.push('\n');
+                }
+                continue;
+            }
+            flush(&mut question, &mut part, &mut pending);
+        }
+        if let Some(rest) = t.strip_prefix("? ").or_else(|| (t == "?").then_some("")) {
+            let prev = pending == Cue::default() && !part.cues.is_empty();
+            question = Some((Question { ask: rest.trim().to_string(), ..Default::default() }, prev));
+            continue;
+        }
         if let Some(rest) = t.strip_prefix("## ") {
+            flush(&mut question, &mut part, &mut pending);
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
-            part = Part { name: rest.trim().to_string(), cues: vec![] };
+            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![] };
+            in_part = true;
             continue;
         }
         if let Some(rest) = t.strip_prefix("# ") {
+            // the first `#` heading is the title; later ones (e.g. one per part file) are ignored
             if s.title.is_empty() {
                 s.title = rest.trim().to_string();
-                continue;
             }
+            continue;
         }
         if let Some(rest) = t.strip_prefix("audio:") {
-            s.audio = Some(rest.trim().to_string());
+            let a = Some(rest.trim().to_string()).filter(|a| !a.is_empty());
+            if in_part {
+                part.audio = a;
+            } else {
+                s.audio = a;
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("glossary:") {
+            if !in_part {
+                s.glossary = !matches!(rest.trim().to_ascii_lowercase().as_str(), "off" | "no" | "false" | "none");
+            }
+            continue;
+        }
+        if t.starts_with("pronounce:") {
+            s.pronounce.extend(crate::speech::parse_pronounce(t));
             continue;
         }
         if let Some(rest) = t.strip_prefix('@') {
@@ -111,6 +210,7 @@ pub fn parse(text: &str) -> Script {
         pending.say = t.to_string();
         part.cues.push(std::mem::take(&mut pending));
     }
+    flush(&mut question, &mut part, &mut pending);
     if !part.cues.is_empty() || s.parts.is_empty() {
         s.parts.push(part);
     }
@@ -125,8 +225,17 @@ pub fn to_text(s: &Script) -> String {
     if let Some(a) = &s.audio {
         out.push_str(&format!("audio: {}\n", a));
     }
+    if !s.glossary {
+        out.push_str("glossary: off\n");
+    }
+    for (a, b) in &s.pronounce {
+        out.push_str(&format!("pronounce: {} = {}\n", a, b));
+    }
     for p in &s.parts {
         out.push_str(&format!("\n## {}\n", p.name));
+        if let Some(a) = &p.audio {
+            out.push_str(&format!("audio: {}\n", a));
+        }
         for c in &p.cues {
             if let Some(v) = &c.show {
                 out.push_str(&format!("@ {}\n", v));
@@ -141,6 +250,21 @@ pub fn to_text(s: &Script) -> String {
             match c.t {
                 Some(t) => out.push_str(&format!("[{}] {}\n", t, say)),
                 None => out.push_str(&format!("{}\n", say)),
+            }
+            for q in &c.questions {
+                out.push_str(&format!("? {}\n", q.ask));
+                if let Some(v) = &q.show {
+                    out.push_str(&format!("  @ {}\n", v));
+                }
+                if let Some(h) = &q.hl {
+                    out.push_str(&format!("  ! {}\n", h.join(" ")));
+                }
+                if let Some(cd) = &q.code {
+                    out.push_str(&format!("  = {}\n", cd));
+                }
+                for l in q.answer.lines() {
+                    out.push_str(&format!("  {}\n", l));
+                }
             }
         }
     }
@@ -174,6 +298,99 @@ fn flatten(say: &str) -> String {
         }
     }
     out.trim().to_string()
+}
+
+// ------------------------------------------------------------------ directory form
+
+/// One part file of a `codecast/` directory.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PartFile {
+    /// file name without extension, e.g. `01-welcome`
+    pub stem: String,
+    pub text: String,
+    /// sibling recording with the same stem (`01-welcome.mp3`), if any
+    pub audio: Option<String>,
+}
+
+/// Part name from a file stem: `01-how_it-runs` → `How it runs`.
+pub fn part_name_from_stem(stem: &str) -> String {
+    let rest = stem.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches(['-', '_', ' ', '.']);
+    let rest = if rest.is_empty() { stem } else { rest };
+    let words = rest.replace(['-', '_'], " ");
+    let mut c = words.trim().chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => "Part".into(),
+    }
+}
+
+/// Order the part files of a directory: the order listed in `index` (markdown links or list items
+/// naming `.md` files), then the rest sorted by name. `index.md` itself is never a part.
+pub fn order_parts(index: &str, stems: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in index.lines() {
+        let t = line.trim();
+        let Some(body) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).or_else(|| t.split_once(". ").filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit())).map(|(_, b)| b)) else { continue };
+        let target = match (body.rfind("](" ), body.ends_with(')')) {
+            (Some(i), true) => &body[i + 2..body.len() - 1],
+            _ => body.trim_matches('`'),
+        };
+        let stem = target.trim().trim_start_matches("./").trim_end_matches(".md").to_string();
+        if stems.contains(&stem) && !out.contains(&stem) {
+            out.push(stem);
+        }
+    }
+    let mut rest: Vec<&String> = stems.iter().filter(|s| !out.contains(s) && s.as_str() != "index").collect();
+    rest.sort();
+    out.extend(rest.into_iter().cloned());
+    out
+}
+
+/// Lines of `index.md` that are not the part list (title, `audio:`, intro cues).
+fn index_body(index: &str, stems: &[String]) -> String {
+    index
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            let listed = |target: &str| stems.contains(&target.trim().trim_start_matches("./").trim_end_matches(".md").to_string());
+            if let Some(body) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+                let target = match (body.rfind("](" ), body.ends_with(')')) {
+                    (Some(i), true) => &body[i + 2..body.len() - 1],
+                    _ => body.trim_matches('`'),
+                };
+                return !listed(target);
+            }
+            true
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Join `index.md` and the part files into one script text. Each part file becomes a `##` part:
+/// its first `##` heading names it, otherwise the file name does; a sibling recording becomes its
+/// `audio:` line unless the file sets one.
+pub fn assemble(index: &str, parts: &[PartFile]) -> String {
+    let stems: Vec<String> = parts.iter().map(|p| p.stem.clone()).collect();
+    let order = order_parts(index, &stems);
+    let mut out = index_body(index, &stems).trim_end().to_string();
+    out.push('\n');
+    for stem in order {
+        let Some(pf) = parts.iter().find(|p| p.stem == stem) else { continue };
+        let mut body: Vec<String> = pf.text.lines().map(|l| l.trim_end().to_string()).skip_while(|l| l.trim().is_empty() || l.trim_start().starts_with("# ")).collect();
+        let has_heading = body.first().map(|l| l.trim_start().starts_with("## ")).unwrap_or(false);
+        if !has_heading {
+            body.insert(0, format!("## {}", part_name_from_stem(&pf.stem)));
+        }
+        if let Some(a) = &pf.audio {
+            if !body.iter().any(|l| l.trim_start().starts_with("audio:")) {
+                body.insert(1, format!("audio: {}", a));
+            }
+        }
+        out.push('\n');
+        out.push_str(&body.join("\n"));
+        out.push('\n');
+    }
+    out
 }
 
 // ------------------------------------------------------------------ refs
@@ -339,6 +556,36 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
                     bad.push(format!("{}: unresolved ref `{}` in `=`", at, r));
                 }
             }
+            for q in &c.questions {
+                let at = format!("{} / `? {}`", at, q.ask);
+                if q.ask.is_empty() {
+                    bad.push(format!("{}: question without text", at));
+                }
+                if q.answer.trim().is_empty() {
+                    bad.push(format!("{}: question without an answer (indent the answer lines)", at));
+                }
+                if let Some(show) = &q.show {
+                    let (v, r) = parse_show(show);
+                    if v.is_none() {
+                        bad.push(format!("{}: unknown view in `@ {}`", at, show));
+                    }
+                    if let Some(r) = r {
+                        if resolve(p, r).is_none() {
+                            bad.push(format!("{}: unresolved ref `{}` in `@`", at, r));
+                        }
+                    }
+                }
+                for r in q.hl.iter().flatten() {
+                    if resolve(p, r).is_none() {
+                        bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
+                    }
+                }
+                if let Some(r) = &q.code {
+                    if resolve(p, r).is_none() {
+                        bad.push(format!("{}: unresolved ref `{}` in `=`", at, r));
+                    }
+                }
+            }
         }
     }
     bad
@@ -348,8 +595,8 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
 
 /// Turn the generated tour into a script: one part per chapter (`GuideStep::part`).
 pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
-    let mut s = Script { title: format!("Tour of {}", p.name), audio: None, parts: vec![] };
-    let mut part = Part { name: String::new(), cues: vec![] };
+    let mut s = Script { title: format!("Tour of {}", p.name), ..Default::default() };
+    let mut part = Part { name: String::new(), audio: None, cues: vec![] };
     let mut last_show: Option<String> = None;
     for st in steps {
         if st.part != part.name {
@@ -371,7 +618,7 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
             }
         }
         let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
-        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None });
+        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![] });
         last_show = Some(show);
     }
     if !part.cues.is_empty() {
@@ -380,8 +627,15 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
     s
 }
 
-/// Spoken form of a cue: markdown and code blocks stripped.
+/// Spoken form of a cue: markdown and code blocks stripped, code tokens said as words
+/// ([`crate::speech::spoken`] with the built-in pronunciations). Players with a script's own
+/// `pronounce:` list call `speech::spoken` directly.
 pub fn speakable(say: &str) -> String {
+    crate::speech::spoken(say, &crate::speech::builtin_pronounce())
+}
+
+/// Markdown stripped, code left as written (for matching glossary terms).
+pub fn plain(say: &str) -> String {
     let mut out = String::new();
     let mut in_code = false;
     for line in say.lines() {

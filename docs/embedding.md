@@ -8,7 +8,7 @@ iwr export path/to/project -o site/
 
 `site/` = `index.html` + `assets/*.js|wasm` + `project.json`. Relative paths only, so it works from any static host and any sub-path (`/docs/viz/`). The UI detects the missing `/api/version` and loads `project.json` once (no live reload).
 
-Add `--script codecast.txt [--audio voice.mp3]` to ship a codecast with it (`script.txt` and the audio file land next to `index.html`; the player picks them up).
+Add `--script codecast.md [--audio voice.mp3]` to ship a codecast with it (a `codecast/` directory or `codecast.md` next to the project is taken automatically). `codecast.md` lands next to `index.html` (with `glossary.md` when the project has one), recordings named by `audio:` lines in `codecast/`, the `--audio` file as `audio.*`; the player picks them up.
 
 Embed in a page:
 

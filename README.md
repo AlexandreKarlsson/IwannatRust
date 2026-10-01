@@ -98,11 +98,17 @@ Then every parsed task is saved into storage, one per loop iteration.
 
 ```sh
 iwr brief examples/demo --guide > brief.txt   # writing guide + the code as text with block ids
-iwr check codecast.txt --path examples/demo   # every ref must resolve
-iwr serve examples/demo --script codecast.txt [--audio voice.mp3]
+iwr check codecast.md --path examples/demo    # every ref must resolve
+iwr serve examples/demo --script codecast.md [--audio voice.mp3]
 ```
 
-[examples/demo/codecast.txt](examples/demo/codecast.txt) is a complete eight-part tour.
+Scripts are markdown. One `codecast.md`, or a `codecast/` directory with `index.md` and one file per
+part (plus an optional `NN-part.mp3` recording per part); either is picked up automatically next to
+the project. [examples/demo/codecast/](examples/demo/codecast/) is a complete eleven-part tour that
+also explains the Rust along the way. **Questions** appear under the caption while it plays: the
+ones written in the script (`? Why does deploy never run?`) and, whenever a cue says a Rust word,
+"What is a crate?", "What does the question mark do?"… from the built-in glossary. Click one: the
+tour pauses, answers, and carries on.
 Format, refs and player: [docs/codecast.md](docs/codecast.md) · writing guide:
 [docs/writing-codecasts.md](docs/writing-codecasts.md).
 

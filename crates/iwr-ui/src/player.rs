@@ -1,11 +1,12 @@
 //! Codecast player: plays a `Script` (parts → cues) on top of the visualizer.
 //! Voice: browser TTS, a recorded audio file, or silent reading.
 
+use crate::icons::Icon;
 use crate::md::Markdown;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::model::Span;
-use iwr_core::script::{self, Cue, Resolved, Script};
+use iwr_core::script::{self, Cue, Question, Resolved, Script};
 use iwr_core::views::Mode;
 use std::rc::Rc;
 
@@ -19,21 +20,109 @@ pub enum Voice {
 /// Player state (all signals live in `State`; these helpers act on them).
 impl State {
     pub fn load_script(&mut self, s: Script) {
-        let has_audio = s.audio.is_some() || *self.audio_url.read() != None;
-        if let Some(a) = &s.audio {
-            if self.audio_url.read().is_none() {
-                self.audio_url.set(Some(a.clone()));
-            }
-        }
+        let mut pron = iwr_core::speech::builtin_pronounce();
+        pron.extend(self.glossary_pronounce.read().iter().cloned());
+        pron.extend(s.pronounce.iter().cloned());
+        self.pronounce.set(Rc::new(pron));
         self.script.set(Some(Rc::new(s)));
         self.part_idx.set(0);
         self.cue_idx.set(0);
         self.playing.set(false);
+        self.answering.set(None);
+        self.asked.set(vec![]);
         self.tts_gen += 1;
-        if has_audio {
+        if self.effective_audio().is_some() {
             self.voice.set(Voice::Audio);
         }
         self.apply_cue();
+    }
+
+    /// Questions to offer for the current cue: the script's own, then glossary terms the cue
+    /// mentions that were not answered yet.
+    pub fn questions(&self) -> Vec<Question> {
+        let Some(cue) = self.current_cue() else { return vec![] };
+        let use_glossary = *self.glossary_on.read() && self.script.read().as_ref().map(|s| s.glossary).unwrap_or(true);
+        let g = self.glossary.read().clone();
+        let asked = self.asked.read().clone();
+        let empty: Vec<iwr_core::glossary::Entry> = vec![];
+        let own: Vec<Question> = cue.questions.iter().filter(|q| !asked.iter().any(|a| a == &q.ask)).cloned().collect();
+        let cue = Cue { questions: own, ..cue };
+        iwr_core::glossary::questions_for(&cue, if use_glossary { &g } else { &empty }, &asked, 4)
+    }
+
+    /// Answer a question: pause the codecast, show what the answer points at, speak it.
+    pub fn ask(&mut self, q: Question) {
+        let was_playing = *self.playing.read();
+        self.resume_after_answer.set(was_playing);
+        self.tts_gen += 1;
+        if *self.voice.read() == Voice::Audio {
+            document::eval("try { const a = document.getElementById('iwr-audio'); if (a) a.pause(); } catch (e) {}");
+        }
+        self.playing.set(false);
+        document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+        let project = self.project.read().clone();
+        if let Some(p) = project {
+            self.apply_directives(&p, q.show.as_deref(), q.hl.as_ref(), q.code.as_deref());
+        }
+        self.answering.set(Some(q));
+    }
+
+    /// Done with the answer: remember it, restore the cue, resume if the codecast was playing.
+    pub fn finish_answer(&mut self) {
+        let Some(q) = self.answering.read().clone() else { return };
+        let key = q.term.clone().unwrap_or_else(|| q.ask.clone());
+        if !self.asked.read().contains(&key) {
+            self.asked.write().push(key);
+        }
+        self.answering.set(None);
+        document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+        self.tts_gen += 1;
+        self.apply_cue();
+        if *self.resume_after_answer.read() {
+            self.resume_after_answer.set(false);
+            if *self.voice.read() == Voice::Audio {
+                document::eval("try { const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {}); } catch (e) {}");
+            } else {
+                self.playing.set(true);
+            }
+        }
+    }
+
+    /// A relative `audio:` name resolved against the codecast directory URL.
+    fn audio_src(&self, name: &str) -> String {
+        if name.contains("://") || name.starts_with("data:") || name.starts_with('/') {
+            name.to_string()
+        } else {
+            format!("{}{}", self.audio_base.read(), name)
+        }
+    }
+
+    /// Does the current part have a recording of its own (`[t]` times relative to it)?
+    pub fn part_has_audio(&self) -> bool {
+        self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).map(|p| p.audio.is_some()).unwrap_or(false)
+    }
+
+    /// The recording to play now: the part's own, else the script's, else the one given from outside.
+    pub fn effective_audio(&self) -> Option<String> {
+        let s = self.script.read().clone();
+        if let Some(s) = &s {
+            if let Some(a) = s.parts.get(*self.part_idx.read()).and_then(|p| p.audio.as_deref()) {
+                return Some(self.audio_src(a));
+            }
+            if let Some(a) = &s.audio {
+                return Some(self.audio_src(a));
+            }
+        }
+        self.audio_url.read().clone()
+    }
+
+    /// In recording mode, move the player head to the current cue's `[t]`.
+    pub fn seek_audio(&self) {
+        if *self.voice.read() != Voice::Audio {
+            return;
+        }
+        let Some(t) = self.current_cue().and_then(|c| c.t) else { return };
+        document::eval(&format!("try {{ const a = document.getElementById('iwr-audio'); if (a) a.currentTime = {:.3}; }} catch (e) {{}}", t));
     }
 
     pub fn start_builtin_guide(&mut self, root: Option<usize>) {
@@ -71,6 +160,7 @@ impl State {
         }
         self.cue_idx.set(next as usize);
         self.apply_cue();
+        self.seek_audio();
         true
     }
 
@@ -99,6 +189,7 @@ impl State {
         self.cue_idx.set(0);
         self.tts_gen += 1;
         self.apply_cue();
+        self.seek_audio();
         self.playing.set(true);
     }
 
@@ -107,16 +198,22 @@ impl State {
         self.cue_idx.set(0);
         self.tts_gen += 1;
         self.apply_cue();
+        self.seek_audio();
     }
 
     /// Apply the current cue: view, root/scope, highlights, code mark, camera.
     pub fn apply_cue(&mut self) {
         let Some(p) = self.project.read().clone() else { return };
         let Some(cue) = self.current_cue() else { return };
+        self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
+    }
+
+    /// Apply `@` / `!` / `=` directives (of a cue or of an answer), then move the camera.
+    pub fn apply_directives(&mut self, p: &Rc<iwr_core::model::Project>, show: Option<&str>, hl: Option<&Vec<String>>, code: Option<&str>) {
         self.hovered.set(None);
         self.hover_span.set(None);
         self.animate.set(true);
-        if let Some(show) = &cue.show {
+        if let Some(show) = show {
             let (mode, r) = script::parse_show(show);
             if let Some(m) = mode {
                 if m != *self.mode.read() {
@@ -126,7 +223,7 @@ impl State {
                     }
                 }
                 if let Some(r) = r {
-                    if let Some(res) = script::resolve(&p, r) {
+                    if let Some(res) = script::resolve(p, r) {
                         if let Some(mid) = res.module {
                             self.set_scope(Some(mid));
                         } else if res.item.is_none() {
@@ -150,8 +247,8 @@ impl State {
                 }
             }
         }
-        if let Some(refs) = &cue.hl {
-            let resolved: Vec<Resolved> = refs.iter().filter_map(|r| script::resolve(&p, r)).collect();
+        if let Some(refs) = hl {
+            let resolved: Vec<Resolved> = refs.iter().filter_map(|r| script::resolve(p, r)).collect();
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
                 for r in &resolved {
@@ -181,7 +278,7 @@ impl State {
             }
             self.hl.set(resolved);
         }
-        self.code_mark.set(cue.code.as_deref().and_then(|c| script::resolve(&p, c)).map(|r| r.span));
+        self.code_mark.set(code.and_then(|c| script::resolve(p, c)).map(|r| r.span));
         if let Some(m) = *self.code_mark.read() {
             self.selected_span.set(Some(m));
         }
@@ -226,16 +323,22 @@ async fn fetch_text(url: &str) -> Option<String> {
     r.text().await.ok()
 }
 
-/// Try to load a script from the server (`/api/script`) or the static export (`script.txt`).
-pub async fn fetch_script(live: bool) -> Option<(String, Option<String>)> {
+/// Try to load a script from the server (`/api/script`) or the static export (`codecast.md`).
+/// Returns (text, external audio url, base url for relative `audio:` names, project glossary text).
+pub async fn fetch_script(live: bool) -> Option<(String, Option<String>, String, Option<String>)> {
     if live {
         let t = fetch_text("/api/script").await?;
         let audio = gloo_net::http::RequestBuilder::new("/api/audio").method(gloo_net::http::Method::HEAD).send().await.ok().filter(|r| r.ok()).map(|_| "/api/audio".to_string());
-        Some((t, audio))
+        let glossary = fetch_text("/api/glossary").await;
+        Some((t, audio, "/api/codecast/".into(), glossary))
     } else {
-        let t = fetch_text("script.txt").await?;
+        let t = match fetch_text("codecast.md").await {
+            Some(t) => t,
+            None => fetch_text("script.txt").await?,
+        };
         let audio = fetch_text("audio.txt").await.map(|a| a.trim().to_string());
-        Some((t, audio))
+        let glossary = fetch_text("glossary.md").await;
+        Some((t, audio, "codecast/".into(), glossary))
     }
 }
 
@@ -247,7 +350,7 @@ pub fn PlayerBar() -> Element {
     let cue_idx = *state.cue_idx.read();
     let playing = *state.playing.read();
     let voice = *state.voice.read();
-    let audio_url = state.audio_url.read().clone();
+    let audio_url = state.effective_audio();
     let Some(part) = s.parts.get(part_idx) else { return rsx! {} };
     let Some(cue) = part.cues.get(cue_idx) else { return rsx! {} };
     let total = part.cues.len();
@@ -258,6 +361,8 @@ pub fn PlayerBar() -> Element {
     let tour = *state.tour.read();
     let mut show_load = use_signal(|| false);
     let mut paste = use_signal(String::new);
+    let answering = state.answering.read().clone();
+    let questions = if answering.is_none() { state.questions() } else { vec![] };
 
     // ---- TTS: speak the current cue while playing; advance on end
     let gen = *state.tts_gen.read();
@@ -271,11 +376,13 @@ pub fn PlayerBar() -> Element {
             return;
         }
         if !playing {
-            document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+            if state.answering.read().is_none() {
+                document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+            }
             return;
         }
         let Some(cue) = state.current_cue() else { return };
-        let text = script::speakable(&cue.say);
+        let text = iwr_core::speech::spoken(&cue.say, &state.pronounce.peek());
         let rate = *state.tts_rate.peek();
         let js = format!(
             r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
@@ -305,10 +412,46 @@ pub fn PlayerBar() -> Element {
     });
     let _ = gen;
 
+    // ---- Answer: speak it (unless reading silently); when it ends, resume the codecast
+    use_effect(move || {
+        let Some(q) = state.answering.read().clone() else { return };
+        if *state.voice.peek() == Voice::Read {
+            return;
+        }
+        let pron = state.pronounce.peek().clone();
+        let text = format!("{} {}", iwr_core::speech::spoken(&q.ask, &pron), iwr_core::speech::spoken(&q.answer, &pron));
+        let rate = *state.tts_rate.peek();
+        let js = format!(
+            r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
+               const u = new SpeechSynthesisUtterance({});
+               u.rate = {rate:.2};
+               u.onend = () => dioxus.send("end");
+               u.onerror = (e) => dioxus.send("error:" + e.error);
+               setTimeout(() => speechSynthesis.speak(u), 60);
+               "#,
+            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into())
+        );
+        let my_gen = *state.tts_gen.peek();
+        spawn(async move {
+            let mut ev = document::eval(&js);
+            if let Ok(msg) = ev.recv::<String>().await {
+                if *state.tts_gen.peek() != my_gen || state.answering.peek().is_none() {
+                    return;
+                }
+                if msg == "end" {
+                    gloo_timers::future::sleep(std::time::Duration::from_millis(600)).await;
+                    if *state.tts_gen.peek() == my_gen && state.answering.peek().is_some() {
+                        state.finish_answer();
+                    }
+                }
+            }
+        });
+    });
+
     // ---- Audio: follow the recording's time
     use_effect(move || {
         let voice = *state.voice.read();
-        let url = state.audio_url.read().clone();
+        let url = state.effective_audio();
         if voice != Voice::Audio || url.is_none() {
             return;
         }
@@ -325,13 +468,32 @@ pub fn PlayerBar() -> Element {
             loop {
                 match ev.recv::<f64>().await {
                     Ok(t) if t == -1.0 => state.playing.set(true),
-                    Ok(t) if t == -2.0 || t == -3.0 => state.playing.set(false),
+                    Ok(t) if t == -2.0 => state.playing.set(false),
+                    Ok(t) if t == -3.0 => {
+                        // end of a per-part recording: continue with the next part when touring
+                        let n = state.script.peek().as_ref().map(|s| s.parts.len()).unwrap_or(0);
+                        let part = *state.part_idx.peek();
+                        if state.part_has_audio() && *state.tour.peek() && part + 1 < n {
+                            state.goto_part(part + 1);
+                            if state.part_has_audio() {
+                                document::eval("setTimeout(() => { const a = document.getElementById('iwr-audio'); if (a) { a.currentTime = 0; a.play().catch(() => {}); } }, 150);");
+                                continue;
+                            }
+                        }
+                        state.playing.set(false);
+                    }
                     Ok(t) => {
-                        // cue with the largest start time <= t, across all parts
+                        // cue with the largest start time <= t: inside this part when it has its own
+                        // recording, else across every part that shares the script's recording
                         let Some(s) = state.script.read().clone() else { break };
+                        let own = state.part_has_audio();
+                        let cur_part = *state.part_idx.peek();
                         let mut best: Option<(usize, usize)> = None;
                         let mut best_t = -1.0;
                         for (pi, p) in s.parts.iter().enumerate() {
+                            if (own && pi != cur_part) || (!own && p.audio.is_some()) {
+                                continue;
+                            }
                             for (ci, c) in p.cues.iter().enumerate() {
                                 if let Some(ct) = c.t {
                                     if ct <= t && ct >= best_t {
@@ -360,7 +522,16 @@ pub fn PlayerBar() -> Element {
             div { class: "ctl",
                 div { class: "row",
                     button { onclick: move |_| { state.tts_gen += 1; state.step(-1); }, disabled: cue_idx == 0, "◀" }
-                    button { class: if playing { "active" } else { "" }, onclick: move |_| { let p = *state.playing.read(); state.tts_gen += 1; state.playing.set(!p); }, if playing { "❚❚ pause" } else { "▶ play" } }
+                    button { class: if playing { "active" } else { "" }, onclick: move |_| {
+                        let p = *state.playing.read();
+                        state.tts_gen += 1;
+                        if *state.voice.read() == Voice::Audio {
+                            // the recording drives `playing` through its own events
+                            document::eval(if p { "const a = document.getElementById('iwr-audio'); if (a) a.pause();" } else { "const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {});" });
+                        } else {
+                            state.playing.set(!p);
+                        }
+                    }, if playing { "❚❚ pause" } else { "▶ play" } }
                     button { onclick: move |_| { state.tts_gen += 1; state.step(1); }, disabled: cue_idx + 1 >= total, "▶|" }
                 }
                 div { class: "status", "{cue_idx + 1} / {total} · part {part_idx + 1} / {n_parts}" }
@@ -402,12 +573,33 @@ pub fn PlayerBar() -> Element {
                     }
                 }
                 Markdown { text: say }
+                if let Some(q) = answering.clone() {
+                    div { class: "answer",
+                        div { class: "q",
+                            Icon { name: "question", size: 14 }
+                            "{q.ask}"
+                            if q.term.is_some() { span { class: "src", "glossary" } }
+                            div { class: "spacer" }
+                            button { class: "small", title: "back to the codecast (space / Esc)", onclick: move |_| state.finish_answer(), if *state.resume_after_answer.read() { "▶ continue" } else { "✓ got it" } }
+                        }
+                        Markdown { text: q.answer.clone() }
+                    }
+                } else if !questions.is_empty() {
+                    div { class: "qs",
+                        span { class: "lbl", "ask:" }
+                        for q in questions.iter().cloned() {
+                            { let own = q.term.is_none(); let ask = q.ask.clone(); rsx! {
+                                button { class: if own { "own" } else { "" }, title: if own { "question from the script" } else { "from the Rust glossary" }, onclick: move |_| state.ask(q.clone()), "{ask}" }
+                            } }
+                        }
+                    }
+                }
                 if show_load() {
                     div { class: "loader",
-                        div { class: "status", "Load a codecast script (text format, see docs/codecast.md). Paste it or pick a file; optional audio file for a recording." }
+                        div { class: "status", "Load a codecast script (markdown, see docs/codecast.md). Paste it or pick a file; optional audio file for a recording." }
                         textarea { rows: 5, placeholder: "# Title\n## Part\n@ flow:crate::run\n! crate::run/b1\nSpoken sentence…", value: "{paste}", oninput: move |e| paste.set(e.value()) }
                         div { class: "row",
-                            input { r#type: "file", accept: ".txt,.md,.script", onchange: move |e| {
+                            input { r#type: "file", accept: ".md,.txt,.script", onchange: move |e| {
                                 let files = e.files();
                                 spawn(async move {
                                     if let Some(f) = files.first() {

@@ -184,6 +184,9 @@ pub struct ViewOptions {
     pub show_tests: bool,
     pub show_constructs: bool,
     pub max_nodes: usize,
+    /// Item kinds hidden in the Structure view (empty = show everything). Hiding `Impl`
+    /// flattens the methods of impl blocks into their module; hiding `Method` hides them.
+    pub hidden_kinds: HashSet<ItemKind>,
 }
 
 impl Default for ViewOptions {
@@ -199,11 +202,16 @@ impl Default for ViewOptions {
             show_tests: false,
             show_constructs: false,
             max_nodes: 400,
+            hidden_kinds: HashSet::new(),
         }
     }
 }
 
 impl ViewOptions {
+    pub fn shows(&self, k: ItemKind) -> bool {
+        !self.hidden_kinds.contains(&k)
+    }
+
     /// Is `m` inside the scoped module subtree (or is there no scope)?
     pub fn in_scope(&self, p: &Project, m: ModuleId) -> bool {
         let Some(scope) = self.module else { return true };
@@ -849,24 +857,52 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
         let y0 = col_heights[ci];
         let mid = format!("m{}", m);
         let mut y = y0 + 30.0 + PAD;
-        let items: Vec<&Item> = module.items.iter().map(|i| p.item(*i)).filter(|i| i.kind != ItemKind::Method && (opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false))).collect();
+        let visible_fn = |i: &Item| opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false);
+        let mut items: Vec<&Item> = Vec::new();
+        for it in module.items.iter().map(|i| p.item(*i)) {
+            if it.kind == ItemKind::Method || !visible_fn(it) {
+                continue;
+            }
+            if !opts.shows(it.kind) {
+                // hidden impl blocks and traits give their methods to the module (unless methods are hidden too)
+                if opts.shows(ItemKind::Method) {
+                    let methods: &[ItemId] = match &it.extra {
+                        ItemExtra::Impl(i) => &i.methods,
+                        ItemExtra::Trait(t) => &t.methods,
+                        _ => &[],
+                    };
+                    items.extend(methods.iter().map(|m| p.item(*m)).filter(|m| visible_fn(m)));
+                }
+                continue;
+            }
+            items.push(it);
+        }
         let collapsed = opts.collapsed.contains(&mid);
         if !collapsed {
             for it in &items {
                 let iid = format!("{}/i{}", mid, it.id);
                 let mut v = mk_node(iid.clone(), it, 1);
                 v.parent = Some(mid.clone());
-                v.label = crate::shorten(&v.label, 34);
+                if it.kind == ItemKind::Method {
+                    // a method shown at module level (its impl block is hidden): say whose it is
+                    v.label = crate::shorten(&it.path.trim_start_matches("crate::").rsplit("::").take(2).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("::"), 34);
+                } else {
+                    v.label = crate::shorten(&v.label, 34);
+                }
                 v.sublabel = crate::shorten(&v.sublabel, 40);
                 v.x = x + PAD;
                 v.y = y;
                 v.w = COL_W - 2.0 * PAD;
                 v.h = 26.0;
                 v.badges.clear();
-                let methods: Vec<ItemId> = match &it.extra {
-                    ItemExtra::Impl(i) => i.methods.clone(),
-                    ItemExtra::Trait(t) => t.methods.clone(),
-                    _ => vec![],
+                let methods: Vec<ItemId> = if !opts.shows(ItemKind::Method) {
+                    vec![]
+                } else {
+                    match &it.extra {
+                        ItemExtra::Impl(i) => i.methods.iter().copied().filter(|m| visible_fn(p.item(*m))).collect(),
+                        ItemExtra::Trait(t) => t.methods.iter().copied().filter(|m| visible_fn(p.item(*m))).collect(),
+                        _ => vec![],
+                    }
                 };
                 let expandable = !methods.is_empty();
                 let expanded = expandable && opts.is_expanded(&iid, 1);

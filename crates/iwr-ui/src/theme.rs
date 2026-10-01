@@ -224,6 +224,11 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .edge.dim { opacity:.18; }
 .edge.near path { stroke-width:3 !important; opacity:1; }
 .hud .chip { background:var(--hl-bg); color:var(--hi); border-radius:999px; padding:1px 8px; font-size:11px; cursor:pointer; }
+.kinds { display:inline-flex; gap:4px; flex-wrap:wrap; align-items:center; }
+.kinds .kind { display:inline-flex; align-items:center; gap:3px; border:1px solid var(--border); border-radius:999px; padding:0 7px 0 4px; font-size:11px; line-height:18px; cursor:pointer; color:var(--text); background:var(--panel3); user-select:none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.kinds .kind.off { color:var(--muted); background:transparent; text-decoration:line-through; }
+.kinds .kind input { margin:0; width:11px; height:11px; accent-color:var(--accent); }
+.kinds .kind:hover { border-color:var(--accent); }
 .theme-select { font-size:12px; padding:3px 6px; border-radius:6px; }
 
 /* ---- Code view: blocks + source */
@@ -288,7 +293,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .edge-label { font-size:10px; fill:var(--text); pointer-events:none; }
 .edge-label-bg { fill:var(--bg); fill-opacity:.85; }
 .edge.hi path { stroke:var(--hi) !important; stroke-width:3 !important; }
-.hud { position:absolute; left:10px; top:10px; display:flex; gap:6px; align-items:center; }
+.hud { position:absolute; left:10px; top:10px; display:flex; gap:6px; align-items:center; white-space:nowrap; }
+.hud.hud2 { top:auto; bottom:10px; background:var(--panel); opacity:.95; border:1px solid var(--border); border-radius:8px; padding:3px 8px; }
 .legend { position:absolute; right:10px; bottom:10px; background:var(--panel); opacity:.95; border:1px solid var(--border); border-radius:8px; padding:6px 10px; font-size:11px; max-width:260px; display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; }
 .legend div { display:flex; align-items:center; gap:6px; white-space:nowrap; }
 .legend .sw { width:12px; height:12px; border-radius:3px; display:inline-block; }
@@ -333,6 +339,18 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .source-pane .line, .source .line { transition: background .3s; }
 .source .mark, .source-pane .mark { text-decoration: underline 2px var(--hi); text-underline-offset:3px; background:color-mix(in srgb, var(--hi) 35%, transparent); border-radius:2px; }
 .guide .parts { display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+.guide .qs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px; animation: qs-in .35s ease-out; }
+.guide .qs .lbl { color:var(--muted); font-size:11px; }
+.guide .qs button { border-radius:999px; padding:3px 10px; font-size:12px; border:1px solid var(--border); background:var(--panel2); color:var(--text); }
+.guide .qs button:hover { border-color:var(--hi); color:var(--hi); }
+.guide .qs button.own { border-color:color-mix(in srgb, var(--hi) 60%, var(--border)); }
+@keyframes qs-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.guide .answer { margin-top:6px; border-left:3px solid var(--hi); background:var(--panel2); padding:8px 12px; border-radius:0 8px 8px 0; }
+.guide .answer .q { font-weight:600; color:var(--hi); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
+.guide .answer .q .spacer { flex:1; }
+.guide .answer .src { color:var(--muted); font-size:11px; font-weight:400; }
+.spk { text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset:3px; cursor:help; }
+.spk-say { color:var(--muted); font-style:italic; }
 .guide .loader { margin-top:8px; border-top:1px solid var(--border); padding-top:6px; }
 .guide .loader textarea { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font: 12px ui-monospace, Menlo, Consolas, monospace; padding:6px; }
 .guide .loader .row { display:flex; gap:8px; align-items:center; margin-top:4px; }

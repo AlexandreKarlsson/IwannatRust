@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5) });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![] });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -251,4 +251,132 @@ fn script_roundtrip_and_refs() {
     assert_eq!(script::speakable("a `b` **c**\n```rust\nx\n```\n• d"), "a b c d");
     let brief = iwr_core::brief::build(&p, &iwr_core::brief::BriefOptions { only: None, bodies: true, overview: true });
     assert!(brief.contains("fn crate::main") && brief.contains("b1 ") && brief.contains("trait crate::util::Shape"));
+}
+
+#[test]
+fn script_directory_assembly_and_part_audio() {
+    use iwr_core::script::{self, PartFile};
+    // per-part audio and a second `#` heading (one per part file) are tolerated
+    let s = script::parse("# T\n\n## One\naudio: one.mp3\n[0.5] a\n\n# ignored\n## Two\nb\n");
+    assert_eq!(s.parts[0].audio.as_deref(), Some("one.mp3"));
+    assert_eq!(s.parts[1].audio, None);
+    assert_eq!(s.parts[1].cues[0].say, "b");
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    assert_eq!(script::part_name_from_stem("02-how_it-runs"), "How it runs");
+    assert_eq!(script::part_name_from_stem("welcome"), "Welcome");
+    // directory: index lists the order; unlisted files follow by name; sibling audio is picked up
+    let parts = vec![
+        PartFile { stem: "01-welcome".into(), text: "# Part file title\n## Welcome\n@ arch\nhi\n".into(), audio: Some("01-welcome.mp3".into()) },
+        PartFile { stem: "02-data".into(), text: "@ types\ndata\n".into(), audio: None },
+        PartFile { stem: "03-end".into(), text: "## The end\naudio: custom.ogg\nbye\n".into(), audio: Some("03-end.mp3".into()) },
+    ];
+    let index = "# Tour\n\n- [The end](03-end.md)\n- 01-welcome.md\n";
+    let text = script::assemble(index, &parts);
+    let s = script::parse(&text);
+    assert_eq!(s.title, "Tour");
+    assert_eq!(s.parts.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["The end", "Welcome", "Data"]);
+    assert_eq!(s.parts[0].audio.as_deref(), Some("custom.ogg"));
+    assert_eq!(s.parts[1].audio.as_deref(), Some("01-welcome.mp3"));
+    assert_eq!(s.parts[2].audio, None);
+    assert_eq!(s.parts[1].cues[0].show.as_deref(), Some("arch"));
+    assert_eq!(s.cue_count(), 3);
+    // the part list does not become cues
+    assert!(!text.contains("03-end.md"));
+}
+
+#[test]
+fn structure_hides_kinds() {
+    let p = project();
+    let all = views::build(&p, Mode::Structure, &ViewOptions::default());
+    let has = |g: &views::Graph, label: &str| g.nodes.iter().any(|n| n.label.contains(label));
+    assert!(has(&all, "Square") && has(&all, "double"));
+    let mut opts = ViewOptions::default();
+    opts.hidden_kinds = [ItemKind::Struct, ItemKind::Trait, ItemKind::Impl].into_iter().collect();
+    let g = views::build(&p, Mode::Structure, &opts);
+    assert!(has(&g, "double") && !g.nodes.iter().any(|n| matches!(n.kind, views::NodeKind::Struct | views::NodeKind::Trait | views::NodeKind::Impl)));
+    // the impl block is hidden, so its method shows at module level
+    assert!(g.nodes.iter().any(|n| n.kind == views::NodeKind::Method && n.depth == 1), "{:?}", g.nodes.iter().map(|n| (&n.label, n.depth)).collect::<Vec<_>>());
+    opts.hidden_kinds.insert(ItemKind::Method);
+    let g = views::build(&p, Mode::Structure, &opts);
+    assert!(!g.nodes.iter().any(|n| n.kind == views::NodeKind::Method));
+}
+
+#[test]
+fn script_questions_and_glossary() {
+    use iwr_core::glossary;
+    use iwr_core::script;
+    let p = project();
+    let text = "# T\nglossary: off\n\n## P\n@ arch\nThe parser is a module.\n? What is a module?\n  @ arch\n  ! crate::main\n  A box of code.\n  Second line.\n! crate::main\n? Before the next cue?\n  Yes.\nSecond cue.\n";
+    let s = script::parse(text);
+    assert!(!s.glossary);
+    let cues = &s.parts[0].cues;
+    assert_eq!(cues.len(), 2);
+    // a `?` right after a cue belongs to that cue; one after a directive belongs to the next cue
+    assert_eq!(cues[0].questions.len(), 1);
+    assert_eq!(cues[0].questions[0].ask, "What is a module?");
+    assert_eq!(cues[0].questions[0].answer, "A box of code.\nSecond line.");
+    assert_eq!(cues[0].questions[0].hl, Some(vec!["crate::main".to_string()]));
+    assert_eq!(cues[1].questions[0].ask, "Before the next cue?");
+    assert_eq!(cues[1].hl, Some(vec!["crate::main".to_string()]));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    assert!(script::check(&p, &s).is_empty(), "{:?}", script::check(&p, &s));
+    let bad = script::check(&p, &script::parse("## P\nHi.\n? Empty?\n! crate::nope\nNext.\n"));
+    assert!(bad.iter().any(|b| b.contains("without an answer")), "{:?}", bad);
+
+    let g = glossary::builtin();
+    assert!(g.len() > 20);
+    assert!(g.iter().all(|e| !e.ask.is_empty() && !e.answer.is_empty()));
+    let hits: Vec<&str> = glossary::mentioned(&g, "The parser is a module inside this crate, and `?` is the question mark.").iter().map(|e| e.term.as_str()).collect();
+    assert_eq!(hits, vec!["module", "crate", "question mark"]);
+    // whole words only, plural tolerated, case-insensitive
+    assert!(glossary::mentioned(&g, "Crates everywhere").iter().any(|e| e.term == "crate"));
+    assert!(glossary::mentioned(&g, "the implementation").iter().all(|e| e.term != "impl"));
+    // type names are case-sensitive: an English "box" is not `Box`, "an option" is not `Option`
+    assert!(glossary::mentioned(&g, "Every box is a module, you have an option.").iter().all(|e| e.term != "Box" && e.term != "Option"));
+    assert!(glossary::mentioned(&g, "It returns an Option, or a Box<dyn Store>.").iter().any(|e| e.term == "Option"));
+    let qs = glossary::questions_for(&cues[0], &g, &["module".into()], 3);
+    assert_eq!(qs.len(), 1, "the script's own question stays; the asked glossary term is not offered again");
+    let own = glossary::parse("# G\n## widget\nask: What is a widget?\nA thing.\n## crate\nOur crate.\n");
+    let merged = glossary::merge(&[g.clone(), own]);
+    assert_eq!(merged.iter().find(|e| e.term == "crate").unwrap().answer, "Our crate.");
+    assert!(merged.iter().any(|e| e.term == "widget"));
+}
+
+#[test]
+fn speech_says_code_as_words() {
+    use iwr_core::speech::{self, Segment};
+    let pron = speech::builtin_pronounce();
+    let say = |c: &str| speech::say_code(c, &pron);
+    assert_eq!(say("crate::parser::parse_all"), "parse all");
+    assert_eq!(say("Task::weight"), "Task weight");
+    assert_eq!(say("MemoryStorage"), "Memory Storage");
+    assert_eq!(say("INPUT"), "INPUT");
+    assert_eq!(say("t.clone()"), "t dot clone");
+    assert_eq!(say("storage.save(t.clone())?"), "storage dot save of t dot clone, question mark");
+    assert_eq!(say("Result<usize, AppError>"), "Result of u size and App Error");
+    assert_eq!(say("&tasks"), "a reference to tasks");
+    assert_eq!(say("&mut x"), "a mutable reference to x");
+    assert_eq!(say("&str"), "string slice");
+    assert_eq!(say("|t| t.weight()"), "the closure taking t, t dot weight");
+    assert_eq!(say("println!(\"{}\", x)"), "print line");
+    assert_eq!(say("#[derive(Debug, Clone)]"), "the attribute derive of Debug and Clone");
+    assert_eq!(say("0..task.steps"), "0 up to task dot steps");
+    assert_eq!(say("if task.priority == Priority::Low && count > 2"), "if task dot priority equals Priority Low and count is greater than 2");
+    assert_eq!(say("'a"), "lifetime a");
+    assert_eq!(say("u32"), "u 32");
+    // pronounce overrides win
+    let own = vec![("Dioxus".to_string(), "dee ox us".to_string())];
+    assert_eq!(speech::say_code("Dioxus", &own), "dee ox us");
+    assert_eq!(speech::parse_pronounce("# T\npronounce: Dioxus = dee ox us\npronounce: bad\n"), own);
+
+    // bare words: code-looking ones become segments, English does not
+    let segs = speech::segments("Storage is a trait. MemoryStorage saves with t.clone(). Wow! Really? parse_all?", &pron);
+    let codes: Vec<&str> = segs.iter().filter_map(|s| if let Segment::Code { code, .. } = s { Some(code.as_str()) } else { None }).collect();
+    assert_eq!(codes, vec!["MemoryStorage", "t.clone()", "parse_all"]);
+    assert_eq!(speech::spoken("First, run hands the input to parse_all and gets tasks back.", &pron), "First, run hands the input to parse all and gets tasks back.");
+    assert_eq!(speech::spoken("`for t in &tasks` walks the list.", &pron), "for t in a reference to tasks, walks the list.");
+    assert_eq!(speech::spoken("The `?` after a call means: if it is `Ok`, carry on.", &pron), "The question mark after a call means: if it is Ok, carry on.");
+    assert_eq!(speech::spoken("Lint has 1.5 steps, maybe 3.", &pron), "Lint has 1.5 steps, maybe 3.");
+    assert!(speech::unspoken("parse_all and `a::b`", &pron).is_empty());
+    assert!(!speech::looks_like_code("Rust") && !speech::looks_like_code("Hello!") && speech::looks_like_code("vec!") && speech::looks_like_code("HashMap"));
 }
