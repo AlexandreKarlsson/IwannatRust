@@ -68,7 +68,7 @@ Every task is saved, in a loop.
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`.
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`, and a ```` ```mermaid ```` block for a [diagram](#diagrams).
 
 `audio:` before the first part names a recording of the whole script; inside a part, a recording of that
 part only (then its `[t]` times count from the start of that file). Names are relative to the script's
@@ -97,6 +97,39 @@ then the answer. Script questions come first, then glossary matches, four chips 
 While an answer is shown the codecast is paused; the answer is spoken (TTS mode) and the player
 resumes by itself when it ends, or on *continue* / `space` / `Esc`. In recording mode the recording
 pauses and plays on again afterwards.
+
+## Diagrams
+
+A part can draw its own picture when the code has none: a metaphor, a schema, a protocol, a
+physical effect. Write a mermaid flowchart in a fenced block inside the part (GitHub renders it
+too), show it with `@ diagram`, glow its nodes with `!` and their ids:
+
+````
+## Why tasks queue up
+```mermaid
+graph LR
+  subgraph stop[🚏 Stop]
+    alice[🧍 Alice]
+    bob[🧍 Bob]
+  end
+  stop --> bus[(🚌 Bus)] -->|arrives| office{Office?}
+```
+@ diagram
+! stop
+Think of tasks as passengers waiting at a stop.
+! alice bus
+Alice boards: the scheduler took the heaviest task first.
+````
+
+Supported: `graph LR|TD` (`flowchart` too), nodes `id[box]` `id(round)` `id([pill])` `id((pill))`
+`id{diamond}` `id[(store)]` with `"quoted"` labels and `<br>` line breaks, arrows `-->` `---`
+`-.->` `==>` with `|label|` or `-- label -->`, `a & b --> c`, `subgraph id[Title] … end` (nested,
+`direction LR` inside), `%%` comments, front matter `title:`. Shapes pick the colour: box blue,
+round green, pill purple, diamond yellow, store teal; groups are grey boxes behind their members.
+Emoji are plain label text. Several blocks in a part: `@ diagram:2`, or `@ diagram:<title>`. Node
+ids are letters, digits and `_`; an edge between two glowing nodes glows too. The *Diagram* tab
+appears in the top bar while a codecast has shown one. `iwr check` reports lines it cannot read,
+`@ diagram` without a block, and `!` refs that are not node ids while a diagram is shown.
 
 ## How code is spoken
 

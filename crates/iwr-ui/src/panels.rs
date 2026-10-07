@@ -12,6 +12,7 @@ pub fn TopBar() -> Element {
     let mode = *state.mode.read();
     let name = state.project.read().as_ref().map(|p| p.name.clone()).unwrap_or_default();
     let has_guide = state.script.read().is_some();
+    let has_diagram = state.diagram.read().is_some();
     let search = state.search.read().clone();
     let views_open = *state.views_open.read() || mode != Mode::Code;
     let show_source = *state.show_source.read();
@@ -32,6 +33,12 @@ pub fn TopBar() -> Element {
                         button { class: if m == mode && !settings_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{m.label()} — {m.description()}", "aria-label": "{m.label()}",
                             onclick: move |_| { state.settings_open.set(false); state.set_mode(m) },
                             img { class: "ico", src: icons::uri(icons::for_mode(m)), width: "18", height: "18", alt: "", draggable: false }
+                        }
+                    }
+                    if has_diagram {
+                        button { class: if mode == Mode::Diagram && !settings_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{Mode::Diagram.label()} — {Mode::Diagram.description()}", "aria-label": "{Mode::Diagram.label()}",
+                            onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Diagram) },
+                            img { class: "ico", src: icons::uri("diagram"), width: "18", height: "18", alt: "", draggable: false }
                         }
                     }
                 }

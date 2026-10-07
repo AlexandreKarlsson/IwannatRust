@@ -171,8 +171,18 @@ fn main() -> Result<()> {
                 }
             }
             let nq: usize = s.parts.iter().flat_map(|p| &p.cues).map(|c| c.questions.len()).sum();
+            let nd: usize = s.parts.iter().map(|p| p.diagrams.len()).sum();
             let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
-            println!("{}: {} part(s), {} cue(s), {} question(s){}{}", s.title, s.parts.len(), s.cue_count(), nq, if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() }, if s.glossary { "" } else { ", built-in glossary off" });
+            println!(
+                "{}: {} part(s), {} cue(s), {} question(s){}{}{}",
+                s.title,
+                s.parts.len(),
+                s.cue_count(),
+                nq,
+                if nd > 0 { format!(", {} diagram(s)", nd) } else { String::new() },
+                if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() },
+                if s.glossary { "" } else { ", built-in glossary off" }
+            );
             for b in &bad {
                 println!("  {}", b);
             }

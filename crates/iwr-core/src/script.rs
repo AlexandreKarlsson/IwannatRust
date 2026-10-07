@@ -21,7 +21,11 @@
 //! `glossary: off` in the header turns the built-in glossary questions off for this script
 //! (see [`crate::glossary`]); `pronounce: Dioxus = dee ox us` fixes how TTS says a word
 //! (see [`crate::speech`]).
+//!
+//! A ```` ```mermaid ```` fenced block inside a part is a diagram (see [`crate::diagram`]):
+//! `@ diagram` shows it, `!` glows its nodes by id.
 
+use crate::diagram::Diagram;
 use crate::model::*;
 use crate::views::Mode;
 use serde::{Deserialize, Serialize};
@@ -55,6 +59,9 @@ pub struct Part {
     /// Recording of this part alone (relative to the script's directory); overrides `Script::audio`.
     pub audio: Option<String>,
     pub cues: Vec<Cue>,
+    /// ```` ```mermaid ```` blocks of the part, in order (`@ diagram`, `@ diagram:2`, `@ diagram:<title>`)
+    #[serde(default)]
+    pub diagrams: Vec<Diagram>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -99,12 +106,14 @@ impl Script {
 /// Parse the text format. Never fails: unknown lines become spoken text.
 pub fn parse(text: &str) -> Script {
     let mut s = Script::default();
-    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![] };
+    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![], diagrams: vec![] };
     let mut pending = Cue::default();
     let mut in_part = false;
     // a `?` block being read: it goes to the previous cue when no directive is pending for the
     // next one, else to the next cue
     let mut question: Option<(Question, bool)> = None;
+    // lines of a ```mermaid block being read
+    let mut fence: Option<Vec<String>> = None;
     fn flush(q: &mut Option<(Question, bool)>, part: &mut Part, pending: &mut Cue) {
         if let Some((mut q, prev)) = q.take() {
             q.answer = q.answer.trim().to_string();
@@ -118,6 +127,15 @@ pub fn parse(text: &str) -> Script {
         let line = raw.trim_end();
         let t = line.trim_start();
         if t.is_empty() {
+            continue;
+        }
+        if let Some(buf) = fence.as_mut() {
+            if t.starts_with("```") {
+                part.diagrams.push(crate::diagram::parse(&buf.join("\n")));
+                fence = None;
+            } else {
+                buf.push(line.to_string());
+            }
             continue;
         }
         let indented = line.starts_with(' ') || line.starts_with('\t');
@@ -138,6 +156,12 @@ pub fn parse(text: &str) -> Script {
             }
             flush(&mut question, &mut part, &mut pending);
         }
+        if let Some(info) = t.strip_prefix("```") {
+            if info.trim().starts_with("mermaid") {
+                fence = Some(vec![]);
+                continue;
+            }
+        }
         if let Some(rest) = t.strip_prefix("? ").or_else(|| (t == "?").then_some("")) {
             let prev = pending == Cue::default() && !part.cues.is_empty();
             question = Some((Question { ask: rest.trim().to_string(), ..Default::default() }, prev));
@@ -148,7 +172,7 @@ pub fn parse(text: &str) -> Script {
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
-            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![] };
+            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![], diagrams: vec![] };
             in_part = true;
             continue;
         }
@@ -210,6 +234,10 @@ pub fn parse(text: &str) -> Script {
         pending.say = t.to_string();
         part.cues.push(std::mem::take(&mut pending));
     }
+    if let Some(buf) = fence.take() {
+        // unclosed block: keep what was read, the parser reports what is wrong with it
+        part.diagrams.push(crate::diagram::parse(&buf.join("\n")));
+    }
     flush(&mut question, &mut part, &mut pending);
     if !part.cues.is_empty() || s.parts.is_empty() {
         s.parts.push(part);
@@ -235,6 +263,9 @@ pub fn to_text(s: &Script) -> String {
         out.push_str(&format!("\n## {}\n", p.name));
         if let Some(a) = &p.audio {
             out.push_str(&format!("audio: {}\n", a));
+        }
+        for d in &p.diagrams {
+            out.push_str(&format!("```mermaid\n{}\n```\n", d.source));
         }
         for c in &p.cues {
             if let Some(v) = &c.show {
@@ -416,6 +447,7 @@ pub fn view_of(name: &str) -> Option<Mode> {
         "structure" => Mode::Structure,
         "types" => Mode::Types,
         "errors" | "error" => Mode::ErrorFlow,
+        "diagram" | "sketch" => Mode::Diagram,
         _ => return None,
     })
 }
@@ -430,6 +462,19 @@ pub fn view_name(m: Mode) -> &'static str {
         Mode::Structure => "structure",
         Mode::Types => "types",
         Mode::ErrorFlow => "errors",
+        Mode::Diagram => "diagram",
+    }
+}
+
+/// The diagram `@ diagram[:ref]` points at in a part: the first one, the n-th (`:2`), or by
+/// front-matter title (`:Bus`).
+pub fn find_diagram<'a>(part: &'a Part, r: Option<&str>) -> Option<&'a Diagram> {
+    match r.map(str::trim).filter(|r| !r.is_empty()) {
+        None => part.diagrams.first(),
+        Some(r) => match r.parse::<usize>() {
+            Ok(n) => part.diagrams.get(n.checked_sub(1)?),
+            Err(_) => part.diagrams.iter().find(|d| d.title.as_deref().map(|t| t.eq_ignore_ascii_case(r)).unwrap_or(false)),
+        },
     }
 }
 
@@ -529,27 +574,79 @@ pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
     }
 }
 
-/// All refs in a script that do not resolve, with their location.
-pub fn check(p: &Project, s: &Script) -> Vec<String> {
-    let mut bad = Vec::new();
-    for part in &s.parts {
-        for (i, c) in part.cues.iter().enumerate() {
-            let at = format!("{} / cue {}", part.name, i + 1);
-            if let Some(show) = &c.show {
-                let (v, r) = parse_show(show);
-                if v.is_none() {
-                    bad.push(format!("{}: unknown view in `@ {}`", at, show));
+/// What `@` has selected so far while reading a script in order (the view is sticky, like in
+/// the player).
+#[derive(Clone, Copy)]
+struct Track<'a> {
+    mode: Option<Mode>,
+    diagram: Option<&'a Diagram>,
+}
+
+impl<'a> Track<'a> {
+    /// Apply an `@` line; reports an unknown view, ref or diagram.
+    fn show(&mut self, p: &Project, part: &'a Part, at: &str, show: &str, bad: &mut Vec<String>) {
+        let (v, r) = parse_show(show);
+        match v {
+            None => bad.push(format!("{}: unknown view in `@ {}`", at, show)),
+            Some(Mode::Diagram) => {
+                self.mode = Some(Mode::Diagram);
+                self.diagram = find_diagram(part, r);
+                if self.diagram.is_none() {
+                    bad.push(match r {
+                        Some(r) => format!("{}: no diagram `{}` in this part (`@ diagram:2`, or the block's `title:`)", at, r),
+                        None => format!("{}: `@ diagram` but this part has no ```mermaid block", at),
+                    });
                 }
+            }
+            Some(m) => {
+                self.mode = Some(m);
+                self.diagram = None;
                 if let Some(r) = r {
                     if resolve(p, r).is_none() {
                         bad.push(format!("{}: unresolved ref `{}` in `@`", at, r));
                     }
                 }
             }
-            for r in c.hl.iter().flatten() {
-                if resolve(p, r).is_none() {
-                    bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
+        }
+    }
+
+    /// Check `!` refs: diagram node ids while a diagram is shown, project refs otherwise.
+    fn hl(&self, p: &Project, at: &str, refs: &[String], bad: &mut Vec<String>) {
+        for r in refs {
+            match (self.mode, self.diagram) {
+                (Some(Mode::Diagram), Some(d)) => {
+                    if !d.has(r) {
+                        bad.push(format!("{}: `{}` is not a node of the diagram (nodes: {})", at, r, d.ids().join(" ")));
+                    }
                 }
+                (Some(Mode::Diagram), None) => {}
+                _ => {
+                    if resolve(p, r).is_none() {
+                        bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// All refs in a script that do not resolve, with their location.
+pub fn check(p: &Project, s: &Script) -> Vec<String> {
+    let mut bad = Vec::new();
+    let mut t = Track { mode: None, diagram: None };
+    for part in &s.parts {
+        for (i, d) in part.diagrams.iter().enumerate() {
+            for e in &d.errors {
+                bad.push(format!("{} / diagram {}: {}", part.name, i + 1, e));
+            }
+        }
+        for (i, c) in part.cues.iter().enumerate() {
+            let at = format!("{} / cue {}", part.name, i + 1);
+            if let Some(show) = &c.show {
+                t.show(p, part, &at, show, &mut bad);
+            }
+            if let Some(refs) = &c.hl {
+                t.hl(p, &at, refs, &mut bad);
             }
             if let Some(r) = &c.code {
                 if resolve(p, r).is_none() {
@@ -564,21 +661,13 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
                 if q.answer.trim().is_empty() {
                     bad.push(format!("{}: question without an answer (indent the answer lines)", at));
                 }
+                // an answer's directives apply while it is shown, then the cue comes back
+                let mut qt = t;
                 if let Some(show) = &q.show {
-                    let (v, r) = parse_show(show);
-                    if v.is_none() {
-                        bad.push(format!("{}: unknown view in `@ {}`", at, show));
-                    }
-                    if let Some(r) = r {
-                        if resolve(p, r).is_none() {
-                            bad.push(format!("{}: unresolved ref `{}` in `@`", at, r));
-                        }
-                    }
+                    qt.show(p, part, &at, show, &mut bad);
                 }
-                for r in q.hl.iter().flatten() {
-                    if resolve(p, r).is_none() {
-                        bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
-                    }
+                if let Some(refs) = &q.hl {
+                    qt.hl(p, &at, refs, &mut bad);
                 }
                 if let Some(r) = &q.code {
                     if resolve(p, r).is_none() {
@@ -596,7 +685,7 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
 /// Turn the generated tour into a script: one part per chapter (`GuideStep::part`).
 pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
     let mut s = Script { title: format!("Tour of {}", p.name), ..Default::default() };
-    let mut part = Part { name: String::new(), audio: None, cues: vec![] };
+    let mut part = Part { name: String::new(), audio: None, cues: vec![], diagrams: vec![] };
     let mut last_show: Option<String> = None;
     for st in steps {
         if st.part != part.name {

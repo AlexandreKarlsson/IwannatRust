@@ -20,7 +20,7 @@ or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
 ```
 
-Views: `code` `calls` `flow` `arch` `branches` `structure` `types` `errors`.
+Views: `code` `calls` `flow` `arch` `branches` `structure` `types` `errors`, and `diagram` (below).
 Refs: `crate::run` (item) · `crate::run/b5` (block 5 of `run`, ids as in the brief) · `crate::storage`
 (module) · `src/parser.rs` (file; `@ code:src/parser.rs` opens it) · `src/main.rs:49-52` (lines) ·
 `src/main.rs:49:17-44` (columns, 1-based, `c2` inclusive). `crate::` may be omitted when the name
@@ -70,6 +70,30 @@ is unique. `//` starts a comment line.
     in the header.
 12. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
     short, kind, and no puns that need spelling.
+
+## Diagrams (when the code has no picture)
+
+For a metaphor, a physical effect, a protocol or any schema that is not in the code, draw it: a
+```` ```mermaid ```` flowchart block in the part, `@ diagram` to show it, `!` with node ids to glow.
+Shapes set the colour: `[box]` blue · `(round)` green · `([pill])` purple · `{diamond}` yellow ·
+`[(store)]` teal; `subgraph id[Title] … end` draws a group. Emoji in labels are fine (`b[🚌 Bus]`).
+Keep 3–8 nodes, one block per part, and come back to the code afterwards.
+
+````
+## Why tasks queue up
+```mermaid
+graph LR
+  subgraph stop[🚏 Stop]
+    alice[🧍 Alice]
+  end
+  stop --> bus[(🚌 Bus)] --> office{Office?}
+```
+@ diagram
+! stop
+Think of tasks as passengers waiting at a stop.
+! alice bus
+Alice boards: the scheduler took the heaviest task first.
+````
 
 ## Example
 

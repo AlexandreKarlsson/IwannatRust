@@ -254,6 +254,35 @@ fn script_roundtrip_and_refs() {
 }
 
 #[test]
+fn script_diagrams() {
+    use iwr_core::script;
+    let p = project();
+    let text = "# T\n\n## Bus\n```mermaid\n---\ntitle: Bus\n---\ngraph LR\n  subgraph stop[🚏 Stop]\n    alice[🧍 Alice]\n  end\n  stop --> bus[(🚌 Bus)]\n```\n@ diagram\n! stop\nWaiting.\n! alice bus\nBoarding.\n? Who drives?\n  ! bus\n  Nobody.\n@ diagram:Bus\n! nope\nBad.\n@ code:crate::main\n! crate::main/b1\nBack to code.\n";
+    let s = script::parse(text);
+    let part = &s.parts[0];
+    assert_eq!(part.diagrams.len(), 1);
+    assert_eq!(part.diagrams[0].title.as_deref(), Some("Bus"));
+    assert!(part.diagrams[0].errors.is_empty(), "{:?}", part.diagrams[0].errors);
+    assert_eq!(part.cues.iter().map(|c| c.say.as_str()).collect::<Vec<_>>(), ["Waiting.", "Boarding.", "Bad.", "Back to code."]);
+    assert_eq!(part.cues[1].questions.len(), 1);
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    let bad = script::check(&p, &s);
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("`nope` is not a node"), "{}", bad[0]);
+    assert!(script::find_diagram(part, Some("2")).is_none() && script::find_diagram(part, Some("bus")).is_some());
+    // `@ diagram` without a block; a block with a bad arrow
+    let bad = script::check(&p, &script::parse("## X\n@ diagram\nhi\n"));
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("no ```mermaid block"));
+    let bad = script::check(&p, &script::parse("## X\n```mermaid\ngraph LR\na -> b\n```\n@ diagram\n! a\nhi\n"));
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("diagram 1: line 2"), "{}", bad[0]);
+    let g = iwr_core::diagram::graph(&part.diagrams[0]);
+    assert_eq!(g.nodes.len(), 3);
+    assert_eq!(g.mode, Some(iwr_core::views::Mode::Diagram));
+}
+
+#[test]
 fn script_directory_assembly_and_part_audio() {
     use iwr_core::script::{self, PartFile};
     // per-part audio and a second `#` heading (one per part file) are tolerated

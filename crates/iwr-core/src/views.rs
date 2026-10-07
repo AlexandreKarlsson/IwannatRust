@@ -18,10 +18,12 @@ pub enum Mode {
     Structure,
     Types,
     ErrorFlow,
+    /// A sketch drawn by a codecast (see [`crate::diagram`]); not built from the project.
+    Diagram,
 }
 
 impl Mode {
-    /// Graph modes (everything except `Code`).
+    /// Graph modes built from the project (everything except `Code` and `Diagram`).
     pub const GRAPHS: [Mode; 7] = [Mode::CallTree, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
     pub const ALL: [Mode; 8] = [Mode::Code, Mode::CallTree, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
     pub fn label(&self) -> &'static str {
@@ -34,6 +36,7 @@ impl Mode {
             Mode::Structure => "Structure",
             Mode::Types => "Types & traits",
             Mode::ErrorFlow => "Error flow",
+            Mode::Diagram => "Diagram",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -46,6 +49,7 @@ impl Mode {
             Mode::Structure => "Files, modules, impl blocks and items as nested blocks.",
             Mode::Types => "Structs, enums, traits and how they relate (fields, impls, supertraits).",
             Mode::ErrorFlow => "Where errors are created, propagated with ?, handled, or turned into panics.",
+            Mode::Diagram => "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows.",
         }
     }
     /// Does this mode need a selected function as its root?
@@ -84,6 +88,13 @@ pub enum NodeKind {
     File,
     ErrorType,
     Note,
+    // diagram shapes (see `crate::diagram`)
+    Box,
+    Round,
+    Pill,
+    Diamond,
+    Cylinder,
+    Group,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -114,6 +125,13 @@ pub enum EdgeKind {
     Aliases,
     Dependency,
     Handles,
+    // diagram arrows (see `crate::diagram`)
+    Arrow,
+    Line,
+    Dotted,
+    DottedLine,
+    Thick,
+    ThickLine,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -397,6 +415,7 @@ pub fn build(p: &Project, mode: Mode, opts: &ViewOptions) -> Graph {
         Mode::Structure => structure(p, opts),
         Mode::Types => types(p, opts),
         Mode::ErrorFlow => error_flow(p, opts),
+        Mode::Diagram => Graph { note: Some("Diagrams are drawn by a codecast: `@ diagram` after a ```mermaid block.".into()), ..Default::default() },
     };
     g.mode = Some(mode);
     g

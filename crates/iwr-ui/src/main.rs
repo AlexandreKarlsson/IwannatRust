@@ -73,6 +73,10 @@ pub struct State {
     pub tts_gen: Signal<u32>,
     /// resolved highlight refs of the current cue
     pub hl: Signal<Vec<iwr_core::script::Resolved>>,
+    /// the `!` refs as written: diagram nodes are glowed by id
+    pub hl_ids: Signal<Vec<String>>,
+    /// the diagram shown by `@ diagram` (from the current part)
+    pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
     /// code span to underline (may have columns)
     pub code_mark: Signal<Option<Span>>,
     /// question being answered (the codecast is paused meanwhile)
@@ -144,6 +148,12 @@ impl State {
     }
 
     pub fn build_graph(&self) -> Graph {
+        if *self.mode.read() == Mode::Diagram {
+            return match self.diagram.read().as_ref() {
+                Some(d) => iwr_core::diagram::graph(d),
+                None => Graph { note: Some("No diagram here: a codecast draws one with a ```mermaid block and `@ diagram`.".into()), ..Default::default() },
+            };
+        }
         match self.project.read().as_ref() {
             Some(p) => views::build(p, *self.mode.read(), &self.view_options()),
             None => Graph::default(),
@@ -308,6 +318,8 @@ fn App() -> Element {
         audio_base: Signal::new("/api/codecast/".into()),
         tts_gen: Signal::new(0),
         hl: Signal::new(vec![]),
+        hl_ids: Signal::new(vec![]),
+        diagram: Signal::new(None),
         code_mark: Signal::new(None),
         answering: Signal::new(None),
         resume_after_answer: Signal::new(false),

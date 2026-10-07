@@ -139,8 +139,20 @@ impl State {
         self.playing.set(false);
         self.tts_gen += 1;
         self.hl.set(vec![]);
+        self.hl_ids.set(vec![]);
+        if *self.mode.read() == Mode::Diagram {
+            self.set_mode(Mode::Code);
+        }
+        self.diagram.set(None);
         self.code_mark.set(None);
         document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+    }
+
+    /// The diagram `@ diagram[:ref]` names in the current part.
+    pub fn find_diagram(&self, r: Option<&str>) -> Option<iwr_core::diagram::Diagram> {
+        let s = self.script.read().clone()?;
+        let part = s.parts.get(*self.part_idx.read())?;
+        script::find_diagram(part, r).cloned()
     }
 
     pub fn current_cue(&self) -> Option<Cue> {
@@ -222,7 +234,10 @@ impl State {
                         self.views_open.set(true);
                     }
                 }
-                if let Some(r) = r {
+                if m == Mode::Diagram {
+                    let d = self.find_diagram(r);
+                    self.diagram.set(d.map(Rc::new));
+                } else if let Some(r) = r {
                     if let Some(res) = script::resolve(p, r) {
                         if let Some(mid) = res.module {
                             self.set_scope(Some(mid));
@@ -248,6 +263,7 @@ impl State {
             }
         }
         if let Some(refs) = hl {
+            self.hl_ids.set(refs.clone());
             let resolved: Vec<Resolved> = refs.iter().filter_map(|r| script::resolve(p, r)).collect();
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
@@ -286,7 +302,9 @@ impl State {
         if *self.mode.read() != Mode::Code {
             let graph = self.build_graph();
             let hl = self.hl.read().clone();
-            let focus = graph.nodes.iter().find(|n| crate::canvas::hl_hit(n, &hl));
+            let ids = self.hl_ids.read().clone();
+            let in_diagram = *self.mode.read() == Mode::Diagram;
+            let focus = graph.nodes.iter().find(|n| if in_diagram { ids.contains(&n.id) } else { crate::canvas::hl_hit(n, &hl) });
             if let Some(n) = focus {
                 let (x, y, w, h) = (n.x, n.y, n.w, n.h);
                 self.fit(&graph);

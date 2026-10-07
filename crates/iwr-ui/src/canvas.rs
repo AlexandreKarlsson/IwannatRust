@@ -119,7 +119,14 @@ pub fn Canvas() -> Element {
     let selected = *state.selected.read();
     let sel_span = *state.selected_span.read();
     let hl_refs = state.hl.read().clone();
-    let hi: Vec<String> = if state.script.read().is_some() { g.nodes.iter().filter(|n| hl_hit(n, &hl_refs)).map(|n| n.id.clone()).collect() } else { vec![] };
+    let hl_ids = state.hl_ids.read().clone();
+    let hi: Vec<String> = if mode == Mode::Diagram {
+        g.nodes.iter().filter(|n| hl_ids.contains(&n.id)).map(|n| n.id.clone()).collect()
+    } else if state.script.read().is_some() {
+        g.nodes.iter().filter(|n| hl_hit(n, &hl_refs)).map(|n| n.id.clone()).collect()
+    } else {
+        vec![]
+    };
     let hovered = state.hovered.read().clone();
     let hover_span = *state.hover_span.read();
     let is_drag = dragging.read().is_some();
@@ -244,17 +251,19 @@ pub fn Canvas() -> Element {
             if let Some(note) = &g.note {
                 div { class: "note", "{note}" }
             }
-            div { class: "legend",
-                for l in legend.iter() {
-                    {let l_style = if l.dash.is_empty() { "solid" } else { "dashed" };
-                    rsx! { div {
-                        if l.is_edge {
-                            span { class: "ln", style: "border-color: {l.color}; border-top-style: {l_style}" }
-                        } else {
-                            span { class: "sw", style: "background: {l.color}" }
-                        }
-                        "{l.label}"
-                    } }}
+            if !legend.is_empty() {
+                div { class: "legend",
+                    for l in legend.iter() {
+                        {let l_style = if l.dash.is_empty() { "solid" } else { "dashed" };
+                        rsx! { div {
+                            if l.is_edge {
+                                span { class: "ln", style: "border-color: {l.color}; border-top-style: {l_style}" }
+                            } else {
+                                span { class: "sw", style: "background: {l.color}" }
+                            }
+                            "{l.label}"
+                        } }}
+                    }
                 }
             }
             if let Some((id, x, y)) = hovered {
@@ -330,14 +339,20 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     let detail_h = 6.0 + 14.0 * detail_lines.len() as f64;
     let fill_op = if container { 0.10 } else if node.kind == NodeKind::Block { 0.18 } else { 0.28 };
     let rx = match node.kind {
-        NodeKind::Entry | NodeKind::Exit => node.h / 2.0,
+        NodeKind::Entry | NodeKind::Exit | NodeKind::Pill => node.h / 2.0,
         NodeKind::If | NodeKind::Match => 4.0,
-        NodeKind::Loop => 14.0,
+        NodeKind::Loop | NodeKind::Round => 14.0,
         _ => 8.0,
     };
     let class = format!("node {}{}", if selected { "sel " } else { "" }, if highlighted { "hi" } else { "" });
     let exp_y = if container { 12.0 } else { node.h / 2.0 };
     let title_y = if container { 17.0 } else if multi { 18.0 } else { node.h / 2.0 + 4.5 };
+    // diagram nodes: text centred, diamonds drawn as diamonds
+    let centered = mode == Mode::Diagram && !container;
+    let tx = if centered { node.w / 2.0 } else { 12.0 };
+    let anchor = if centered { "middle" } else { "start" };
+    let diamond = node.kind == NodeKind::Diamond;
+    let poly = format!("{:.1},0 {:.1},{:.1} {:.1},{:.1} 0,{:.1}", node.w / 2.0, node.w, node.h / 2.0, node.w / 2.0, node.h, node.h / 2.0);
     rsx! {
         g {
             class: "{class}",
@@ -401,14 +416,18 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 }
             },
             onmouseleave: move |_| state.hovered.set(None),
-            rect { class: "body", width: "{node.w:.1}", height: "{node.h:.1}", rx: "{rx}", fill: "{color}", "fill-opacity": "{fill_op}", stroke: "{color}", "stroke-width": "1.6" }
+            if diamond {
+                polygon { class: "body", points: "{poly}", fill: "{color}", "fill-opacity": "{fill_op}", stroke: "{color}", "stroke-width": "1.6", "stroke-linejoin": "round" }
+            } else {
+                rect { class: "body", width: "{node.w:.1}", height: "{node.h:.1}", rx: "{rx}", fill: "{color}", "fill-opacity": "{fill_op}", stroke: "{color}", "stroke-width": "1.6" }
+            }
             if container {
                 rect { width: "{node.w:.1}", height: "24", rx: "{rx}", fill: "{color}", "fill-opacity": "0.25" }
             }
-            text { x: "12", y: "{title_y:.1}", class: if container { "cont" } else { "" },
+            text { x: "{tx:.1}", y: "{title_y:.1}", "text-anchor": "{anchor}", class: if container { "cont" } else { "" },
                 if multi {
                     for (i, l) in lines.iter().enumerate() {
-                        tspan { x: "12", dy: if i == 0 { "0" } else { "15" }, "{l}" }
+                        tspan { x: "{tx:.1}", dy: if i == 0 { "0" } else { "15" }, "{l}" }
                     }
                 } else {
                     "{node.label}"

@@ -31,6 +31,12 @@ pub fn node_color(k: NodeKind) -> &'static str {
         NodeKind::Await => "#a855f7",
         NodeKind::File => "#94a3b8",
         NodeKind::Note => "#94a3b8",
+        NodeKind::Box => "#60a5fa",
+        NodeKind::Round => "#34d399",
+        NodeKind::Pill => "#c084fc",
+        NodeKind::Diamond => "#eab308",
+        NodeKind::Cylinder => "#2dd4bf",
+        NodeKind::Group => "#94a3b8",
     }
 }
 
@@ -63,6 +69,12 @@ pub fn node_kind_label(k: NodeKind) -> &'static str {
         NodeKind::Await => "await",
         NodeKind::File => "file",
         NodeKind::Note => "note",
+        NodeKind::Box => "box",
+        NodeKind::Round => "round",
+        NodeKind::Pill => "pill",
+        NodeKind::Diamond => "diamond",
+        NodeKind::Cylinder => "store",
+        NodeKind::Group => "group",
     }
 }
 
@@ -94,6 +106,9 @@ pub fn edge_style(k: EdgeKind) -> (&'static str, &'static str, f64) {
         EdgeKind::Aliases => ("#5eead4", "6 3", 1.4),
         EdgeKind::Dependency => ("#94a3b8", "", 1.6),
         EdgeKind::Handles => ("#22c55e", "", 1.6),
+        EdgeKind::Arrow | EdgeKind::Line => ("#94a3b8", "", 1.8),
+        EdgeKind::Dotted | EdgeKind::DottedLine => ("#94a3b8", "3 4", 1.8),
+        EdgeKind::Thick | EdgeKind::ThickLine => ("#94a3b8", "", 3.2),
     }
 }
 
@@ -124,6 +139,9 @@ pub fn edge_kind_label(k: EdgeKind) -> &'static str {
         EdgeKind::Aliases => "alias / From",
         EdgeKind::Dependency => "depends on",
         EdgeKind::Handles => "error handled",
+        EdgeKind::Arrow | EdgeKind::Line => "link",
+        EdgeKind::Dotted | EdgeKind::DottedLine => "dotted link",
+        EdgeKind::Thick | EdgeKind::ThickLine => "strong link",
     }
 }
 
@@ -151,6 +169,8 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
         Mode::Structure => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Impl), n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::Trait), n(NodeKind::Const)],
         Mode::Types => vec![n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::ErrorType), n(NodeKind::Trait), n(NodeKind::TypeAlias), n(NodeKind::Function), e(EdgeKind::Contains), e(EdgeKind::Implements), e(EdgeKind::Supertrait), e(EdgeKind::Uses)],
         Mode::ErrorFlow => vec![n(NodeKind::Function), n(NodeKind::Panic), n(NodeKind::ErrorType), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Handles), e(EdgeKind::Error), e(EdgeKind::Aliases)],
+        // a sketch explains itself: no legend
+        Mode::Diagram => vec![],
     }
 }
 
@@ -204,7 +224,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .app.dragging { user-select:none; cursor:col-resize; }
 .app.dragging iframe, .app.dragging svg { pointer-events:none; }
 .cam.anim { transition: transform .6s cubic-bezier(.22,.61,.36,1); }
-.node rect.body { transition: stroke-width .12s, stroke .35s, filter .35s; }
+.cam.anim .node { transition: transform .6s cubic-bezier(.22,.61,.36,1); }
+.node .body { transition: stroke-width .12s, stroke .35s, filter .35s; }
 .edge path { transition: stroke .35s, stroke-width .35s, opacity .35s; }
 .sbtabs { display:flex; gap:4px; margin:2px 0 6px; }
 .ftree .frow { display:flex; align-items:center; gap:5px; padding:2px 6px; border-radius:4px; cursor:pointer; white-space:nowrap; font-size:12px; }
@@ -280,9 +301,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .canvas-wrap svg { width:100%; height:100%; display:block; cursor:grab; user-select:none; }
 .canvas-wrap svg.dragging { cursor:grabbing; }
 .node { cursor:pointer; }
-.node:hover rect.body { stroke-width:2.5; filter: brightness(1.15); }
-.node.sel rect.body { stroke-width:3; stroke:var(--text) !important; }
-.node.hi rect.body { stroke:var(--hi) !important; stroke-width:3.5; filter: drop-shadow(0 0 8px rgba(251,191,36,.8)); }
+.node:hover .body { stroke-width:2.5; filter: brightness(1.15); }
+.node.sel .body { stroke-width:3; stroke:var(--text) !important; }
+.node.hi .body { stroke:var(--hi) !important; stroke-width:3.5; filter: drop-shadow(0 0 8px rgba(251,191,36,.8)); }
 .node.dim { opacity:.35; }
 .node text { fill:var(--text); font-size:13px; pointer-events:none; }
 .node text.sub { fill:var(--muted); font-size:11px; font-family: ui-monospace, Menlo, Consolas, monospace; }
