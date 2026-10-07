@@ -1,7 +1,8 @@
 ## Welcome
+@ plan
+Welcome to the demo task runner. It is a tiny Rust program that reads a list of tasks from text, stores them, and runs them in priority order. This is the plan: eleven short parts, from the data to where errors go. Click any of them to jump there, or let the tour run.
 @ arch
-Welcome to the demo task runner. It is a tiny Rust program that reads a list of tasks from text, stores them, and runs them in priority order. Four tasks, five files, zero dependencies, one bug that we will pretend is a feature.
-It exists to exercise everything IwannatRust can show: calls, branches, loops, recursion, traits and error propagation. It is small enough to understand in fifteen minutes, which is the whole point of this tour.
+It exists to exercise everything IwannatRust can show: calls, branches, loops, recursion, traits and error propagation. Four tasks, five files, zero dependencies, one bug that we will pretend is a feature.
 This is the architecture view. Every box is a module, and the arrows show who depends on whom. Think of it as the floor plan before we open any doors.
 ? Where does the input come from?
   @ code:src/main.rs
@@ -17,6 +18,4 @@ The scheduler decides what runs next. Each round it asks the storage for everyth
 ! crate::model
 And the model module holds the shared data: what a task is, how urgent it is, and a small trait for describing things in one line.
 !
-Four modules, one entry point in main.rs, and every arrow eventually points at the model. That is the whole map.
-@ plan
-And here is the plan, eleven short parts: the data, one run from start to finish, the Rust ideas the code shows best, the pieces one by one, and where errors go. Before we walk it, one word that will come up a lot: crate.
+Four modules, one entry point in main.rs, and every arrow eventually points at the model. That is the whole map. Before we walk it, one word that will come up a lot: crate.
