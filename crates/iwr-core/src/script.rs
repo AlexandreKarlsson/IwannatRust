@@ -24,7 +24,8 @@
 //!
 //! A ```` ```mermaid ```` fenced block inside a part is a diagram (see [`crate::diagram`]):
 //! `@ diagram` shows it, `!` glows its nodes by id, `> alice bus` moves a node into a group
-//! (or next to a node) from that cue on, `> alice` brings it back to the top level.
+//! (or next to a node) from that cue on, `> alice` brings it back to the top level,
+//! `> +copy` draws a node written `copy[…]:::hidden`, `> -alice` hides one.
 
 use crate::diagram::{Diagram, Op};
 use crate::model::*;
@@ -661,6 +662,11 @@ impl<'a> Track<'a> {
                         if !d.has(r) {
                             bad.push(format!("{}: `{}` in `>` is not a node of the diagram (nodes: {})", at, r, d.ids().join(" ")));
                         }
+                    }
+                }
+                Op::Show(a) | Op::Hide(a) => {
+                    if !d.has(a) {
+                        bad.push(format!("{}: `{}` in `>` is not a node of the diagram (nodes: {})", at, a, d.ids().join(" ")));
                     }
                 }
             }

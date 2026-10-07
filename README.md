@@ -108,7 +108,10 @@ the project. [examples/demo/codecast/](examples/demo/codecast/) is a complete el
 also explains the Rust along the way. **Questions** appear under the caption while it plays: the
 ones written in the script (`? Why does deploy never run?`) and, whenever a cue says a Rust word,
 "What is a crate?", "What does the question mark do?"… from the built-in glossary. Click one: the
-tour pauses, answers, and carries on.
+tour pauses, answers, and carries on. **Diagrams**: when the code has no picture for an idea, a
+part draws its own with a ```` ```mermaid ```` block (GitHub renders it too): `@ diagram` shows it,
+`!` glows its nodes, `> copy storage` moves one into a group, `> +copy` reveals one. The demo's
+ownership part opens with run, a storage box and a scheduler, and a task copy that changes hands.
 Format, refs and player: [docs/codecast.md](docs/codecast.md) · writing guide:
 [docs/writing-codecasts.md](docs/writing-codecasts.md).
 

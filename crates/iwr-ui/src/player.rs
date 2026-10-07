@@ -275,7 +275,9 @@ impl State {
         }
         if let Some(refs) = hl {
             self.hl_ids.set(refs.clone());
-            let resolved: Vec<Resolved> = refs.iter().filter_map(|r| script::resolve(p, r)).collect();
+            // in a diagram the refs are node ids: don't select project items that share a name
+            let in_diagram = *self.mode.read() == Mode::Diagram;
+            let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter_map(|r| script::resolve(p, r)).collect() };
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
                 for r in &resolved {

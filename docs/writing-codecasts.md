@@ -16,6 +16,7 @@ or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name
 ! <ref> [<ref> …]            what to glow (sticky; `!` alone clears)
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
+> +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
 <One or two spoken sentences.>
 ? <A question the listener may have>      optional, after the cue it belongs to
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
@@ -80,8 +81,10 @@ Shapes set the colour: `[box]` blue · `(round)` green · `([pill])` purple · `
 `[(store)]` teal; `subgraph id[Title] … end` draws a group. Emoji in labels are fine (`b[🚌 Bus]`).
 To show something flowing (a request through layers, a value changing owner), move a node:
 `> alice bus` puts it into group `bus` (or next to node `bus`) from that cue on, `> alice` brings
-it back to the top; one move per line, undone when the listener steps back. Keep 3–8 nodes, one
-block per part, and come back to the code afterwards.
+it back to the top; one move per line, undone when the listener steps back. A node written
+`copy[📄 copy]:::hidden` waits until `> +copy` draws it (`> -copy` hides it again), so one block
+can hold the whole story and reveal it cue by cue. Keep 3–8 nodes, one block per part, and come
+back to the code afterwards.
 
 ````
 ## Why tasks queue up

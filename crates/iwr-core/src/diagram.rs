@@ -56,6 +56,9 @@ pub struct DNode {
     pub parent: Option<String>,
     /// `direction LR|TD` inside a group
     pub horizontal: Option<bool>,
+    /// `id:::hidden`: not drawn until a `> +id` line shows it
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,7 +111,7 @@ impl Diagram {
             }
             return;
         }
-        self.nodes.push(DNode { label: label.unwrap_or_else(|| id.clone()), id, shape: shape.unwrap_or(Shape::Box), group: false, parent: group.cloned(), horizontal: None });
+        self.nodes.push(DNode { label: label.unwrap_or_else(|| id.clone()), id, shape: shape.unwrap_or(Shape::Box), group: false, parent: group.cloned(), horizontal: None, hidden: false });
     }
 }
 
@@ -121,13 +124,20 @@ impl Diagram {
 pub enum Op {
     /// `> a b`: `a` moves into group `b`, or next to node `b`; `> a`: back to the top level
     Move { node: String, to: Option<String> },
+    /// `> +a`: draw a node that was hidden (`a:::hidden`, or `> -a`)
+    Show(String),
+    /// `> -a`: hide a node (and, for a group, its members)
+    Hide(String),
     /// a `>` line as written that could not be read (`iwr check` reports it)
     Bad(String),
 }
 
-/// Parse the text after `>`: `node group`, `node other`, or `node`.
+/// Parse the text after `>`: `node group`, `node other`, `node`, or `+a -b …`.
 pub fn parse_ops(rest: &str) -> Vec<Op> {
     let words: Vec<&str> = rest.split_whitespace().collect();
+    if !words.is_empty() && words.iter().all(|w| w.len() > 1 && (w.starts_with('+') || w.starts_with('-'))) {
+        return words.iter().map(|w| if let Some(a) = w.strip_prefix('+') { Op::Show(a.to_string()) } else { Op::Hide(w[1..].to_string()) }).collect();
+    }
     match words.as_slice() {
         [a] => vec![Op::Move { node: a.to_string(), to: None }],
         [a, b] => vec![Op::Move { node: a.to_string(), to: Some(b.to_string()) }],
@@ -140,6 +150,8 @@ pub fn op_text(op: &Op) -> String {
     match op {
         Op::Move { node, to: Some(t) } => format!("{} {}", node, t),
         Op::Move { node, to: None } => node.clone(),
+        Op::Show(a) => format!("+{}", a),
+        Op::Hide(a) => format!("-{}", a),
         Op::Bad(s) => s.clone(),
     }
 }
@@ -201,7 +213,7 @@ pub fn parse(text: &str) -> Diagram {
                                     n.label = l;
                                 }
                             }
-                            None => d.nodes.push(DNode { label: label.unwrap_or_else(|| id.clone()), id: id.clone(), shape: Shape::Box, group: true, parent, horizontal: None }),
+                            None => d.nodes.push(DNode { label: label.unwrap_or_else(|| id.clone()), id: id.clone(), shape: Shape::Box, group: true, parent, horizontal: None, hidden: false }),
                         }
                         groups.push(id);
                     }
@@ -506,11 +518,18 @@ fn parse_statement(stmt: &str, d: &mut Diagram, group: Option<&String>) -> Resul
             shape = Some(s);
             label = Some(l);
         }
+        let mut hidden = false;
         if i + 2 < cs.len() && cs[i] == ':' && cs[i + 1] == ':' && cs[i + 2] == ':' {
             i += 3;
-            read_id(&cs, &mut i); // a class name: ignored
+            // `:::hidden` is ours; other class names are ignored
+            hidden = read_id(&cs, &mut i) == "hidden";
         }
         d.touch(id.clone(), shape, label, group);
+        if hidden {
+            if let Some(n) = d.nodes.iter_mut().find(|n| n.id == id) {
+                n.hidden = true;
+            }
+        }
         if let Some((line, arrow, lbl)) = &edge {
             for f in &prev {
                 d.edges.push(DEdge { from: f.clone(), to: id.clone(), label: lbl.clone(), line: *line, arrow: *arrow });
@@ -730,7 +749,38 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
             cur = parent[p];
         }
     }
-    let visible: HashSet<&str> = d.nodes.iter().map(|n| n.id.as_str()).collect();
+    // hidden: `:::hidden` nodes, then `> +a` / `> -a` in order; a hidden group hides its members
+    let mut hidden: HashSet<&str> = d.nodes.iter().filter(|n| n.hidden).map(|n| n.id.as_str()).collect();
+    for op in ops {
+        match op {
+            Op::Show(a) => {
+                if let Some(n) = d.node(a) {
+                    hidden.remove(n.id.as_str());
+                }
+            }
+            Op::Hide(a) => {
+                if let Some(n) = d.node(a) {
+                    hidden.insert(n.id.as_str());
+                }
+            }
+            _ => {}
+        }
+    }
+    let visible: HashSet<&str> = d
+        .nodes
+        .iter()
+        .filter(|n| {
+            let mut cur = Some(n.id.as_str());
+            while let Some(c) = cur {
+                if hidden.contains(c) {
+                    return false;
+                }
+                cur = parent.get(c).copied().flatten();
+            }
+            true
+        })
+        .map(|n| n.id.as_str())
+        .collect();
     let mut ctx = Ctx { d, parent, next_to, visible, size: HashMap::new(), local: HashMap::new(), routes: HashMap::new() };
     let (w, h) = ctx.place(None, d.horizontal);
     // absolute positions
@@ -903,5 +953,24 @@ mod tests {
         assert!(g3.node("alice").unwrap().parent.is_none());
         assert_eq!(parse_ops("a b c"), vec![Op::Bad("a b c".into())]);
         assert_eq!(parse_ops(&op_text(&ops[0])), ops);
+    }
+
+    #[test]
+    fn hidden_nodes_show_and_hide() {
+        let d = parse("graph LR\nsubgraph stop[Stop]\n alice[Alice]\nend\ncopy[Copy]:::hidden\nstop --> copy\n");
+        assert!(d.node("copy").unwrap().hidden && !d.node("alice").unwrap().hidden);
+        let g = graph(&d, &[]);
+        assert!(g.node("copy").is_none() && g.edges.is_empty(), "hidden node and its edge are not drawn");
+        let ops = parse_ops("+copy -alice");
+        assert_eq!(ops, vec![Op::Show("copy".into()), Op::Hide("alice".into())]);
+        let g = graph(&d, &ops);
+        assert!(g.node("copy").is_some() && g.node("alice").is_none() && g.edges.len() == 1);
+        // hiding a group hides its members; showing it again brings them back
+        let g = graph(&d, &parse_ops("-stop"));
+        assert!(g.node("alice").is_none() && g.node("stop").is_none());
+        let g = graph(&d, &[parse_ops("-stop"), parse_ops("+stop")].concat());
+        assert!(g.node("alice").is_some());
+        assert_eq!(parse_ops(&op_text(&ops[1])), vec![ops[1].clone()]);
+        assert!(matches!(parse_ops("+")[0], Op::Move { .. }), "a lone `+` is a node name, not a toggle");
     }
 }

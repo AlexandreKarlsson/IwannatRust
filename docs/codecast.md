@@ -137,6 +137,11 @@ to the top level. One move per line, several lines per cue. Moves are sticky ins
 replayed from its first cue, so stepping back undoes them; the player glides nodes to their new
 place and re-lays the groups out around them. `iwr check` verifies the names.
 
+**Appearing and disappearing.** A node written `copy[📄 copy]:::hidden` is not drawn until a
+`> +copy` line shows it; `> -alice` hides one (a hidden group takes its members along), and
+`> +a -b` does several at once. Hidden nodes keep their edges for later, so draw the whole story
+in one block and reveal it cue by cue.
+
 ## How code is spoken
 
 TTS would read `crate::parser::parse_all` as "crate colon colon parser colon colon parse underscore

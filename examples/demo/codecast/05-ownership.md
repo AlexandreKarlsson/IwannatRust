@@ -1,4 +1,30 @@
 ## Ownership in sixty seconds
+```mermaid
+graph LR
+  subgraph run[🧑 run]
+    tasks[📚 tasks]
+    loop(🔁 the loop)
+    subgraph storage[🗄️ storage]
+    end
+  end
+  subgraph scheduler[📋 scheduler]
+  end
+  copy[📄 copy]:::hidden
+  loop -. borrows .-> tasks
+```
+@ diagram
+! run
+Before the code, a picture. Think of run as a person holding things: a list of tasks and an empty storage box. Everything inside this frame belongs to run.
+! loop tasks
+First, borrowing. The loop only looks at the list: a dotted line, nothing changes hands. When the loop ends, the list is still in run's hands.
+> +copy
+> copy storage
+! copy
+Second, cloning. Each task is photocopied, and the copy goes into the storage. Two owners, two copies, no fight.
+> storage scheduler
+! scheduler
+Third, moving. run hands the whole storage over to the scheduler. After that line, run cannot touch the storage any more: the compiler treats it as gone.
+Now the same three things, in the code.
 @ code:crate::run
 Rust has no garbage collector and no manual free. Instead every value has exactly one owner, and when the owner goes out of scope the value is cleaned up. The compiler keeps the books, and run shows all three ways of dealing with it.
 ! crate::run/b5

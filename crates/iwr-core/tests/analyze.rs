@@ -299,6 +299,16 @@ fn script_diagram_moves() {
     let bad = script::check(&p, &script::parse("## X\n> a b\nhi\n"));
     assert_eq!(bad.len(), 1, "{:?}", bad);
     assert!(bad[0].contains("no diagram"));
+    // hidden nodes: shown and hidden by `>`, names checked
+    let text = "## Bus\n```mermaid\ngraph LR\nalice[Alice]\ncopy[Copy]:::hidden\n```\n@ diagram\n> +copy -alice\nSwap.\n> +ghost\nOops.\n";
+    let s = script::parse(text);
+    assert_eq!(s.parts[0].cues[0].ops, vec![Op::Show("copy".into()), Op::Hide("alice".into())]);
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    let bad = script::check(&p, &s);
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("`ghost` in `>`"));
+    let g = iwr_core::diagram::graph(&s.parts[0].diagrams[0], &s.parts[0].cues[0].ops);
+    assert!(g.node("copy").is_some() && g.node("alice").is_none());
 }
 
 #[test]
