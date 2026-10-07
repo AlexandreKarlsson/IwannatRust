@@ -17,4 +17,6 @@ The scheduler decides what runs next. Each round it asks the storage for everyth
 ! crate::model
 And the model module holds the shared data: what a task is, how urgent it is, and a small trait for describing things in one line.
 !
-Four modules, one entry point in main.rs, and every arrow eventually points at the model. That is the whole map. Before we walk it, one word that will come up a lot: crate.
+Four modules, one entry point in main.rs, and every arrow eventually points at the model. That is the whole map.
+@ plan
+And here is the plan, eleven short parts: the data, one run from start to finish, the Rust ideas the code shows best, the pieces one by one, and where errors go. Before we walk it, one word that will come up a lot: crate.

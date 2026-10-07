@@ -20,6 +20,8 @@ pub enum Mode {
     ErrorFlow,
     /// A sketch drawn by a codecast (see [`crate::diagram`]); not built from the project.
     Diagram,
+    /// The plan page of a codecast: its parts, one line each (rendered by the UI, no graph).
+    Plan,
 }
 
 impl Mode {
@@ -37,6 +39,7 @@ impl Mode {
             Mode::Types => "Types & traits",
             Mode::ErrorFlow => "Error flow",
             Mode::Diagram => "Diagram",
+            Mode::Plan => "Plan",
         }
     }
     pub fn description(&self) -> &'static str {
@@ -50,6 +53,7 @@ impl Mode {
             Mode::Types => "Structs, enums, traits and how they relate (fields, impls, supertraits).",
             Mode::ErrorFlow => "Where errors are created, propagated with ?, handled, or turned into panics.",
             Mode::Diagram => "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows.",
+            Mode::Plan => "The plan of the codecast: its parts in order, one line each. Click one to jump there.",
         }
     }
     /// Does this mode need a selected function as its root?
@@ -416,6 +420,7 @@ pub fn build(p: &Project, mode: Mode, opts: &ViewOptions) -> Graph {
         Mode::Types => types(p, opts),
         Mode::ErrorFlow => error_flow(p, opts),
         Mode::Diagram => Graph { note: Some("Diagrams are drawn by a codecast: `@ diagram` after a ```mermaid block.".into()), ..Default::default() },
+        Mode::Plan => Graph::default(),
     };
     g.mode = Some(mode);
     g

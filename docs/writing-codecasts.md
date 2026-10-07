@@ -12,7 +12,8 @@ or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name
 # <Title>
 
 ## <Part name>               one subject, 4–10 cues, playable alone
-@ <view>[:<ref>]             what to show (sticky until the next @)
+plan: <one line about it>    optional: its line on the plan page (or write it after the link in index.md)
+@ <view>[:<ref>]             what to show (sticky until the next @); `@ plan` shows the plan page
 ! <ref> [<ref> …]            what to glow (sticky; `!` alone clears)
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
@@ -43,7 +44,9 @@ is unique. `//` starts a comment line.
 ## How to write it
 
 1. **A tour, not a list of facts.** The script plays in a row: a *Welcome* part saying what the
-   project is for and where we will go, parts that follow from each other, a one-sentence wrap-up.
+   project is for and where we will go (put `@ plan` on that cue: the player shows the parts as a
+   list, so give each one a line after its link in `index.md`), parts that follow from each other,
+   a one-sentence wrap-up.
 2. **Parts are subjects**, with titles a listener would pick from a menu (*How a request flows*,
    *Where errors go*, *The scheduler*), 4–12 of them. First the big picture, then deeper; for a
    listener new to Rust, one part on the language mechanism the code shows best (ownership, traits).

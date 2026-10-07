@@ -312,6 +312,28 @@ fn script_diagram_moves() {
 }
 
 #[test]
+fn script_plan_page() {
+    use iwr_core::script::{self, PartFile};
+    let p = project();
+    let parts = vec![
+        PartFile { stem: "01-welcome".into(), text: "## Welcome\n@ plan\nhi\n".into(), audio: None },
+        PartFile { stem: "02-data".into(), text: "## Data\nplan: the types, by hand\n@ types\ndata\n".into(), audio: None },
+        PartFile { stem: "03-end".into(), text: "## End\nbye\n".into(), audio: None },
+    ];
+    let index = "# T\nplan: a short tour\n\n- [Welcome](01-welcome.md) — where we go\n- `02-data.md`: overridden by the file\n- 03-end.md\n";
+    assert_eq!(script::index_parts(index, &["01-welcome".into(), "02-data".into(), "03-end".into()]).len(), 3);
+    let s = script::parse(&script::assemble(index, &parts));
+    assert_eq!(s.summary.as_deref(), Some("a short tour"));
+    assert_eq!(s.parts.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Welcome", "Data", "End"]);
+    let sums: Vec<Option<&str>> = s.parts.iter().map(|p| p.summary.as_deref()).collect();
+    assert_eq!(sums, [Some("where we go"), Some("the types, by hand"), None]);
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    assert!(script::check(&p, &s).is_empty(), "{:?}", script::check(&p, &s));
+    let bad = script::check(&p, &script::parse("## X\n@ plan:nope\nhi\n"));
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+}
+
+#[test]
 fn script_directory_assembly_and_part_audio() {
     use iwr_core::script::{self, PartFile};
     // per-part audio and a second `#` heading (one per part file) are tolerated

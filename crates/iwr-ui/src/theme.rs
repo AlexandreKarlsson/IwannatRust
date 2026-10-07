@@ -169,8 +169,8 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
         Mode::Structure => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Impl), n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::Trait), n(NodeKind::Const)],
         Mode::Types => vec![n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::ErrorType), n(NodeKind::Trait), n(NodeKind::TypeAlias), n(NodeKind::Function), e(EdgeKind::Contains), e(EdgeKind::Implements), e(EdgeKind::Supertrait), e(EdgeKind::Uses)],
         Mode::ErrorFlow => vec![n(NodeKind::Function), n(NodeKind::Panic), n(NodeKind::ErrorType), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Handles), e(EdgeKind::Error), e(EdgeKind::Aliases)],
-        // a sketch explains itself: no legend
-        Mode::Diagram => vec![],
+        // a sketch explains itself, and the plan page is not a graph: no legend
+        Mode::Diagram | Mode::Plan => vec![],
     }
 }
 
@@ -397,6 +397,22 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .topbar .tabs .ibtn.view .ico { width:18px; height:18px; }
 .topbar .sep { width:1px; height:20px; background:var(--border); margin:0 2px; }
 .hud .depth { display:flex; gap:3px; align-items:center; color:var(--muted); font-size:11px; }
+
+/* ---- plan page: the codecast's itinerary (`@ plan`) */
+.plan { flex:1; min-height:0; overflow:auto; padding:22px 32px 60px; background:var(--bg); }
+.plan .wrap { max-width:820px; margin:0 auto; }
+.plan h2 { margin:0 0 4px; font-size:22px; display:flex; align-items:center; gap:10px; }
+.plan .intro { color:var(--muted); margin:0 0 16px; font-size:13px; }
+.plan ol { list-style:none; margin:0; padding:0; }
+.plan li { display:flex; gap:14px; align-items:flex-start; padding:10px 14px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; background:var(--panel); cursor:pointer; transition: border-color .2s, transform .12s, opacity .2s; }
+.plan li:hover { border-color:var(--accent); transform:translateX(2px); }
+.plan li.cur { border-color:var(--hi); box-shadow: 0 0 0 1px var(--hi), 0 0 14px color-mix(in srgb, var(--hi) 35%, transparent); }
+.plan li.done { opacity:.7; }
+.plan .num { flex:none; width:28px; height:28px; border-radius:999px; background:var(--panel3); color:var(--text); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; }
+.plan li.cur .num { background:var(--hi); color:var(--panel); }
+.plan .name { font-weight:700; font-size:14px; }
+.plan .sum { color:var(--muted); font-size:12px; margin-top:2px; }
+.plan .meta { margin-left:auto; flex:none; color:var(--muted); font-size:11px; white-space:nowrap; padding-top:2px; }
 
 /* ---- settings page */
 .settings { flex:1; min-height:0; overflow:auto; padding:18px 28px 60px; background:var(--bg); }

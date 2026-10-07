@@ -26,9 +26,13 @@ a `codecast/` directory, else `codecast.md`, else the legacy `codecast.txt`.
 
 ```
 codecast/
-  index.md            # Title            (+ optional `audio:` for one recording of the whole tour)
-                      - [Welcome](01-welcome.md)      optional: the part order as a markdown list
-                      - [The data](02-the-data.md)    (unlisted files follow, sorted by name)
+  index.md            # Title            (+ optional `audio:` for one recording of the whole tour,
+                                           `plan: one line` as the intro of the plan page)
+                      - [Welcome](01-welcome.md) — what the project is for    optional: the part order
+                      - [The data](02-the-data.md) — the types                 as a markdown list; the text
+                                                                               after a link is the part's
+                                                                               line on the plan page
+                                                                               (unlisted files follow, by name)
   01-welcome.md       ## Welcome  …cues…   (no `##`? the file name becomes the part name: "Welcome")
   01-welcome.mp3      recording of that part, picked up by name (mp3/ogg/wav/m4a/webm)
   02-the-data.md
@@ -68,7 +72,15 @@ Every task is saved, in a loop.
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
+
+**The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
+shows the codecast's itinerary instead of a view: the parts in order with one line each, the
+current one marked, cue and question counts; clicking a part plays it. The line comes from the
+description after the part's link in `index.md` (`- [Welcome](01-welcome.md) — what the project is
+for`) or from a `plan:` line right under the `##` heading (which wins); without either, the part's
+first sentence. A `plan:` line in the header is the page's intro sentence. The player bar's *plan*
+button opens the page at any time.
 
 `audio:` before the first part names a recording of the whole script; inside a part, a recording of that
 part only (then its `[t]` times count from the start of that file). Names are relative to the script's

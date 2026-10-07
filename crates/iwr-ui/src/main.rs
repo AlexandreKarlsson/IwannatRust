@@ -506,6 +506,7 @@ fn App() -> Element {
         div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}
             if settings_open {
+    let is_plan = *state.mode.read() == Mode::Plan;
                 settings::SettingsPage {}
             } else {
             div { class: "main",
@@ -540,6 +541,8 @@ fn App() -> Element {
             }
             if has_guide {
                 player::PlayerBar {}
+                } else if is_plan {
+                    player::PlanPage {}
             }
         }
     }

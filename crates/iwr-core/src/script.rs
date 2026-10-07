@@ -22,6 +22,9 @@
 //! (see [`crate::glossary`]); `pronounce: Dioxus = dee ox us` fixes how TTS says a word
 //! (see [`crate::speech`]).
 //!
+//! `plan: one line` under a part heading (or the description after its link in `index.md`) feeds
+//! the plan page that `@ plan` shows: the parts in order, one line each.
+//!
 //! A ```` ```mermaid ```` fenced block inside a part is a diagram (see [`crate::diagram`]):
 //! `@ diagram` shows it, `!` glows its nodes by id, `> alice bus` moves a node into a group
 //! (or next to a node) from that cue on, `> alice` brings it back to the top level,
@@ -31,6 +34,7 @@ use crate::diagram::{Diagram, Op};
 use crate::model::*;
 use crate::views::Mode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Script {
@@ -42,6 +46,9 @@ pub struct Script {
     /// `pronounce: written = spoken` header lines (see [`crate::speech`])
     #[serde(default)]
     pub pronounce: Vec<(String, String)>,
+    /// `plan:` line of the header: the intro sentence of the plan page
+    #[serde(default)]
+    pub summary: Option<String>,
     pub parts: Vec<Part>,
 }
 
@@ -51,7 +58,7 @@ fn yes() -> bool {
 
 impl Default for Script {
     fn default() -> Self {
-        Script { title: String::new(), audio: None, glossary: true, pronounce: vec![], parts: vec![] }
+        Script { title: String::new(), audio: None, glossary: true, pronounce: vec![], summary: None, parts: vec![] }
     }
 }
 
@@ -64,6 +71,10 @@ pub struct Part {
     /// ```` ```mermaid ```` blocks of the part, in order (`@ diagram`, `@ diagram:2`, `@ diagram:<title>`)
     #[serde(default)]
     pub diagrams: Vec<Diagram>,
+    /// one line about the part for the plan page (`@ plan`): a `plan:` line under the heading, or
+    /// the description after the part's link in `index.md`
+    #[serde(default)]
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -111,7 +122,7 @@ impl Script {
 /// Parse the text format. Never fails: unknown lines become spoken text.
 pub fn parse(text: &str) -> Script {
     let mut s = Script::default();
-    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![], diagrams: vec![] };
+    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![], diagrams: vec![], summary: None };
     let mut pending = Cue::default();
     let mut in_part = false;
     // a `?` block being read: it goes to the previous cue when no directive is pending for the
@@ -177,7 +188,7 @@ pub fn parse(text: &str) -> Script {
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
-            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![], diagrams: vec![] };
+            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![], diagrams: vec![], summary: None };
             in_part = true;
             continue;
         }
@@ -194,6 +205,15 @@ pub fn parse(text: &str) -> Script {
                 part.audio = a;
             } else {
                 s.audio = a;
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("plan:") {
+            let v = Some(rest.trim().to_string()).filter(|v| !v.is_empty());
+            if in_part {
+                part.summary = v;
+            } else {
+                s.summary = v;
             }
             continue;
         }
@@ -262,6 +282,9 @@ pub fn to_text(s: &Script) -> String {
     if let Some(a) = &s.audio {
         out.push_str(&format!("audio: {}\n", a));
     }
+    if let Some(p) = &s.summary {
+        out.push_str(&format!("plan: {}\n", p));
+    }
     if !s.glossary {
         out.push_str("glossary: off\n");
     }
@@ -272,6 +295,9 @@ pub fn to_text(s: &Script) -> String {
         out.push_str(&format!("\n## {}\n", p.name));
         if let Some(a) = &p.audio {
             out.push_str(&format!("audio: {}\n", a));
+        }
+        if let Some(pl) = &p.summary {
+            out.push_str(&format!("plan: {}\n", pl));
         }
         for d in &p.diagrams {
             out.push_str(&format!("```mermaid\n{}\n```\n", d.source));
@@ -367,43 +393,73 @@ pub fn part_name_from_stem(stem: &str) -> String {
     }
 }
 
+/// The part list of `index.md`, in order, as (stem, description): `- [Part](NN-file.md) — one line
+/// about it` (also `- NN-file.md …`, `` - `NN-file.md` ``, `1. …`). Only entries naming an existing
+/// part file count; the description feeds the plan page (`@ plan`).
+pub fn index_parts(index: &str, stems: &[String]) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    for line in index.lines() {
+        let Some(body) = list_item(line.trim()) else { continue };
+        let (target, rest) = link_target(body);
+        let stem = target.trim_start_matches("./").trim_end_matches(".md").to_string();
+        if stems.contains(&stem) && !out.iter().any(|(s, _)| *s == stem) {
+            out.push((stem, link_desc(&rest)));
+        }
+    }
+    out
+}
+
 /// Order the part files of a directory: the order listed in `index` (markdown links or list items
 /// naming `.md` files), then the rest sorted by name. `index.md` itself is never a part.
 pub fn order_parts(index: &str, stems: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for line in index.lines() {
-        let t = line.trim();
-        let Some(body) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).or_else(|| t.split_once(". ").filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit())).map(|(_, b)| b)) else { continue };
-        let target = match (body.rfind("](" ), body.ends_with(')')) {
-            (Some(i), true) => &body[i + 2..body.len() - 1],
-            _ => body.trim_matches('`'),
-        };
-        let stem = target.trim().trim_start_matches("./").trim_end_matches(".md").to_string();
-        if stems.contains(&stem) && !out.contains(&stem) {
-            out.push(stem);
-        }
-    }
+    let mut out: Vec<String> = index_parts(index, stems).into_iter().map(|(s, _)| s).collect();
     let mut rest: Vec<&String> = stems.iter().filter(|s| !out.contains(s) && s.as_str() != "index").collect();
     rest.sort();
     out.extend(rest.into_iter().cloned());
     out
 }
 
-/// Lines of `index.md` that are not the part list (title, `audio:`, intro cues).
+/// `- item`, `* item`, `1. item` → `item`.
+fn list_item(t: &str) -> Option<&str> {
+    t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).or_else(|| t.split_once(". ").filter(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).map(|(_, b)| b))
+}
+
+/// `[Part](NN-file.md) — description` → (`NN-file.md`, ` — description`); also `` `NN-file.md` ``
+/// and `NN-file.md description`.
+fn link_target(body: &str) -> (String, String) {
+    let body = body.trim();
+    if let Some(i) = body.find("](") {
+        let after = &body[i + 2..];
+        if let Some(j) = after.find(')') {
+            return (after[..j].trim().to_string(), after[j + 1..].to_string());
+        }
+    }
+    let clean = |a: &str| a.trim_end_matches(':').trim_matches('`').to_string();
+    match body.split_once(char::is_whitespace) {
+        Some((a, b)) => (clean(a), b.to_string()),
+        None => (clean(body), String::new()),
+    }
+}
+
+/// The description after a part link: ` — about…`, ` - about…`, `: about…`.
+fn link_desc(rest: &str) -> Option<String> {
+    let d = rest.trim().trim_start_matches(['—', '–', '-', ':', '·']).trim();
+    (!d.is_empty()).then(|| d.to_string())
+}
+
+/// Lines of `index.md` that are not the part list (title, `audio:`, `plan:`, intro cues).
 fn index_body(index: &str, stems: &[String]) -> String {
     index
         .lines()
         .filter(|line| {
             let t = line.trim();
-            let listed = |target: &str| stems.contains(&target.trim().trim_start_matches("./").trim_end_matches(".md").to_string());
-            if let Some(body) = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
-                let target = match (body.rfind("](" ), body.ends_with(')')) {
-                    (Some(i), true) => &body[i + 2..body.len() - 1],
-                    _ => body.trim_matches('`'),
-                };
-                return !listed(target);
+            match t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")) {
+                Some(body) => {
+                    let (target, _) = link_target(body);
+                    !stems.contains(&target.trim_start_matches("./").trim_end_matches(".md").to_string())
+                }
+                None => true,
             }
-            true
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -415,6 +471,7 @@ fn index_body(index: &str, stems: &[String]) -> String {
 pub fn assemble(index: &str, parts: &[PartFile]) -> String {
     let stems: Vec<String> = parts.iter().map(|p| p.stem.clone()).collect();
     let order = order_parts(index, &stems);
+    let descs: HashMap<String, String> = index_parts(index, &stems).into_iter().filter_map(|(s, d)| d.map(|d| (s, d))).collect();
     let mut out = index_body(index, &stems).trim_end().to_string();
     out.push('\n');
     for stem in order {
@@ -427,6 +484,11 @@ pub fn assemble(index: &str, parts: &[PartFile]) -> String {
         if let Some(a) = &pf.audio {
             if !body.iter().any(|l| l.trim_start().starts_with("audio:")) {
                 body.insert(1, format!("audio: {}", a));
+            }
+        }
+        if let Some(d) = descs.get(&stem) {
+            if !body.iter().any(|l| l.trim_start().starts_with("plan:")) {
+                body.insert(1, format!("plan: {}", d));
             }
         }
         out.push('\n');
@@ -460,6 +522,7 @@ pub fn view_of(name: &str) -> Option<Mode> {
         "types" => Mode::Types,
         "errors" | "error" => Mode::ErrorFlow,
         "diagram" | "sketch" => Mode::Diagram,
+        "plan" | "outline" => Mode::Plan,
         _ => return None,
     })
 }
@@ -475,6 +538,7 @@ pub fn view_name(m: Mode) -> &'static str {
         Mode::Types => "types",
         Mode::ErrorFlow => "errors",
         Mode::Diagram => "diagram",
+        Mode::Plan => "plan",
     }
 }
 
@@ -610,6 +674,13 @@ impl<'a> Track<'a> {
                     });
                 }
             }
+            Some(Mode::Plan) => {
+                self.mode = Some(Mode::Plan);
+                self.diagram = None;
+                if r.is_some() {
+                    bad.push(format!("{}: `@ plan` takes no ref", at));
+                }
+            }
             Some(m) => {
                 self.mode = Some(m);
                 self.diagram = None;
@@ -732,7 +803,7 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
 /// Turn the generated tour into a script: one part per chapter (`GuideStep::part`).
 pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
     let mut s = Script { title: format!("Tour of {}", p.name), ..Default::default() };
-    let mut part = Part { name: String::new(), audio: None, cues: vec![], diagrams: vec![] };
+    let mut part = Part { name: String::new(), audio: None, cues: vec![], diagrams: vec![], summary: None };
     let mut last_show: Option<String> = None;
     for st in steps {
         if st.part != part.name {

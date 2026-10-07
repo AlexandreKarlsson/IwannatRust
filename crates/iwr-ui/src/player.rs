@@ -140,7 +140,7 @@ impl State {
         self.tts_gen += 1;
         self.hl.set(vec![]);
         self.hl_ids.set(vec![]);
-        if *self.mode.read() == Mode::Diagram {
+        if matches!(*self.mode.read(), Mode::Diagram | Mode::Plan) {
             self.set_mode(Mode::Code);
         }
         self.diagram.set(None);
@@ -241,7 +241,7 @@ impl State {
             if let Some(m) = mode {
                 if m != *self.mode.read() {
                     self.mode.set(m);
-                    if m != Mode::Code {
+                    if !matches!(m, Mode::Code | Mode::Plan) {
                         self.views_open.set(true);
                     }
                 }
@@ -311,8 +311,11 @@ impl State {
         if let Some(m) = *self.code_mark.read() {
             self.selected_span.set(Some(m));
         }
-        // camera
-        if *self.mode.read() != Mode::Code {
+        // camera (the Code view scrolls instead; the plan page is a list). It replaces the
+        // fit that a scope / root / mode change above asked for.
+        let req = *self.fit_request.peek();
+        self.fit_done.set(req);
+        if !matches!(*self.mode.read(), Mode::Code | Mode::Plan) {
             let graph = self.build_graph();
             let hl = self.hl.read().clone();
             let ids = self.hl_ids.read().clone();
@@ -655,10 +658,63 @@ pub fn PlayerBar() -> Element {
                             button { class: "small", onclick: move |_| {
                                 let t = paste.read().clone();
                                 if !t.trim().is_empty() {
+                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Plan); }, "plan" }
                                     state.load_script(script::parse(&t));
                                     show_load.set(false);
                                 }
                             }, "use script" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The plan page (`@ plan`, or the *plan* button): the codecast's parts in order, one line each,
+/// the current one marked. Clicking a part plays it from its first cue.
+#[component]
+pub fn PlanPage() -> Element {
+    let mut state = use_context::<State>();
+    let Some(s) = state.script.read().clone() else {
+        return rsx! { div { class: "plan", div { class: "wrap", p { class: "intro", "No codecast loaded." } } } };
+    };
+    let cur = *state.part_idx.read();
+    let n_parts = s.parts.len();
+    let total = s.cue_count();
+    rsx! {
+        div { class: "plan",
+            div { class: "wrap",
+                h2 { Icon { name: "plan".to_string(), size: 22 } "{s.title}" }
+                p { class: "intro",
+                    if let Some(i) = &s.summary { "{i} · " }
+                    "{n_parts} parts, {total} cues. Click a part to play it; the full tour plays them all in a row."
+                }
+                ol {
+                    for (i, p) in s.parts.iter().enumerate() {
+                        {
+                            let first = p.cues.first().map(|c| c.say.clone()).unwrap_or_default();
+                            let summary = p.summary.clone().unwrap_or_else(|| iwr_core::shorten(&script::plain(&first), 140));
+                            let nq: usize = p.cues.iter().map(|c| c.questions.len()).sum();
+                            let mut meta = format!("{} cue{}", p.cues.len(), if p.cues.len() == 1 { "" } else { "s" });
+                            if nq > 0 {
+                                meta.push_str(&format!(" · {} question{}", nq, if nq == 1 { "" } else { "s" }));
+                            }
+                            if !p.diagrams.is_empty() {
+                                meta.push_str(" · diagram");
+                            }
+                            let class = if i == cur { "cur" } else if i < cur { "done" } else { "" };
+                            rsx! {
+                                li { key: "{i}", class: "{class}",
+                                    onclick: move |_| { state.tts_gen += 1; state.goto_part(i); },
+                                    div { class: "num", "{i + 1}" }
+                                    div {
+                                        div { class: "name", "{p.name}" }
+                                        div { class: "sum", "{summary}" }
+                                    }
+                                    div { class: "meta", "{meta}" }
+                                }
+                            }
                         }
                     }
                 }
