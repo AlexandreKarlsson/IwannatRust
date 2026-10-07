@@ -9,12 +9,15 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 have_bin() { [ -x "$BIN" ]; }
 need_bin() { have_bin || { echo "iwr not built yet → scripts/iwr build" >&2; exit 1; }; }
+# Project path for a command: a path, or `demo` (examples/demo, the default) / `self` (this repository).
+proj() { case "${1:-demo}" in demo) echo "$DEMO" ;; self|repo|iwr) echo "$ROOT" ;; *) echo "$1" ;; esac; }
 
 commands() {
 cat <<'MENU'
   🔨  build       Build the web UI (dx) and the CLI with the UI embedded
-  🚀  serve  [P]  Analyze a project (default: examples/demo) and open the interactive UI
+  🚀  serve  [P]  Analyze a project and open the interactive UI (P: a path, demo = examples/demo, self = this repository)
   🎙️  codecast [P] [S] [A]  Serve with a codecast (default: <P>/codecast/ or codecast.md), optional audio
+  🪞  self   [S] [A]      Serve this repository with its own codecast: the tour of IwannatRust
   📦  export [P] [-o DIR]   Static site (index.html + project.json + script) for docs
   📝  brief  [P] [--fn F]   Compact text brief of the code for an AI to write a codecast
   🧭  guide  [P]  Print the built-in walkthrough as a codecast script
@@ -32,7 +35,7 @@ usage() {
   echo
   commands
   echo
-  echo "usage: scripts/iwr <command> [args]      P = project path"
+  echo "usage: scripts/iwr <command> [args]      P = project path, or demo (default) / self (this repository)"
 }
 
 pick() {
@@ -55,29 +58,31 @@ case "$cmd" in
     cargo build --release -p iwr
     echo "✔ built $BIN" ;;
   serve)
-    need_bin; exec "$BIN" serve "${1:-$DEMO}" "${@:2}" ;;
+    need_bin; exec "$BIN" serve "$(proj "${1:-}")" "${@:2}" ;;
   codecast|narrate)
     need_bin
-    P="${1:-$DEMO}"; S="${2:-}"
+    P="$(proj "${1:-}")"; S="${2:-}"
     if [ -z "$S" ]; then for c in "$P/codecast" "$P/codecast.md" "$P/codecast.txt"; do [ -e "$c" ] && { S="$c"; break; }; done; fi
     [ -n "$S" ] && [ -e "$S" ] || { echo "no codecast in $P — write one (docs/codecast.md) or: scripts/iwr guide $P > $P/codecast.md" >&2; exit 1; }
     args=(serve "$P" --script "$S"); [ -n "${3:-}" ] && args+=(--audio "$3")
     exec "$BIN" "${args[@]}" ;;
+  self)
+    need_bin; exec "$0" codecast self "$@" ;;
   export)
-    need_bin; P="${1:-$DEMO}"; shift || true
+    need_bin; P="$(proj "${1:-}")"; shift || true
     exec "$BIN" export "$P" "$@" ;;
-  brief)   need_bin; exec "$BIN" brief "${1:-$DEMO}" "${@:2}" ;;
-  guide)   need_bin; exec "$BIN" guide "${1:-$DEMO}" "${@:2}" ;;
+  brief)   need_bin; exec "$BIN" brief "$(proj "${1:-}")" "${@:2}" ;;
+  guide)   need_bin; exec "$BIN" guide "$(proj "${1:-}")" "${@:2}" ;;
   speak)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr speak SCRIPT" >&2; exit 1; }; exec "$BIN" speak "$1" ;;
-  check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$1" --path "${2:-$DEMO}" ;;
-  summary) need_bin; exec "$BIN" summary "${1:-$DEMO}" ;;
+  check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$1" --path "$(proj "${2:-}")" ;;
+  summary) need_bin; exec "$BIN" summary "$(proj "${1:-}")" ;;
   test)
     cargo test -p iwr-core
     cargo clippy --workspace --exclude iwr-ui -- -D warnings
     cargo check -p iwr-ui --target wasm32-unknown-unknown
     echo "✔ tests + clippy + wasm check" ;;
   shot)
-    need_bin; P="${1:-$DEMO}"; OUT="${2:-iwr-shot.png}"
+    need_bin; P="$(proj "${1:-}")"; OUT="${2:-iwr-shot.png}"
     "$BIN" serve "$P" --port 4399 --no-open >/dev/null 2>&1 & pid=$!
     trap 'kill $pid 2>/dev/null || true' EXIT
     sleep 1.5
