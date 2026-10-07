@@ -226,6 +226,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .cam.anim { transition: transform .6s cubic-bezier(.22,.61,.36,1); }
 .cam.anim .node { transition: transform .6s cubic-bezier(.22,.61,.36,1); }
 .node .body { transition: stroke-width .12s, stroke .35s, filter .35s; }
+.cam.anim .node rect { transition: stroke-width .12s, stroke .35s, filter .35s, width .6s cubic-bezier(.22,.61,.36,1), height .6s cubic-bezier(.22,.61,.36,1); }
 .edge path { transition: stroke .35s, stroke-width .35s, opacity .35s; }
 .sbtabs { display:flex; gap:4px; margin:2px 0 6px; }
 .ftree .frow { display:flex; align-items:center; gap:5px; padding:2px 6px; border-radius:4px; cursor:pointer; white-space:nowrap; font-size:12px; }

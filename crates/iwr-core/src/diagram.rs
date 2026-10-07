@@ -112,6 +112,38 @@ impl Diagram {
     }
 }
 
+// ------------------------------------------------------------------ ops: `>` lines
+
+/// What a `>` line of a cue changes in the diagram, from that cue on. The player replays the
+/// ops of a part from its first cue, so stepping back and forth stays consistent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Op {
+    /// `> a b`: `a` moves into group `b`, or next to node `b`; `> a`: back to the top level
+    Move { node: String, to: Option<String> },
+    /// a `>` line as written that could not be read (`iwr check` reports it)
+    Bad(String),
+}
+
+/// Parse the text after `>`: `node group`, `node other`, or `node`.
+pub fn parse_ops(rest: &str) -> Vec<Op> {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    match words.as_slice() {
+        [a] => vec![Op::Move { node: a.to_string(), to: None }],
+        [a, b] => vec![Op::Move { node: a.to_string(), to: Some(b.to_string()) }],
+        _ => vec![Op::Bad(rest.trim().to_string())],
+    }
+}
+
+/// The text after `>` for an op (inverse of [`parse_ops`]).
+pub fn op_text(op: &Op) -> String {
+    match op {
+        Op::Move { node, to: Some(t) } => format!("{} {}", node, t),
+        Op::Move { node, to: None } => node.clone(),
+        Op::Bad(s) => s.clone(),
+    }
+}
+
 // ------------------------------------------------------------------ parsing
 
 const OTHER_DIAGRAMS: [&str; 12] = ["sequencediagram", "classdiagram", "statediagram", "erdiagram", "gantt", "pie", "journey", "gitgraph", "mindmap", "timeline", "quadrantchart", "xychart"];
@@ -562,6 +594,8 @@ struct Ctx<'a> {
     d: &'a Diagram,
     /// effective parent of every node (`None` = top level)
     parent: HashMap<&'a str, Option<&'a str>>,
+    /// node → the sibling it was moved next to (a layout-only edge keeps them adjacent)
+    next_to: HashMap<&'a str, &'a str>,
     visible: HashSet<&'a str>,
     size: HashMap<&'a str, (f64, f64)>,
     /// position relative to the parent's inner origin
@@ -620,6 +654,11 @@ impl<'a> Ctx<'a> {
                 direct.push(ei);
             }
         }
+        for (n, t) in &self.next_to {
+            if self.lift(n, group) == Some(*n) && self.lift(t, group) == Some(*t) {
+                ledges.push(LayoutEdge { from: t.to_string(), to: n.to_string(), reverse_rank: false });
+            }
+        }
         let opts = LayoutOptions { layer_gap: 56.0, node_gap: 22.0, margin: 0.0, horizontal, max_per_layer: 6 };
         let res = layout::layered(&lnodes, &ledges, &opts);
         for k in &kids {
@@ -640,7 +679,9 @@ impl<'a> Ctx<'a> {
 }
 
 /// Lay the diagram out as a [`Graph`]: node ids are the mermaid ids, groups are containers.
-pub fn graph(d: &Diagram) -> Graph {
+/// `ops` are the `>` lines played so far (in order); names they mention that do not exist are
+/// ignored (`iwr check` reports them).
+pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
     let mut g = Graph { mode: Some(Mode::Diagram), ..Default::default() };
     if d.nodes.is_empty() {
         g.note = Some("Empty diagram.".into());
@@ -651,6 +692,31 @@ pub fn graph(d: &Diagram) -> Graph {
     for n in &d.nodes {
         let p = n.parent.as_deref().filter(|p| d.node(p).map(|x| x.group && x.id != n.id).unwrap_or(false));
         parent.insert(&n.id, p);
+    }
+    // `>` moves: into a group, or next to a node (same parent, laid out right after it)
+    let mut next_to: HashMap<&str, &str> = HashMap::new();
+    for op in ops {
+        let Op::Move { node, to } = op else { continue };
+        let Some(n) = d.node(node) else { continue };
+        let n = n.id.as_str();
+        match to.as_deref() {
+            None => {
+                parent.insert(n, None);
+                next_to.remove(n);
+            }
+            Some(t) => match d.node(t) {
+                None => continue,
+                Some(t) if t.group => {
+                    parent.insert(n, Some(t.id.as_str()));
+                    next_to.remove(n);
+                }
+                Some(t) => {
+                    let p = parent.get(t.id.as_str()).copied().flatten();
+                    parent.insert(n, p);
+                    next_to.insert(n, t.id.as_str());
+                }
+            },
+        }
     }
     for n in &d.nodes {
         let mut seen = vec![n.id.as_str()];
@@ -665,7 +731,7 @@ pub fn graph(d: &Diagram) -> Graph {
         }
     }
     let visible: HashSet<&str> = d.nodes.iter().map(|n| n.id.as_str()).collect();
-    let mut ctx = Ctx { d, parent, visible, size: HashMap::new(), local: HashMap::new(), routes: HashMap::new() };
+    let mut ctx = Ctx { d, parent, next_to, visible, size: HashMap::new(), local: HashMap::new(), routes: HashMap::new() };
     let (w, h) = ctx.place(None, d.horizontal);
     // absolute positions
     let mut abs: HashMap<&str, (f64, f64)> = HashMap::new();
@@ -800,7 +866,7 @@ mod tests {
     #[test]
     fn layout_nests_groups_and_routes_edges() {
         let d = parse("graph LR\nsubgraph stop[Stop]\n p1[Alice]\n p2[Bob]\nend\nstop --> bus[Bus]\np1 --> bus\n");
-        let g = graph(&d);
+        let g = graph(&d, &[]);
         assert_eq!(g.nodes.len(), 4);
         let stop = g.node("stop").unwrap();
         let p1 = g.node("p1").unwrap();
@@ -812,5 +878,30 @@ mod tests {
         assert!(g.edges.iter().all(|e| e.points.len() >= 2));
         assert_eq!(g.nodes[0].id, "stop", "containers first");
         assert!(g.width > bus.x + bus.w && g.height > 0.0);
+    }
+
+    fn inside(g: &Graph, n: &str, grp: &str) -> bool {
+        let (n, c) = (g.node(n).unwrap(), g.node(grp).unwrap());
+        n.x >= c.x && n.y >= c.y && n.x + n.w <= c.x + c.w && n.y + n.h <= c.y + c.h
+    }
+
+    #[test]
+    fn moves_change_parents() {
+        let d = parse("graph LR\nsubgraph stop[Stop]\n alice[Alice]\nend\nsubgraph bus[Bus]\nend\nstop --> bus --> office[Office]\n");
+        assert!(inside(&graph(&d, &[]), "alice", "stop"));
+        let ops = parse_ops("alice bus");
+        assert_eq!(ops, vec![Op::Move { node: "alice".into(), to: Some("bus".into()) }]);
+        let g1 = graph(&d, &ops);
+        assert!(inside(&g1, "alice", "bus") && !inside(&g1, "alice", "stop"));
+        assert_eq!(g1.node("alice").unwrap().parent.as_deref(), Some("bus"));
+        // next to a plain node: same level, laid out after it
+        let g2 = graph(&d, &parse_ops("alice office"));
+        let (a, o) = (g2.node("alice").unwrap(), g2.node("office").unwrap());
+        assert!(a.parent.is_none() && a.x > o.x);
+        // back to the top level; unknown names are ignored
+        let g3 = graph(&d, &[parse_ops("alice bus"), parse_ops("alice"), parse_ops("nobody bus")].concat());
+        assert!(g3.node("alice").unwrap().parent.is_none());
+        assert_eq!(parse_ops("a b c"), vec![Op::Bad("a b c".into())]);
+        assert_eq!(parse_ops(&op_text(&ops[0])), ops);
     }
 }

@@ -77,6 +77,8 @@ pub struct State {
     pub hl_ids: Signal<Vec<String>>,
     /// the diagram shown by `@ diagram` (from the current part)
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
+    /// `>` ops of the current part up to the current cue, replayed on the diagram
+    pub diagram_ops: Signal<Vec<iwr_core::diagram::Op>>,
     /// code span to underline (may have columns)
     pub code_mark: Signal<Option<Span>>,
     /// question being answered (the codecast is paused meanwhile)
@@ -150,7 +152,7 @@ impl State {
     pub fn build_graph(&self) -> Graph {
         if *self.mode.read() == Mode::Diagram {
             return match self.diagram.read().as_ref() {
-                Some(d) => iwr_core::diagram::graph(d),
+                Some(d) => iwr_core::diagram::graph(d, &self.diagram_ops.read()),
                 None => Graph { note: Some("No diagram here: a codecast draws one with a ```mermaid block and `@ diagram`.".into()), ..Default::default() },
             };
         }
@@ -320,6 +322,7 @@ fn App() -> Element {
         hl: Signal::new(vec![]),
         hl_ids: Signal::new(vec![]),
         diagram: Signal::new(None),
+        diagram_ops: Signal::new(vec![]),
         code_mark: Signal::new(None),
         answering: Signal::new(None),
         resume_after_answer: Signal::new(false),

@@ -23,9 +23,10 @@
 //! (see [`crate::speech`]).
 //!
 //! A ```` ```mermaid ```` fenced block inside a part is a diagram (see [`crate::diagram`]):
-//! `@ diagram` shows it, `!` glows its nodes by id.
+//! `@ diagram` shows it, `!` glows its nodes by id, `> alice bus` moves a node into a group
+//! (or next to a node) from that cue on, `> alice` brings it back to the top level.
 
-use crate::diagram::Diagram;
+use crate::diagram::{Diagram, Op};
 use crate::model::*;
 use crate::views::Mode;
 use serde::{Deserialize, Serialize};
@@ -77,6 +78,9 @@ pub struct Cue {
     /// questions offered while this cue is shown (`?` lines)
     #[serde(default)]
     pub questions: Vec<Question>,
+    /// `>` lines: what moves in the diagram from this cue on (see [`crate::diagram::Op`])
+    #[serde(default)]
+    pub ops: Vec<Op>,
 }
 
 /// A question the listener can click. Answering pauses the codecast, shows and speaks the
@@ -214,6 +218,10 @@ pub fn parse(text: &str) -> Script {
             pending.code = Some(rest.trim().to_string());
             continue;
         }
+        if let Some(rest) = t.strip_prefix('>') {
+            pending.ops.extend(crate::diagram::parse_ops(rest));
+            continue;
+        }
         if t.starts_with('[') {
             if let Some(end) = t.find(']') {
                 if let Ok(v) = t[1..end].trim().parse::<f64>() {
@@ -276,6 +284,9 @@ pub fn to_text(s: &Script) -> String {
             }
             if let Some(cd) = &c.code {
                 out.push_str(&format!("= {}\n", cd));
+            }
+            for op in &c.ops {
+                out.push_str(&format!("> {}\n", crate::diagram::op_text(op)));
             }
             let say = flatten(&c.say);
             match c.t {
@@ -628,6 +639,33 @@ impl<'a> Track<'a> {
             }
         }
     }
+
+    /// Check `>` ops against the diagram shown, else the part's first one.
+    fn ops(&self, part: &'a Part, at: &str, ops: &[Op], bad: &mut Vec<String>) {
+        let d = match (self.mode, self.diagram) {
+            (Some(Mode::Diagram), Some(d)) => d,
+            (Some(Mode::Diagram), None) => return, // the `@ diagram` error was reported
+            _ => match part.diagrams.first() {
+                Some(d) => d,
+                None => {
+                    bad.push(format!("{}: `>` but this part has no diagram to move things in", at));
+                    return;
+                }
+            },
+        };
+        for op in ops {
+            match op {
+                Op::Bad(s) => bad.push(format!("{}: cannot read `> {}` (one move per line: `> node group`, `> node other`, `> node`)", at, s)),
+                Op::Move { node, to } => {
+                    for r in std::iter::once(node).chain(to.iter()) {
+                        if !d.has(r) {
+                            bad.push(format!("{}: `{}` in `>` is not a node of the diagram (nodes: {})", at, r, d.ids().join(" ")));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// All refs in a script that do not resolve, with their location.
@@ -647,6 +685,9 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
             }
             if let Some(refs) = &c.hl {
                 t.hl(p, &at, refs, &mut bad);
+            }
+            if !c.ops.is_empty() {
+                t.ops(part, &at, &c.ops, &mut bad);
             }
             if let Some(r) = &c.code {
                 if resolve(p, r).is_none() {
@@ -707,7 +748,7 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
             }
         }
         let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
-        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![] });
+        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![], ops: vec![] });
         last_show = Some(show);
     }
     if !part.cues.is_empty() {

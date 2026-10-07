@@ -144,6 +144,7 @@ impl State {
             self.set_mode(Mode::Code);
         }
         self.diagram.set(None);
+        self.diagram_ops.set(vec![]);
         self.code_mark.set(None);
         document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
     }
@@ -217,6 +218,16 @@ impl State {
     pub fn apply_cue(&mut self) {
         let Some(p) = self.project.read().clone() else { return };
         let Some(cue) = self.current_cue() else { return };
+        // `>` lines are sticky inside a part: replay them from its first cue
+        let (part, cue_idx) = (*self.part_idx.read(), *self.cue_idx.read());
+        let ops: Vec<iwr_core::diagram::Op> = self
+            .script
+            .read()
+            .as_ref()
+            .and_then(|s| s.parts.get(part))
+            .map(|part| part.cues.iter().take(cue_idx + 1).flat_map(|c| c.ops.iter().cloned()).collect())
+            .unwrap_or_default();
+        self.diagram_ops.set(ops);
         self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
     }
 

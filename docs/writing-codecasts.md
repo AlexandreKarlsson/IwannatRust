@@ -15,6 +15,7 @@ or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name
 @ <view>[:<ref>]             what to show (sticky until the next @)
 ! <ref> [<ref> …]            what to glow (sticky; `!` alone clears)
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
+> <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 <One or two spoken sentences.>
 ? <A question the listener may have>      optional, after the cue it belongs to
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
@@ -77,7 +78,10 @@ For a metaphor, a physical effect, a protocol or any schema that is not in the c
 ```` ```mermaid ```` flowchart block in the part, `@ diagram` to show it, `!` with node ids to glow.
 Shapes set the colour: `[box]` blue · `(round)` green · `([pill])` purple · `{diamond}` yellow ·
 `[(store)]` teal; `subgraph id[Title] … end` draws a group. Emoji in labels are fine (`b[🚌 Bus]`).
-Keep 3–8 nodes, one block per part, and come back to the code afterwards.
+To show something flowing (a request through layers, a value changing owner), move a node:
+`> alice bus` puts it into group `bus` (or next to node `bus`) from that cue on, `> alice` brings
+it back to the top; one move per line, undone when the listener steps back. Keep 3–8 nodes, one
+block per part, and come back to the code afterwards.
 
 ````
 ## Why tasks queue up
@@ -91,7 +95,8 @@ graph LR
 @ diagram
 ! stop
 Think of tasks as passengers waiting at a stop.
-! alice bus
+> alice bus
+! bus
 Alice boards: the scheduler took the heaviest task first.
 ````
 

@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![] });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![] });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -277,9 +277,28 @@ fn script_diagrams() {
     let bad = script::check(&p, &script::parse("## X\n```mermaid\ngraph LR\na -> b\n```\n@ diagram\n! a\nhi\n"));
     assert_eq!(bad.len(), 1, "{:?}", bad);
     assert!(bad[0].contains("diagram 1: line 2"), "{}", bad[0]);
-    let g = iwr_core::diagram::graph(&part.diagrams[0]);
+    let g = iwr_core::diagram::graph(&part.diagrams[0], &[]);
     assert_eq!(g.nodes.len(), 3);
     assert_eq!(g.mode, Some(iwr_core::views::Mode::Diagram));
+}
+
+#[test]
+fn script_diagram_moves() {
+    use iwr_core::diagram::Op;
+    use iwr_core::script;
+    let p = project();
+    let text = "## Bus\n```mermaid\ngraph LR\nsubgraph stop[Stop]\n alice[Alice]\nend\nstop --> bus[Bus]\n```\n@ diagram\n> alice bus\n! alice\nAlice boards.\n> alice\n> ghost bus\n> a b c\nOff again.\n";
+    let s = script::parse(text);
+    let c = &s.parts[0].cues;
+    assert_eq!(c[0].ops, vec![Op::Move { node: "alice".into(), to: Some("bus".into()) }]);
+    assert_eq!(c[1].ops.len(), 3);
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    let bad = script::check(&p, &s);
+    assert_eq!(bad.len(), 2, "{:?}", bad);
+    assert!(bad[0].contains("`ghost` in `>`") && bad[1].contains("cannot read `> a b c`"), "{:?}", bad);
+    let bad = script::check(&p, &script::parse("## X\n> a b\nhi\n"));
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("no diagram"));
 }
 
 #[test]

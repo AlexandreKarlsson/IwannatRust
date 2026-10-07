@@ -68,7 +68,7 @@ Every task is saved, in a loop.
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`, and a ```` ```mermaid ```` block for a [diagram](#diagrams).
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `glossary:`, `pronounce:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
 
 `audio:` before the first part names a recording of the whole script; inside a part, a recording of that
 part only (then its `[t]` times count from the start of that file). Names are relative to the script's
@@ -130,6 +130,12 @@ Emoji are plain label text. Several blocks in a part: `@ diagram:2`, or `@ diagr
 ids are letters, digits and `_`; an edge between two glowing nodes glows too. The *Diagram* tab
 appears in the top bar while a codecast has shown one. `iwr check` reports lines it cannot read,
 `@ diagram` without a block, and `!` refs that are not node ids while a diagram is shown.
+
+**Moving things.** A `>` line above a cue moves a node from that cue on: `> alice bus` puts
+`alice` into group `bus` (or next to `bus` when it is a plain node), `> alice` brings it back
+to the top level. One move per line, several lines per cue. Moves are sticky inside a part and
+replayed from its first cue, so stepping back undoes them; the player glides nodes to their new
+place and re-lays the groups out around them. `iwr check` verifies the names.
 
 ## How code is spoken
 
