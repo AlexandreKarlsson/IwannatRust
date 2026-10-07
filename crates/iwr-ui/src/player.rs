@@ -393,6 +393,30 @@ pub fn PlayerBar() -> Element {
     let say = cue.say.clone();
     let n_parts = s.parts.len();
     let tour = *state.tour.read();
+    let tts_info = state.tts_info.read().clone();
+    // voices the browser offers, checked as soon as TTS is selected (None = not known yet)
+    let mut tts_voices = use_signal(|| None::<usize>);
+    use_effect(move || {
+        if *state.voice.read() != Voice::Tts {
+            return;
+        }
+        spawn(async move {
+            // Chrome fills the list asynchronously: wait for `voiceschanged`, at most 2 s
+            let mut ev = document::eval(
+                r#"const n = () => { try { return speechSynthesis.getVoices().length; } catch (e) { return 0; } };
+                   if (n() > 0) { dioxus.send(n()); } else {
+                     let done = false;
+                     const fin = () => { if (!done) { done = true; dioxus.send(n()); } };
+                     try { speechSynthesis.addEventListener("voiceschanged", fin); } catch (e) {}
+                     setTimeout(fin, 2000);
+                   }"#,
+            );
+            if let Ok(n) = ev.recv::<usize>().await {
+                tts_voices.set(Some(n));
+            }
+        });
+    });
+    let no_voice = voice == Voice::Tts && *tts_voices.read() == Some(0);
     let mut show_load = use_signal(|| false);
     let mut paste = use_signal(String::new);
     let answering = state.answering.read().clone();
@@ -418,29 +442,69 @@ pub fn PlayerBar() -> Element {
         let Some(cue) = state.current_cue() else { return };
         let text = iwr_core::speech::spoken(&cue.say, &state.pronounce.peek());
         let rate = *state.tts_rate.peek();
+        // A browser without a speech engine (e.g. snap Chromium, no voices) errors or "ends"
+        // at once; advancing on that would race through the whole codecast in silence.
+        let words = text.split_whitespace().count();
+        let min_ms = (words as f64 * 60_000.0 / (400.0 * rate.max(0.1))) as u64;
         let js = format!(
             r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
+               let vs = [];
+               try {{ vs = speechSynthesis.getVoices(); }} catch (e) {{}}
+               const def = vs.find(v => v.default) || vs[0];
+               dioxus.send("voices:" + vs.length + ":" + (def ? def.name + " (" + def.lang + ")" : "none"));
                const u = new SpeechSynthesisUtterance({});
                u.rate = {rate:.2};
-               u.onend = () => dioxus.send("end");
+               const t0 = performance.now();
+               u.onstart = () => dioxus.send("start");
+               u.onend = () => dioxus.send("end:" + Math.round(performance.now() - t0));
                u.onerror = (e) => dioxus.send("error:" + e.error);
-               speechSynthesis.speak(u);
+               try {{ speechSynthesis.resume(); speechSynthesis.speak(u); }} catch (e) {{ dioxus.send("error:" + e); }}
                "#,
             serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into())
         );
         let my_gen = *state.tts_gen.peek();
+        let cue_no = *state.cue_idx.peek() + 1;
         spawn(async move {
             let mut ev = document::eval(&js);
-            if let Ok(msg) = ev.recv::<String>().await {
-                if *state.tts_gen.peek() != my_gen || !*state.playing.peek() {
+            let mut voices = String::from("?");
+            state.tts_info.set(format!("cue {cue_no}: asking browser to speak ({words} words)…"));
+            while let Ok(msg) = ev.recv::<String>().await {
+                if *state.tts_gen.peek() != my_gen {
                     return;
                 }
-                if msg == "end" || msg.starts_with("error") {
-                    gloo_timers::future::sleep(std::time::Duration::from_millis(350)).await;
-                    if *state.tts_gen.peek() == my_gen && *state.playing.peek() && !state.advance() {
-                        state.playing.set(false);
-                    }
+                if let Some(v) = msg.strip_prefix("voices:") {
+                    let (n, name) = v.split_once(':').unwrap_or((v, ""));
+                    voices = if n == "0" { "0 voices".into() } else { format!("{n} voices, default {name}") };
+                    state.tts_info.set(format!("cue {cue_no}: speak requested · {voices} · waiting for start…"));
+                    continue;
                 }
+                if msg == "start" {
+                    state.tts_info.set(format!("cue {cue_no}: speaking · {voices}"));
+                    continue;
+                }
+                if !*state.playing.peek() {
+                    return;
+                }
+                let ms = msg.strip_prefix("end:").and_then(|ms| ms.parse::<u64>().ok());
+                let too_fast = ms.is_some_and(|ms| words >= 4 && ms < min_ms);
+                let failed = msg.starts_with("error:") && !msg.ends_with("interrupted") && !msg.ends_with("canceled");
+                if too_fast || failed {
+                    state.playing.set(false);
+                    let why = if failed { msg.clone() } else { format!("ended after {} ms, too fast to have spoken {words} words", ms.unwrap_or(0)) };
+                    state.tts_info.set(format!(
+                        "⚠ TTS failed on cue {cue_no}: {why} · {voices}. The browser has no working speech voice: try another browser (Chrome/Firefox, not snap Chromium) or the 📖 read voice."
+                    ));
+                    return;
+                }
+                state.tts_info.set(match ms {
+                    Some(ms) => format!("cue {cue_no}: done in {:.1} s · {voices}", ms as f64 / 1000.0),
+                    None => format!("cue {cue_no}: {msg} · {voices}"),
+                });
+                gloo_timers::future::sleep(std::time::Duration::from_millis(350)).await;
+                if *state.tts_gen.peek() == my_gen && *state.playing.peek() && !state.advance() {
+                    state.playing.set(false);
+                }
+                return;
             }
         });
     });
@@ -570,6 +634,15 @@ pub fn PlayerBar() -> Element {
                 }
                 div { class: "status", "{cue_idx + 1} / {total} · part {part_idx + 1} / {n_parts}" }
                 div { class: "progress", div { style: "width:{pct:.1}%" } }
+                if no_voice {
+                    div { class: "status", style: "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600",
+                        "⚠ This browser has no text-to-speech voice: the codecast cannot be spoken. Open it in another browser (Google Chrome or Firefox, not snap Chromium) or pick 📖 read."
+                    }
+                }
+                if voice == Voice::Tts && !tts_info.is_empty() && !(no_voice && tts_info.starts_with('⚠')) {
+                    div { class: "status", style: if tts_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" },
+                        title: "browser text-to-speech status", "🔊 {tts_info}" }
+                }
                 div { class: "row",
                     select { class: "theme-select", value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
                         onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
@@ -585,6 +658,7 @@ pub fn PlayerBar() -> Element {
                     }
                 }
                 div { class: "row",
+                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Plan); }, "plan" }
                     button { class: "small", onclick: move |_| { let v = *show_load.read(); show_load.set(!v); }, "load…" }
                     button { class: "small", onclick: move |_| state.stop_script(), "✕ close" }
                 }
@@ -658,7 +732,6 @@ pub fn PlayerBar() -> Element {
                             button { class: "small", onclick: move |_| {
                                 let t = paste.read().clone();
                                 if !t.trim().is_empty() {
-                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Plan); }, "plan" }
                                     state.load_script(script::parse(&t));
                                     show_load.set(false);
                                 }

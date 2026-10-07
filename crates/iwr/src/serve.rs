@@ -77,6 +77,10 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
         let watch_root = if watch_root.is_file() { watch_root.parent().unwrap().to_path_buf() } else { watch_root };
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             if let Ok(ev) = res {
+                // reading the sources (our own re-analysis included) emits access events: ignore them
+                if ev.kind.is_access() {
+                    return;
+                }
                 if ev.paths.iter().any(|p| p.extension().map(|e| e == "rs").unwrap_or(false) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
                     let _ = tx.send(());
                 }

@@ -99,6 +99,8 @@ pub struct State {
     pub speech_parens: Signal<bool>,
     pub search: Signal<String>,
     pub fit_request: Signal<u32>,
+    /// last `fit_request` handled (by the canvas fit, or by a codecast cue that placed the camera itself)
+    pub fit_done: Signal<u32>,
     /// Span under the mouse (blocks pane or source pane) for two-way highlighting.
     pub hover_span: Signal<Option<Span>>,
     /// Show the source pane next to the code blocks.
@@ -127,6 +129,8 @@ pub struct State {
     /// full tour: continue with the next part when one ends
     pub tour: Signal<bool>,
     pub tts_rate: Signal<f64>,
+    /// what browser TTS is doing (voices, events), shown in the player
+    pub tts_info: Signal<String>,
     /// seconds per cue in silent reading mode
     pub read_delay: Signal<f64>,
 }
@@ -334,6 +338,7 @@ fn App() -> Element {
         speech_parens: Signal::new(false),
         search: Signal::new(String::new()),
         fit_request: Signal::new(0),
+        fit_done: Signal::new(0),
         hover_span: Signal::new(None),
         show_source: Signal::new(true),
         open_blocks: Signal::new(HashSet::new()),
@@ -351,6 +356,7 @@ fn App() -> Element {
         settings_open: Signal::new(false),
         tour: Signal::new(true),
         tts_rate: Signal::new(1.0),
+        tts_info: Signal::new(String::new()),
         read_delay: Signal::new(4.0),
     });
 
@@ -406,7 +412,10 @@ fn App() -> Element {
                             state.root.set(root);
                         }
                         state.status.set(if first { "ready".into() } else { "reloaded".into() });
-                        state.fit_request += 1;
+                        // a playing codecast keeps its camera: the cue is re-applied below
+                        if first || state.script.read().is_none() {
+                            state.fit_request += 1;
+                        }
                         if first {
                             if let Some((text, audio, base, glossary)) = player::fetch_script(live).await {
                                 state.audio_url.set(audio);
@@ -497,6 +506,7 @@ fn App() -> Element {
     let has_guide = state.script.read().is_some();
     let theme_name = state.theme.read().clone();
     let is_code = *state.mode.read() == Mode::Code;
+    let is_plan = *state.mode.read() == Mode::Plan;
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
@@ -506,7 +516,6 @@ fn App() -> Element {
         div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}
             if settings_open {
-    let is_plan = *state.mode.read() == Mode::Plan;
                 settings::SettingsPage {}
             } else {
             div { class: "main",
@@ -532,6 +541,8 @@ fn App() -> Element {
                 }
                 if is_code {
                     code::CodeView {}
+                } else if is_plan {
+                    player::PlanPage {}
                 } else {
                     canvas::Canvas {}
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
@@ -541,8 +552,6 @@ fn App() -> Element {
             }
             if has_guide {
                 player::PlayerBar {}
-                } else if is_plan {
-                    player::PlanPage {}
             }
         }
     }

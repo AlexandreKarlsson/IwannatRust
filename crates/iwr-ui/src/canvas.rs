@@ -115,11 +115,10 @@ pub fn Canvas() -> Element {
 
     // fit when requested (mode/root change, load)
     let fit_req = *state.fit_request.read();
-    let mut last_fit = use_signal(|| 0u32);
     use_effect(move || {
         let req = *state.fit_request.read();
-        if req != *last_fit.peek() {
-            last_fit.set(req);
+        if req != *state.fit_done.peek() {
+            state.fit_done.set(req);
             let g = graph.read().clone();
             state.fit(&g);
         }
@@ -227,8 +226,8 @@ pub fn Canvas() -> Element {
                             edge: e.clone(),
                             highlighted: hi.contains(&e.from) && hi.contains(&e.to),
                             near: focus_id.as_ref().map(|f| &e.from == f || &e.to == f).unwrap_or(false),
-                            sideways: sideways(e, &g),
                             dim: mode == Mode::Architecture && e.kind == EdgeKind::Dependency && focus_id.as_ref().map(|f| &e.from != f && &e.to != f).unwrap_or(false),
+                            sideways: sideways(e, &g),
                         }
                     }
                     for n in g.nodes.iter().filter(|n| !n.container) {
