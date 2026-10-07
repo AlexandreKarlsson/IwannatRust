@@ -8,13 +8,30 @@ use dioxus::prelude::*;
 use iwr_core::views::{EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
 use std::rc::Rc;
 
-fn path_d(points: &[(f64, f64)], backward: bool) -> String {
+/// True when a two-point edge attaches to the left/right sides of its boxes (LR layouts),
+/// so the bezier and its arrow head run horizontally instead of vertically.
+fn sideways(edge: &VEdge, g: &Graph) -> bool {
+    let on_side = |id: &str, p: (f64, f64)| {
+        g.node(id).is_some_and(|n| ((p.0 - n.x).abs() < 1.0 || (p.0 - (n.x + n.w)).abs() < 1.0) && p.1 > n.y + 1.0 && p.1 < n.y + n.h - 1.0)
+    };
+    match edge.points.as_slice() {
+        [a, b] => on_side(&edge.from, *a) || on_side(&edge.to, *b),
+        _ => false,
+    }
+}
+
+fn path_d(points: &[(f64, f64)], backward: bool, sideways: bool) -> String {
     if points.len() < 2 {
         return String::new();
     }
     if points.len() == 2 {
         let (x1, y1) = points[0];
         let (x2, y2) = points[1];
+        if sideways {
+            let dir = if x2 >= x1 { 1.0 } else { -1.0 };
+            let dx = (x2 - x1).abs().max(20.0) * 0.5;
+            return format!("M{:.1},{:.1} C{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x1, y1, x1 + dir * dx, y1, x2 - dir * dx, y2, x2, y2);
+        }
         let dir = if y2 >= y1 { 1.0 } else { -1.0 };
         let dy = (y2 - y1).abs().max(20.0) * 0.5;
         return format!("M{:.1},{:.1} C{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x1, y1, x1, y1 + dir * dy, x2, y2 - dir * dy, x2, y2);
@@ -46,14 +63,20 @@ fn path_d(points: &[(f64, f64)], backward: bool) -> String {
 }
 
 /// Arrow head polygon at the end of a path.
-fn arrow(points: &[(f64, f64)]) -> Option<(String, f64, f64)> {
+fn arrow(points: &[(f64, f64)], sideways: bool) -> Option<(String, f64, f64)> {
     if points.len() < 2 {
         return None;
     }
     let (x2, y2) = points[points.len() - 1];
     let (x1, y1) = if points.len() == 2 {
-        // bezier: approximate the tangent at the end as vertical
-        if y2 >= points[0].1 { (x2, y2 - 10.0) } else { (x2, y2 + 10.0) }
+        // bezier: the end tangent follows its last control point (vertical, or horizontal when sideways)
+        if sideways {
+            if x2 >= points[0].0 { (x2 - 10.0, y2) } else { (x2 + 10.0, y2) }
+        } else if y2 >= points[0].1 {
+            (x2, y2 - 10.0)
+        } else {
+            (x2, y2 + 10.0)
+        }
     } else if points.len() == 3 {
         points[1]
     } else {
@@ -204,6 +227,7 @@ pub fn Canvas() -> Element {
                             edge: e.clone(),
                             highlighted: hi.contains(&e.from) && hi.contains(&e.to),
                             near: focus_id.as_ref().map(|f| &e.from == f || &e.to == f).unwrap_or(false),
+                            sideways: sideways(e, &g),
                             dim: mode == Mode::Architecture && e.kind == EdgeKind::Dependency && focus_id.as_ref().map(|f| &e.from != f && &e.to != f).unwrap_or(false),
                         }
                     }
@@ -456,10 +480,10 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
 }
 
 #[component]
-fn Edge(edge: VEdge, highlighted: bool, near: bool, dim: bool) -> Element {
+fn Edge(edge: VEdge, highlighted: bool, near: bool, dim: bool, sideways: bool) -> Element {
     let (color, dash, width) = theme::edge_style(edge.kind);
-    let d = path_d(&edge.points, edge.backward);
-    let head = arrow(&edge.points);
+    let d = path_d(&edge.points, edge.backward, sideways);
+    let head = arrow(&edge.points, sideways);
     let (mx, my) = mid(&edge.points);
     let label_w = edge.label.as_ref().map(|l| l.chars().count() as f64 * 6.0 + 8.0).unwrap_or(0.0);
     rsx! {
