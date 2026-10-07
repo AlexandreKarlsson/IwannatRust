@@ -105,7 +105,9 @@ iwr serve examples/demo --script codecast.md [--audio voice.mp3]
 Scripts are markdown. One `codecast.md`, or a `codecast/` directory with `index.md` and one file per
 part (plus an optional `NN-part.mp3` recording per part); either is picked up automatically next to
 the project. [examples/demo/codecast/](examples/demo/codecast/) is a complete eleven-part tour that
-also explains the Rust along the way. **Questions** appear under the caption while it plays: the
+also explains the Rust along the way. The repository explains itself too: [codecast/](codecast/) is a
+ten-part tour of IwannatRust's own code (`scripts/iwr codecast .`), written from `iwr brief` the way
+the guide describes. **Questions** appear under the caption while it plays: the
 ones written in the script (`? Why does deploy never run?`) and, whenever a cue says a Rust word,
 "What is a crate?", "What does the question mark do?"… from the built-in glossary. Click one: the
 tour pauses, answers, and carries on. **Diagrams**: when the code has no picture for an idea, a
