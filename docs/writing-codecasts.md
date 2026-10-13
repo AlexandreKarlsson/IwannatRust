@@ -72,7 +72,7 @@ is unique. `//` starts a comment line.
     "parse all", "Task weight", "a reference to tasks", "Option of Task", and the caption shows the
     real token. Never spell for the voice ("parse underscore all"). Backticks are optional for single
     names, useful for expressions. Fix a word the voice gets wrong with `pronounce: written = spoken`
-    in the header.
+    in the header, and list acronyms to read letter by letter with `spell: IP, CoAP, HTTP`.
 12. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
     short, kind, and no puns that need spelling.
 
@@ -140,4 +140,4 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
 - First cue of every part sets `@`; no part longer than twelve cues.
-- `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line.
+- `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.

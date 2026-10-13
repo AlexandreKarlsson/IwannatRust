@@ -448,6 +448,12 @@ fn speech_says_code_as_words() {
     let own = vec![("Dioxus".to_string(), "dee ox us".to_string())];
     assert_eq!(speech::say_code("Dioxus", &own), "dee ox us");
     assert_eq!(speech::parse_pronounce("# T\npronounce: Dioxus = dee ox us\npronounce: bad\n"), own);
+    // spelled acronyms, plural included; a later entry beats the built-in one.
+    // TCP and UDP are spelled by the built-in list (speech::BUILTIN_SPELL), CoAP needs the line.
+    let mut sp = pron.clone();
+    sp.extend(speech::parse_pronounce("spell: IP, CoAP HTTP\nspell: TTS"));
+    assert_eq!(speech::spoken("CoAP runs over UDP, HTTP over TCP; IPs and TTS.", &sp), "C O A P runs over U D P, H T T P over T C P; I P's and T T S.");
+    assert_eq!(speech::spell("CoAP"), "C O A P");
 
     // bare words: code-looking ones become segments, English does not
     let segs = speech::segments("Storage is a trait. MemoryStorage saves with t.clone(). Wow! Really? parse_all?", &pron);
@@ -459,4 +465,23 @@ fn speech_says_code_as_words() {
     assert_eq!(speech::spoken("Lint has 1.5 steps, maybe 3.", &pron), "Lint has 1.5 steps, maybe 3.");
     assert!(speech::unspoken("parse_all and `a::b`", &pron).is_empty());
     assert!(!speech::looks_like_code("Rust") && !speech::looks_like_code("Hello!") && speech::looks_like_code("vec!") && speech::looks_like_code("HashMap"));
+}
+
+#[test]
+fn architecture_hides_test_modules() {
+    let p = iwr_core::analyze_sources(
+        "demo",
+        "/demo",
+        vec![
+            ("src/main.rs".into(), "mod net;\nfn main() {}\n#[cfg(test)]\nmod tests { #[test] fn t() {} }\n".into()),
+            ("src/net.rs".into(), "pub fn send() {}\n#[cfg(not(test))]\nmod real { pub fn x() {} }\n".into()),
+            ("tests/api.rs".into(), "#[test]\nfn api() {}\n".into()),
+        ],
+    );
+    let labels = |show_tests: bool| -> Vec<String> { views::build(&p, Mode::Architecture, &ViewOptions { show_tests, ..Default::default() }).nodes.into_iter().map(|n| n.label).collect() };
+    let hidden = labels(false);
+    assert!(hidden.contains(&"net".to_string()) && hidden.contains(&"real".to_string()), "{:?}", hidden);
+    assert!(!hidden.iter().any(|l| l == "tests" || l == "api"), "{:?}", hidden);
+    let shown = labels(true);
+    assert!(shown.contains(&"tests".to_string()) && shown.contains(&"api".to_string()), "{:?}", shown);
 }

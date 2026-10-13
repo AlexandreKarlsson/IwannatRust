@@ -72,7 +72,7 @@ Every task is saved, in a loop.
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -181,6 +181,13 @@ After a spoken expression (not a single name) a comma gives TTS a breath when th
 **Pronunciations**: `pronounce: written = spoken` lines in the script header or in `glossary.md`
 override the rules (`pronounce: Dioxus = dee ox us`); the script's lines win over the glossary's,
 both over the built-in list (IwannatRust, iwr, TTS, usize, str, dyn, impl, enum, println, Vec…).
+
+**Spelled words**: `spell: IP, CoAP, HTTP` (script header or `glossary.md`, commas or spaces) has
+those words read letter by letter — "I P", "C O A P" — plurals included (`IPs` → "I P's"). Use it
+for acronyms the voice would read as a word. Same as `pronounce: CoAP = C O A P`, shorter.
+Common initials are spelled out without any line: `ID`, `IP`, `UID`, `URL`, `API`, `CPU`, `JSON`,
+`HTTP`, `HTML`, `SQL`, `TCP`, `DNS`, `SSH`, `CLI`, `OTP`… (`speech::BUILTIN_SPELL`, upper case
+only: "the id" in prose stays a word).
 
 ```
 iwr speak codecast/            # the whole codecast as it will be spoken, to review the TTS text

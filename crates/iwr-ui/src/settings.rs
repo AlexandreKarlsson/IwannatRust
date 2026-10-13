@@ -176,7 +176,7 @@ pub fn SettingsPage() -> Element {
                         label { class: "opt", input { r#type: "checkbox", checked: flags.external, onchange: move |e| { let mut f = *state.flags.read(); f.external = e.checked(); state.flags.set(f); state.save_settings(); } } "external crates and calls" }
                         label { class: "opt", input { r#type: "checkbox", checked: flags.macros, onchange: move |e| { let mut f = *state.flags.read(); f.macros = e.checked(); state.flags.set(f); state.save_settings(); } } "macro invocations" }
                         label { class: "opt", input { r#type: "checkbox", checked: flags.constructs, onchange: move |e| { let mut f = *state.flags.read(); f.constructs = e.checked(); state.flags.set(f); state.save_settings(); } } "constructors" }
-                        label { class: "opt", input { r#type: "checkbox", checked: flags.tests, onchange: move |e| { let mut f = *state.flags.read(); f.tests = e.checked(); state.flags.set(f); state.save_settings(); } } "test functions" }
+                        label { class: "opt", input { r#type: "checkbox", checked: flags.tests, onchange: move |e| { let mut f = *state.flags.read(); f.tests = e.checked(); state.flags.set(f); state.save_settings(); } } "tests" }
                     }
                     div { class: "row",
                         span { "Structure shows" }

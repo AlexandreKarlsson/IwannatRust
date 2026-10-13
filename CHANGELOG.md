@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Codecasts: `spell: IP, CoAP, HTTP` (script header or glossary) reads words letter by letter.
+- Common initials (`ID`, `IP`, `URL`, `API`, `JSON`, `HTTP`, `SQL`, `CPU`… `speech::BUILTIN_SPELL`) are
+  spelled out by default, plurals included; a script's `spell:` or `pronounce:` line still wins.
+
+### Changed
+
+- Architecture view hides test modules (`#[cfg(test)] mod tests`, files under `tests/`) unless
+  Settings → *tests* is on; the built-in tour skips them too.
+
+### Fixed
+
+- `pronounce:` lines in a script or glossary now win over the built-in pronunciations, as documented.
+
 ## [0.1.0] - 2026-10-07
 
 First release.

@@ -43,7 +43,7 @@ Nodes show only their name; the signature, fields or badges appear in a small pa
 
 Every node: **hover** = tooltip (signature, doc, params, return, facts, callers/callees, location; statement source for flow nodes). **Click** = details + source highlight. **Double-click** = expand, or open a function's control flow. Drag = pan, wheel = zoom.
 
-What the graph views include (external calls, macros, constructors, tests) is set on the settings page; the call-tree depth is also in the canvas toolbar.
+What the graph views include (external calls, macros, constructors, tests) is set on the settings page; with tests off, the Architecture view also hides test modules (`#[cfg(test)] mod tests`, files under `tests/`); the call-tree depth is also in the canvas toolbar.
 
 ## Codecast and the full tour
 

@@ -19,8 +19,8 @@
 //! ```
 //!
 //! `glossary: off` in the header turns the built-in glossary questions off for this script
-//! (see [`crate::glossary`]); `pronounce: Dioxus = dee ox us` fixes how TTS says a word
-//! (see [`crate::speech`]).
+//! (see [`crate::glossary`]); `pronounce: Dioxus = dee ox us` fixes how TTS says a word,
+//! `spell: IP, CoAP` has words read letter by letter (see [`crate::speech`]).
 //!
 //! `plan: one line` under a part heading (or the description after its link in `index.md`) feeds
 //! the plan page that `@ plan` shows: the parts in order, one line each.
@@ -223,7 +223,7 @@ pub fn parse(text: &str) -> Script {
             }
             continue;
         }
-        if t.starts_with("pronounce:") {
+        if t.starts_with("pronounce:") || t.starts_with("spell:") {
             s.pronounce.extend(crate::speech::parse_pronounce(t));
             continue;
         }

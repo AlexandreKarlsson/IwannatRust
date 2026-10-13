@@ -731,6 +731,20 @@ fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
 
 // ---------------------------------------------------------------- architecture
 
+/// A test module, inside one, or a module holding only hidden test modules (the `tests` parent of
+/// `tests/*.rs` files). Hidden from the Architecture view unless tests are shown.
+pub fn is_test_module(p: &Project, m: ModuleId) -> bool {
+    let module = p.module(m);
+    let mut cur = Some(m);
+    while let Some(c) = cur {
+        if p.module(c).is_test {
+            return true;
+        }
+        cur = p.module(c).parent;
+    }
+    module.items.is_empty() && !module.children.is_empty() && module.children.iter().all(|c| is_test_module(p, *c))
+}
+
 fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     let root_mod = opts.module.unwrap_or(0);
@@ -742,7 +756,8 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
         let items: Vec<&Item> = module.items.iter().map(|i| p.item(*i)).filter(|i| i.kind != ItemKind::Method && (opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false))).collect();
         let n_fn = items.iter().filter(|i| i.is_callable() || i.kind == ItemKind::Impl).count();
         let n_ty = items.iter().filter(|i| i.is_type()).count();
-        let sublabel = format!("{} fn · {} types · {} submodules", n_fn, n_ty, module.children.len());
+        let shown: Vec<ModuleId> = module.children.iter().copied().filter(|c| opts.show_tests || !is_test_module(p, *c)).collect();
+        let sublabel = format!("{} fn · {} types · {} submodules", n_fn, n_ty, shown.len());
         let is_ws_root = module.path == "crate" && module.file.is_none() && !module.children.is_empty();
         let label = if is_ws_root { format!("workspace {}", p.name) } else if module.path == "crate" { format!("crate {}", p.name) } else if module.parent == Some(0) && p.module(0).file.is_none() { format!("crate {}", module.name) } else { module.name.clone() };
         let (w, h) = node_size(&label, &sublabel);
@@ -768,7 +783,7 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
             container: false,
         };
         let mut children = Vec::new();
-        for &c in &module.children {
+        for c in shown {
             let child = walk(p, opts, c, depth + 1, g);
             g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: child.id.clone(), kind: EdgeKind::Contains, label: None, points: vec![], backward: false });
             children.push(child);

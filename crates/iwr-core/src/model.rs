@@ -310,6 +310,9 @@ pub struct Module {
     pub uses: Vec<String>,
     pub span: Option<Span>,
     pub doc: Option<String>,
+    /// `#[cfg(test)] mod tests`, or a file under a `tests/` directory.
+    #[serde(default)]
+    pub is_test: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

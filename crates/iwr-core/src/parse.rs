@@ -52,6 +52,7 @@ impl<'a> Ctx<'a> {
             uses: vec![],
             span: None,
             doc: None,
+            is_test: false,
         });
         if let Some(p) = parent {
             self.project.modules[p].children.push(id);
@@ -150,6 +151,9 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
         };
         let mpath = module_path_for_file(&path);
         let mid = ctx.module_for(&mpath);
+        if !path.split('/').any(|c| c == "src") && path.split('/').any(|c| c == "tests") {
+            ctx.project.modules[mid].is_test = true;
+        }
         if ctx.project.modules[mid].file.is_none() {
             ctx.project.modules[mid].file = Some(file_id);
         }
@@ -371,6 +375,9 @@ fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str,
             syn::Item::Mod(m) => {
                 let child_path = format!("{}::{}", mpath, m.ident);
                 let cid = ctx.module_for(&child_path);
+                if m.attrs.iter().any(is_cfg_test) {
+                    ctx.project.modules[cid].is_test = true;
+                }
                 if let Some((_, items)) = &m.content {
                     ctx.project.modules[cid].span = Some(span_of(m, file));
                     ctx.project.modules[cid].doc = doc_of(&m.attrs);
@@ -389,6 +396,12 @@ fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str,
             _ => {}
         }
     }
+}
+
+/// `#[cfg(test)]`, `#[cfg(all(test, …))]` (not `#[cfg(not(test))]`).
+fn is_cfg_test(a: &syn::Attribute) -> bool {
+    let t = tokens_to_string(&a.meta).replace(' ', "");
+    a.path().is_ident("cfg") && !t.contains("not(") && t.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == "test")
 }
 
 fn flatten_use(tree: &syn::UseTree, prefix: String, out: &mut Vec<String>) {

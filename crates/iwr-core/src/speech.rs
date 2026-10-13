@@ -6,7 +6,7 @@
 //! that look like code: `parse_all`, `Task::weight`, `&tasks`, `Option<Task>`, `t.clone()`…),
 //! each code segment carrying its spoken form from [`say_code`]. [`spoken`] joins them for TTS.
 //! `pronounce` pairs (`pronounce: Dioxus = dee ox us` in a script header or glossary) win over
-//! the rules.
+//! the rules; `spell: IP, CoAP, HTTP` has words read letter by letter ("C O A P").
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Segment {
@@ -15,24 +15,52 @@ pub enum Segment {
     Code { code: String, say: String },
 }
 
-/// `written = spoken` pairs.
+/// `written = spoken` pairs; on a clash the last one wins (built-in, then glossary, then script).
 pub type Pronounce = [(String, String)];
 
-/// Built-in pronunciations.
+/// Initials read letter by letter out of the box (`ID` → "I D", `IDs` → "I D's"). A script's
+/// `spell:` or `pronounce:` line overrides any of them.
+pub const BUILTIN_SPELL: [&str; 44] = [
+    "ID", "IP", "UID", "GID", "PID", "URL", "URI", "API", "CPU", "GPU", "RAM", "SSD", "USB", "JSON", "XML", "YAML", "CSV",
+    "HTTP", "HTTPS", "HTML", "CSS", "SQL", "TCP", "UDP", "DNS", "TLS", "SSL", "SSH", "LAN", "WAN", "VPN", "CLI", "GUI",
+    "OTP", "JQL", "PDF", "RPC", "FTP", "SDK", "IDE", "OS", "UI", "UX", "AI",
+];
+
+/// Built-in pronunciations: a few Rust words TTS mangles, then [`BUILTIN_SPELL`] and its plurals.
 pub fn builtin_pronounce() -> Vec<(String, String)> {
-    [("IwannatRust", "I wanna Rust"), ("iwr", "I W R"), ("TTS", "text to speech"), ("rs", "R S"), ("md", "markdown"), ("toml", "tommel"), ("wasm", "wazm"), ("usize", "u size"), ("isize", "i size"), ("str", "stir"), ("dyn", "dine"), ("impl", "impul"), ("enum", "ee num"), ("println", "print line"), ("eprintln", "e print line"), ("cfg", "config"), ("Vec", "veck"), ("HashMap", "hash map"), ("ok_or", "ok or"), ("ok_or_else", "ok or else"), ("map_err", "map err"), ("Deserialize", "deserialize")]
+    let mut v: Vec<(String, String)> = [("IwannatRust", "I wanna Rust"), ("iwr", "I W R"), ("TTS", "text to speech"), ("rs", "R S"), ("md", "markdown"), ("toml", "tommel"), ("wasm", "wazm"), ("usize", "u size"), ("isize", "i size"), ("str", "stir"), ("dyn", "dine"), ("impl", "impul"), ("enum", "ee num"), ("println", "print line"), ("eprintln", "e print line"), ("cfg", "config"), ("Vec", "veck"), ("HashMap", "hash map"), ("ok_or", "ok or"), ("ok_or_else", "ok or else"), ("map_err", "map err"), ("Deserialize", "deserialize")]
         .iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
-        .collect()
+        .collect();
+    for w in BUILTIN_SPELL {
+        v.push((w.to_string(), spell(w)));
+        v.push((format!("{w}s"), format!("{}'s", spell(w))));
+    }
+    v
 }
 
-/// Parse `pronounce: written = spoken` lines out of any text (script header, glossary).
+/// Parse `pronounce: written = spoken` and `spell: IP, CoAP` lines out of any text (script
+/// header, glossary). A spelled word also gets its plural (`IPs` → "I P's").
 pub fn parse_pronounce(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .filter_map(|l| l.trim().strip_prefix("pronounce:"))
-        .filter_map(|rest| rest.split_once('=').map(|(a, b)| (a.trim().to_string(), b.trim().to_string())))
-        .filter(|(a, b)| !a.is_empty() && !b.is_empty())
-        .collect()
+    let mut out = Vec::new();
+    for l in text.lines().map(str::trim) {
+        if let Some(rest) = l.strip_prefix("pronounce:") {
+            if let Some((a, b)) = rest.split_once('=').map(|(a, b)| (a.trim(), b.trim())).filter(|(a, b)| !a.is_empty() && !b.is_empty()) {
+                out.push((a.to_string(), b.to_string()));
+            }
+        } else if let Some(rest) = l.strip_prefix("spell:") {
+            for w in rest.split(|c: char| c == ',' || c.is_whitespace()).filter(|w| !w.is_empty()) {
+                out.push((w.to_string(), spell(w)));
+                out.push((format!("{}s", w), format!("{}'s", spell(w))));
+            }
+        }
+    }
+    out
+}
+
+/// Letter by letter: `CoAP` → "C O A P".
+pub fn spell(word: &str) -> String {
+    word.chars().filter(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).collect::<Vec<_>>().join(" ")
 }
 
 /// Does a bare word (no backticks) look like code? Paths, snake_case, calls, generics, references,
@@ -90,7 +118,7 @@ fn is_primitive(t: &str) -> bool {
 
 /// Keywords TTS mangles, and primitive types.
 fn word(id: &str, pron: &Pronounce) -> String {
-    if let Some((_, say)) = pron.iter().find(|(w, _)| w == id) {
+    if let Some((_, say)) = pron.iter().rev().find(|(w, _)| w == id) {
         return say.clone();
     }
     match id {
@@ -131,7 +159,7 @@ pub fn split_identifier(id: &str) -> String {
 /// The spoken form of one code token or expression.
 pub fn say_code(code: &str, pron: &Pronounce) -> String {
     let code = code.trim();
-    if let Some((_, say)) = pron.iter().find(|(w, _)| w == code) {
+    if let Some((_, say)) = pron.iter().rev().find(|(w, _)| w == code) {
         return say.clone();
     }
     let mut p = Parser { s: code.chars().collect(), i: 0, pron, out: Vec::new() };
@@ -551,4 +579,21 @@ pub fn spoken(text: &str, pron: &Pronounce) -> String {
 /// Code tokens whose spoken form still looks like code (nothing matched): for `iwr check`.
 pub fn unspoken(text: &str, pron: &Pronounce) -> Vec<String> {
     segments(text, pron).into_iter().filter_map(|s| if let Segment::Code { code, say } = s { if say.contains("::") || say.contains('_') || say.is_empty() { Some(code) } else { None } } else { None }).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_initials_are_spelled() {
+        let pron = builtin_pronounce();
+        assert_eq!(spoken("the ID and the IPs, over HTTP.", &pron), "the I D and the I P's, over H T T P.");
+        // lowercase prose words are not initials
+        assert_eq!(spoken("the id of the item", &pron), "the id of the item");
+        // a script line still wins
+        let mut p = pron.clone();
+        p.extend(parse_pronounce("pronounce: ID = identity"));
+        assert_eq!(spoken("the ID", &p), "the identity");
+    }
 }

@@ -416,7 +416,7 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
     let root = root.or(p.main).or_else(|| crate::views::default_root(p));
     let n_fn = p.functions().count();
     let n_ty = p.items.iter().filter(|i| i.is_type()).count();
-    let mods: Vec<&Module> = p.modules.iter().filter(|m| m.path != "crate" && !m.items.is_empty()).collect();
+    let mods: Vec<&Module> = p.modules.iter().filter(|m| m.path != "crate" && !m.items.is_empty() && !crate::views::is_test_module(p, m.id)).collect();
 
     // ---- welcome + architecture
     let goal = p.modules.first().and_then(|m| doc_sentence(m.doc.as_ref())).map(|d| format!(" {}", d)).unwrap_or_default();

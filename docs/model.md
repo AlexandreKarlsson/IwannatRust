@@ -6,7 +6,7 @@
 Project { name, root, files[], modules[], items[], calls[], type_rels[], main?, external_crates[], diagnostics[] }
 SourceFile { id, path, content }
 Span { file, line_start, col_start, line_end, col_end }
-Module { id, name, path, file?, parent?, children[], items[], uses[], span?, doc? }
+Module { id, name, path, file?, parent?, children[], items[], uses[], span?, doc?, is_test }
 Item { id, kind, name, path, module, vis, span, signature, doc?, attrs[], extra }
   kind: function | method | struct | enum | trait | type_alias | const | static | module | impl
   vis:  private | crate | public | restricted
