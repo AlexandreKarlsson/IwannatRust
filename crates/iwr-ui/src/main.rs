@@ -10,6 +10,7 @@ mod md;
 mod panels;
 mod player;
 mod settings;
+mod side;
 mod theme;
 
 use dioxus::prelude::*;
@@ -79,6 +80,8 @@ pub struct State {
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
     /// `>` ops of the current part up to the current cue, replayed on the diagram
     pub diagram_ops: Signal<Vec<iwr_core::diagram::Op>>,
+    /// what the side panel shows (`|` lines of a codecast), next to the view
+    pub side: Signal<Option<Rc<iwr_core::script::Side>>>,
     /// code span to underline (may have columns)
     pub code_mark: Signal<Option<Span>>,
     /// question being answered (the codecast is paused meanwhile)
@@ -327,6 +330,7 @@ fn App() -> Element {
         hl_ids: Signal::new(vec![]),
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
+        side: Signal::new(None),
         code_mark: Signal::new(None),
         answering: Signal::new(None),
         resume_after_answer: Signal::new(false),
@@ -510,6 +514,7 @@ fn App() -> Element {
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
+    let has_side = state.side.read().is_some();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
@@ -546,7 +551,12 @@ fn App() -> Element {
                 } else {
                     canvas::Canvas {}
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
-                    panels::Details {}
+                    // the side panel takes the details' place
+                    if has_side { side::SidePanel {} } else { panels::Details {} }
+                }
+                if has_side && (is_code || is_plan) {
+                    div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
+                    side::SidePanel {}
                 }
             }
             }

@@ -172,14 +172,18 @@ fn main() -> Result<()> {
             }
             let nq: usize = s.parts.iter().flat_map(|p| &p.cues).map(|c| c.questions.len()).sum();
             let nd: usize = s.parts.iter().map(|p| p.diagrams.len()).sum();
+            let nb: usize = s.parts.iter().map(|p| p.layouts.len()).sum();
+            let nn: usize = s.parts.iter().map(|p| p.notes.len()).sum();
             let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
             println!(
-                "{}: {} part(s), {} cue(s), {} question(s){}{}{}",
+                "{}: {} part(s), {} cue(s), {} question(s){}{}{}{}{}",
                 s.title,
                 s.parts.len(),
                 s.cue_count(),
                 nq,
                 if nd > 0 { format!(", {} diagram(s)", nd) } else { String::new() },
+                if nb > 0 { format!(", {} byte layout(s)", nb) } else { String::new() },
+                if nn > 0 { format!(", {} side note(s)", nn) } else { String::new() },
                 if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() },
                 if s.glossary { "" } else { ", built-in glossary off" }
             );

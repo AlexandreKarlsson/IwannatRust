@@ -9,6 +9,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Codecasts: `spell: IP, CoAP, HTTP` (script header or glossary) reads words letter by letter.
+- Codecasts: a **side panel** next to the view, opened by `|` lines (sticky inside a part, `|` alone
+  closes it): `| bytes:Frame` shows a ```` ```bytes Frame ```` block, `| md:Steps` a ```` ```md ````
+  block, `| diagram:2` a mermaid block drawn small. `!` refs glow its fields and nodes beside code refs.
+- ```` ```bytes ```` blocks: byte layouts (`id size [format] description`, number types with
+  endianness, sizes from earlier fields, `*` for the rest) with an optional `sample:` decoded into
+  each field's value; drawn as a coloured byte strip plus a field table (`iwr_core::bytes`).
+- Markdown in answers and notes: numbered and nested lists, tables, `###` headings.
 - Common initials (`ID`, `IP`, `URL`, `API`, `JSON`, `HTTP`, `SQL`, `CPU`… `speech::BUILTIN_SPELL`) are
   spelled out by default, plurals included; a script's `spell:` or `pronounce:` line still wins.
 

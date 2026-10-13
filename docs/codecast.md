@@ -72,7 +72,7 @@ Every task is saved, in a loop.
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, and for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node.
+Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -153,6 +153,48 @@ place and re-lays the groups out around them. `iwr check` verifies the names.
 `> +copy` line shows it; `> -alice` hides one (a hidden group takes its members along), and
 `> +a -b` does several at once. Hidden nodes keep their edges for later, so draw the whole story
 in one block and reveal it cue by cue.
+
+## Side panel
+
+A second thing next to the view, so the code stays on screen: the bytes it reads, the steps it
+follows, a small schema. A `|` line above a cue opens it, sticky inside the part like `>` lines
+(stepping back replays them); `|` alone closes it. In the graph views it takes the details panel's
+place, in the Code view and the plan page it docks on the right; on a narrow window it floats.
+
+| Line | Shows |
+|---|---|
+| `\| bytes` · `\| bytes:2` · `\| bytes:Frame` | a ```` ```bytes Frame ```` block of the part: a byte layout |
+| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown (lists, numbered steps, tables, `###` headings) |
+| `\| diagram:2` | a ```` ```mermaid ```` block of the part, drawn small and still |
+| `\|` | closes the panel |
+
+`!` refs may name the panel's byte fields or diagram nodes next to code refs: `! crate::read/b2 len`
+glows block `b2` in the code and field `len` in the strip. An answer may carry its own `|` line.
+
+**Byte layouts.** One field per line, `id size [format] description`:
+
+````
+```bytes Frame
+row: 8                    bytes per row (default 8)
+endian: le                default order of number fields (default be, network order)
+magic  4    ascii  Magic number `IWR1`
+len    u16         Body length              a number type is a size and a format
+flags  1           Bit 0: compressed
+_      1           Reserved                 `_`: padding, grey, not a ref
+body   len  ascii  The payload              size = the value of an earlier field
+crc    4    hex    CRC32 of the body
+sample: 49 57 52 31 05 00 01 00 68 65 6c 6c 6f de ad be ef
+```
+````
+
+Sizes: a byte count, a number type (`u8` `u16` `u32` `u64` `i8`…`i64` `f32` `f64`, optional
+`le`/`be` suffix), an earlier field's id, or `*` (the rest of the sample, last field only).
+Formats: the number types, `ascii`, `hex` (default). The `sample:` line (several are joined; hex
+pairs, spaces, `0x` and `:` tolerated) fills the strip and the *value* column: `len = 5`,
+`body = "hello"`. Without a sample the strip shows the shape, variable fields as dotted cells.
+The panel draws the bytes as a coloured strip with offsets and each field's name, then a table
+(field, offset, size, value, description); hovering a byte or a row lights both. `iwr check`
+reports unreadable lines, sizes that do not add up to the sample, and `|` lines naming no block.
 
 ## How code is spoken
 

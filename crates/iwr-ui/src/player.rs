@@ -62,6 +62,10 @@ impl State {
         document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
         let project = self.project.read().clone();
         if let Some(p) = project {
+            if let Some(sd) = &q.side {
+                let side = self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).and_then(|part| script::find_side(part, sd).ok().flatten());
+                self.side.set(side.map(Rc::new));
+            }
             self.apply_directives(&p, q.show.as_deref(), q.hl.as_ref(), q.code.as_deref());
         }
         self.answering.set(Some(q));
@@ -145,6 +149,7 @@ impl State {
         }
         self.diagram.set(None);
         self.diagram_ops.set(vec![]);
+        self.side.set(None);
         self.code_mark.set(None);
         document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
     }
@@ -228,6 +233,9 @@ impl State {
             .map(|part| part.cues.iter().take(cue_idx + 1).flat_map(|c| c.ops.iter().cloned()).collect())
             .unwrap_or_default();
         self.diagram_ops.set(ops);
+        // `|` lines are sticky inside a part too
+        let side = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::side_at(part, cue_idx));
+        self.side.set(side.map(Rc::new));
         self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
     }
 
@@ -275,9 +283,11 @@ impl State {
         }
         if let Some(refs) = hl {
             self.hl_ids.set(refs.clone());
-            // in a diagram the refs are node ids: don't select project items that share a name
+            // in a diagram the refs are node ids, and the side panel's fields or nodes are its
+            // own: don't select project items that share a name
             let in_diagram = *self.mode.read() == Mode::Diagram;
-            let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter_map(|r| script::resolve(p, r)).collect() };
+            let side_ids = self.side.read().as_ref().map(|s| s.ids()).unwrap_or_default();
+            let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter(|r| !side_ids.contains(r)).filter_map(|r| script::resolve(p, r)).collect() };
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
                 for r in &resolved {

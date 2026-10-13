@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![] });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -484,4 +484,28 @@ fn architecture_hides_test_modules() {
     assert!(!hidden.iter().any(|l| l == "tests" || l == "api"), "{:?}", hidden);
     let shown = labels(true);
     assert!(shown.contains(&"tests".to_string()) && shown.contains(&"api".to_string()), "{:?}", shown);
+}
+
+#[test]
+fn script_side_panel() {
+    use iwr_core::script::{self, Side};
+    let p = project();
+    let text = "## Frame\n```bytes Header\nmagic 4 ascii Magic\nlen u16 Body length\nbody len The payload\nsample: 49 57 52 31 00 02 68 69\n```\n```md Steps\n- read the header\n  - check `magic`\n- read `len` bytes\n```\n@ code:crate::main\n| bytes:Header\n! crate::main/b1 len\nThe length comes first.\n| md\n! magic\nThen the steps.\n? And then?\n  | bytes\n  ! body\n  The body.\n|\nDone.\n| bytes:Nope\nBad.\n| a | b |\n";
+    let s = script::parse(text);
+    let part = &s.parts[0];
+    assert_eq!((part.layouts.len(), part.notes.len()), (1, 1));
+    assert!(part.layouts[0].errors.is_empty(), "{:?}", part.layouts[0].errors);
+    assert_eq!(part.notes[0].text, "- read the header\n  - check `magic`\n- read `len` bytes");
+    // a markdown table row is a cue, not a directive
+    assert_eq!(part.cues.iter().map(|c| c.say.as_str()).collect::<Vec<_>>(), ["The length comes first.", "Then the steps.", "Done.", "Bad.", "| a | b |"]);
+    assert_eq!(part.cues[1].questions[0].side.as_deref(), Some("bytes"));
+    assert!(matches!(script::side_at(part, 0), Some(Side::Bytes(_))));
+    assert!(matches!(script::side_at(part, 1), Some(Side::Note(_))));
+    assert!(script::side_at(part, 2).is_none());
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    // `len` is a field of the panel; `magic` is not one of the note's (notes have no refs)
+    let bad = script::check(&p, &s);
+    assert_eq!(bad.len(), 2, "{:?}", bad);
+    assert!(bad[0].contains("unresolved ref `magic`"), "{}", bad[0]);
+    assert!(bad[1].contains("no byte layout `Nope`"), "{}", bad[1]);
 }

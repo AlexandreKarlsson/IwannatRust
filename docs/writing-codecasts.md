@@ -18,6 +18,7 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
+| bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
 <One or two spoken sentences.>
 ? <A question the listener may have>      optional, after the cue it belongs to
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
@@ -105,6 +106,35 @@ Think of tasks as passengers waiting at a stop.
 ! bus
 Alice boards: the scheduler took the heaviest task first.
 ````
+
+## Side panel (bytes, lists, a small schema)
+
+When the listener needs two things at once, the code *and* what it reads, put the second one in
+the side panel instead of switching views. `| bytes:<title>` shows a ```` ```bytes <title> ````
+block: one field per line, `id size [format] description`, and an optional `sample:` line of hex
+bytes decoded into each field. `!` with field ids glows them in the strip and the table, next to
+the code refs on the same line. `| md:<title>` shows a ```` ```md <title> ```` block (a numbered
+list of steps, a table of fields, short notes); `| diagram:<title>` a small, still mermaid block.
+
+````
+## Reading a frame
+```bytes Frame
+endian: le
+magic  4    ascii  Magic number
+len    u16         Body length
+body   len         The payload
+crc    4    hex    CRC32 of the body
+sample: 49 57 52 31 05 00 68 65 6c 6c 6f de ad be ef
+```
+@ code:crate::proto::read_frame
+| bytes:Frame
+! crate::proto::read_frame/b2 len
+The two bytes after the magic say how long the body is.
+````
+
+Sizes: a number, a number type (`u8` `u16` `u32` `u64`, `i…`, `f32` `f64`, `le`/`be` suffix),
+an earlier field's id (its value), or `*` for whatever the sample has left. `_` is padding.
+Use it for headers, packets, file formats, register maps; skip it when the format is text.
 
 ## Example
 

@@ -29,6 +29,11 @@
 //! `@ diagram` shows it, `!` glows its nodes by id, `> alice bus` moves a node into a group
 //! (or next to a node) from that cue on, `> alice` brings it back to the top level,
 //! `> +copy` draws a node written `copy[…]:::hidden`, `> -alice` hides one.
+//!
+//! The **side panel** shows a second thing next to the view: `| bytes:Header` a
+//! ```` ```bytes Header ```` block (a byte layout, see [`crate::bytes`]), `| md:Steps` a
+//! ```` ```md Steps ```` block (a list, a table, notes), `| diagram:2` a mermaid block. Sticky
+//! inside a part like `>` lines; `|` alone closes it. `!` refs may name its fields or nodes.
 
 use crate::diagram::{Diagram, Op};
 use crate::model::*;
@@ -75,6 +80,19 @@ pub struct Part {
     /// the description after the part's link in `index.md`
     #[serde(default)]
     pub summary: Option<String>,
+    /// ```` ```bytes ```` blocks of the part, in order (`| bytes`, `| bytes:2`, `| bytes:<title>`)
+    #[serde(default)]
+    pub layouts: Vec<crate::bytes::Layout>,
+    /// ```` ```md ```` blocks of the part, in order (`| md`, `| md:2`, `| md:<title>`)
+    #[serde(default)]
+    pub notes: Vec<Note>,
+}
+
+/// A ```` ```md Title ```` block: markdown shown in the side panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Note {
+    pub title: Option<String>,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -93,6 +111,9 @@ pub struct Cue {
     /// `>` lines: what moves in the diagram from this cue on (see [`crate::diagram::Op`])
     #[serde(default)]
     pub ops: Vec<Op>,
+    /// `| kind[:ref]`: what the side panel shows from this cue on; `Some("")` closes it
+    #[serde(default)]
+    pub side: Option<String>,
 }
 
 /// A question the listener can click. Answering pauses the codecast, shows and speaks the
@@ -106,6 +127,9 @@ pub struct Question {
     pub show: Option<String>,
     pub hl: Option<Vec<String>>,
     pub code: Option<String>,
+    /// `|` line of the answer: the side panel while it is shown
+    #[serde(default)]
+    pub side: Option<String>,
     /// glossary term this came from (`None` for questions written in the script)
     #[serde(default)]
     pub term: Option<String>,
@@ -122,14 +146,14 @@ impl Script {
 /// Parse the text format. Never fails: unknown lines become spoken text.
 pub fn parse(text: &str) -> Script {
     let mut s = Script::default();
-    let mut part = Part { name: "Codecast".into(), audio: None, cues: vec![], diagrams: vec![], summary: None };
+    let mut part = Part { name: "Codecast".into(), ..Default::default() };
     let mut pending = Cue::default();
     let mut in_part = false;
     // a `?` block being read: it goes to the previous cue when no directive is pending for the
     // next one, else to the next cue
     let mut question: Option<(Question, bool)> = None;
-    // lines of a ```mermaid block being read
-    let mut fence: Option<Vec<String>> = None;
+    // a ```mermaid / ```bytes / ```md block being read: (kind, title, lines)
+    let mut fence: Option<(Fence, Option<String>, Vec<String>)> = None;
     fn flush(q: &mut Option<(Question, bool)>, part: &mut Part, pending: &mut Cue) {
         if let Some((mut q, prev)) = q.take() {
             q.answer = q.answer.trim().to_string();
@@ -145,10 +169,9 @@ pub fn parse(text: &str) -> Script {
         if t.is_empty() {
             continue;
         }
-        if let Some(buf) = fence.as_mut() {
+        if let Some((_, _, buf)) = fence.as_mut() {
             if t.starts_with("```") {
-                part.diagrams.push(crate::diagram::parse(&buf.join("\n")));
-                fence = None;
+                close_fence(fence.take(), &mut part);
             } else {
                 buf.push(line.to_string());
             }
@@ -164,6 +187,8 @@ pub fn parse(text: &str) -> Script {
                     q.hl = Some(rest.split_whitespace().map(|r| r.to_string()).collect());
                 } else if let Some(rest) = t.strip_prefix("= ") {
                     q.code = Some(rest.trim().to_string());
+                } else if let Some(rest) = t.strip_prefix("| ").or_else(|| (t == "|").then_some("")) {
+                    q.side = Some(rest.trim().to_string());
                 } else if !t.starts_with("//") {
                     q.answer.push_str(t);
                     q.answer.push('\n');
@@ -173,8 +198,15 @@ pub fn parse(text: &str) -> Script {
             flush(&mut question, &mut part, &mut pending);
         }
         if let Some(info) = t.strip_prefix("```") {
-            if info.trim().starts_with("mermaid") {
-                fence = Some(vec![]);
+            let (word, title) = info.trim().split_once(char::is_whitespace).map(|(a, b)| (a, Some(b.trim().to_string()))).unwrap_or((info.trim(), None));
+            let kind = match word {
+                "mermaid" => Some(Fence::Mermaid),
+                "bytes" => Some(Fence::Bytes),
+                "md" | "markdown" => Some(Fence::Md),
+                _ => None,
+            };
+            if let Some(k) = kind {
+                fence = Some((k, title.filter(|t| !t.is_empty()), vec![]));
                 continue;
             }
         }
@@ -188,7 +220,7 @@ pub fn parse(text: &str) -> Script {
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
-            part = Part { name: rest.trim().to_string(), audio: None, cues: vec![], diagrams: vec![], summary: None };
+            part = Part { name: rest.trim().to_string(), ..Default::default() };
             in_part = true;
             continue;
         }
@@ -243,6 +275,11 @@ pub fn parse(text: &str) -> Script {
             pending.ops.extend(crate::diagram::parse_ops(rest));
             continue;
         }
+        // `| bytes:Header`; a markdown table row (`| a | b |`) is not a directive
+        if let Some(rest) = t.strip_prefix('|').filter(|r| !r.contains('|')) {
+            pending.side = Some(rest.trim().to_string());
+            continue;
+        }
         if t.starts_with('[') {
             if let Some(end) = t.find(']') {
                 if let Ok(v) = t[1..end].trim().parse::<f64>() {
@@ -263,10 +300,8 @@ pub fn parse(text: &str) -> Script {
         pending.say = t.to_string();
         part.cues.push(std::mem::take(&mut pending));
     }
-    if let Some(buf) = fence.take() {
-        // unclosed block: keep what was read, the parser reports what is wrong with it
-        part.diagrams.push(crate::diagram::parse(&buf.join("\n")));
-    }
+    // unclosed block: keep what was read, the parser reports what is wrong with it
+    close_fence(fence.take(), &mut part);
     flush(&mut question, &mut part, &mut pending);
     if !part.cues.is_empty() || s.parts.is_empty() {
         s.parts.push(part);
@@ -275,6 +310,27 @@ pub fn parse(text: &str) -> Script {
         s.title = "Codecast".into();
     }
     s
+}
+
+#[derive(Clone, Copy)]
+enum Fence {
+    Mermaid,
+    Bytes,
+    Md,
+}
+
+fn close_fence(f: Option<(Fence, Option<String>, Vec<String>)>, part: &mut Part) {
+    let Some((kind, title, lines)) = f else { return };
+    match kind {
+        Fence::Mermaid => part.diagrams.push(crate::diagram::parse(&lines.join("\n"))),
+        Fence::Bytes => part.layouts.push(crate::bytes::parse(&lines.join("\n"), title.as_deref())),
+        Fence::Md => {
+            // drop the common indentation, keep nested list indents
+            let ind = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+            let text = lines.iter().map(|l| l.get(ind..).unwrap_or("").to_string()).collect::<Vec<_>>().join("\n");
+            part.notes.push(Note { title, text });
+        }
+    }
 }
 
 pub fn to_text(s: &Script) -> String {
@@ -302,6 +358,12 @@ pub fn to_text(s: &Script) -> String {
         for d in &p.diagrams {
             out.push_str(&format!("```mermaid\n{}\n```\n", d.source));
         }
+        for l in &p.layouts {
+            out.push_str(&format!("```bytes{}\n{}\n```\n", l.title.as_ref().filter(|_| !l.source.contains("title:")).map(|t| format!(" {}", t)).unwrap_or_default(), l.source));
+        }
+        for n in &p.notes {
+            out.push_str(&format!("```md{}\n{}\n```\n", n.title.as_ref().map(|t| format!(" {}", t)).unwrap_or_default(), n.text));
+        }
         for c in &p.cues {
             if let Some(v) = &c.show {
                 out.push_str(&format!("@ {}\n", v));
@@ -314,6 +376,9 @@ pub fn to_text(s: &Script) -> String {
             }
             for op in &c.ops {
                 out.push_str(&format!("> {}\n", crate::diagram::op_text(op)));
+            }
+            if let Some(sd) = &c.side {
+                out.push_str(&format!("| {}\n", sd).replace("| \n", "|\n"));
             }
             let say = flatten(&c.say);
             match c.t {
@@ -330,6 +395,9 @@ pub fn to_text(s: &Script) -> String {
                 }
                 if let Some(cd) = &q.code {
                     out.push_str(&format!("  = {}\n", cd));
+                }
+                if let Some(sd) = &q.side {
+                    out.push_str(&format!("  | {}\n", sd).replace("| \n", "|\n"));
                 }
                 for l in q.answer.lines() {
                     out.push_str(&format!("  {}\n", l));
@@ -545,13 +613,65 @@ pub fn view_name(m: Mode) -> &'static str {
 /// The diagram `@ diagram[:ref]` points at in a part: the first one, the n-th (`:2`), or by
 /// front-matter title (`:Bus`).
 pub fn find_diagram<'a>(part: &'a Part, r: Option<&str>) -> Option<&'a Diagram> {
+    find_by(&part.diagrams, r, |d| d.title.as_deref())
+}
+
+/// `@ <kind>[:ref]` / `| <kind>[:ref]` lookup: the first block, the n-th (`:2`), or by title.
+fn find_by<'a, T>(items: &'a [T], r: Option<&str>, title: impl Fn(&T) -> Option<&str>) -> Option<&'a T> {
     match r.map(str::trim).filter(|r| !r.is_empty()) {
-        None => part.diagrams.first(),
+        None => items.first(),
         Some(r) => match r.parse::<usize>() {
-            Ok(n) => part.diagrams.get(n.checked_sub(1)?),
-            Err(_) => part.diagrams.iter().find(|d| d.title.as_deref().map(|t| t.eq_ignore_ascii_case(r)).unwrap_or(false)),
+            Ok(n) => items.get(n.checked_sub(1)?),
+            Err(_) => items.iter().find(|x| title(x).map(|t| t.eq_ignore_ascii_case(r)).unwrap_or(false)),
         },
     }
+}
+
+/// What the side panel shows (`| bytes:Header`, `| md:Steps`, `| diagram:2`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Side {
+    Bytes(crate::bytes::Layout),
+    Note(Note),
+    Diagram(Diagram),
+}
+
+impl Side {
+    /// The refs `!` may glow in it: field ids, node ids.
+    pub fn ids(&self) -> Vec<String> {
+        match self {
+            Side::Bytes(l) => l.ids().into_iter().map(String::from).collect(),
+            Side::Diagram(d) => d.ids().into_iter().map(String::from).collect(),
+            Side::Note(_) => vec![],
+        }
+    }
+}
+
+/// Resolve a `|` line in a part. `Ok(None)` closes the panel (`|` alone).
+pub fn find_side(part: &Part, side: &str) -> Result<Option<Side>, String> {
+    let side = side.trim();
+    if side.is_empty() {
+        return Ok(None);
+    }
+    let (kind, r) = match side.split_once(':') {
+        Some((k, r)) => (k.trim(), Some(r.trim())),
+        None => (side, None),
+    };
+    let missing = |what: &str, block: &str| match r {
+        Some(r) => format!("no {} `{}` in this part (`| {}:2`, or the block's title)", what, r, kind),
+        None => format!("`| {}` but this part has no {} block", kind, block),
+    };
+    match kind {
+        "bytes" => find_by(&part.layouts, r, |l| l.title.as_deref()).map(|l| Some(Side::Bytes(l.clone()))).ok_or_else(|| missing("byte layout", "```bytes")),
+        "md" | "markdown" | "note" | "list" => find_by(&part.notes, r, |n| n.title.as_deref()).map(|n| Some(Side::Note(n.clone()))).ok_or_else(|| missing("```md block", "```md")),
+        "diagram" | "sketch" => find_by(&part.diagrams, r, |d| d.title.as_deref()).map(|d| Some(Side::Diagram(d.clone()))).ok_or_else(|| missing("diagram", "```mermaid")),
+        _ => Err(format!("unknown side panel `| {}` (bytes, md, diagram)", side)),
+    }
+}
+
+/// The side panel at cue `cue` of a part: the last `|` line from the part's first cue on.
+pub fn side_at(part: &Part, cue: usize) -> Option<Side> {
+    let s = part.cues.iter().take(cue + 1).rev().find_map(|c| c.side.as_deref())?;
+    find_side(part, s).ok().flatten()
 }
 
 /// Split `view[:ref]`.
@@ -652,10 +772,12 @@ pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
 
 /// What `@` has selected so far while reading a script in order (the view is sticky, like in
 /// the player).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Track<'a> {
     mode: Option<Mode>,
     diagram: Option<&'a Diagram>,
+    /// refs of what the side panel shows (`|`)
+    side: Vec<String>,
 }
 
 impl<'a> Track<'a> {
@@ -693,9 +815,24 @@ impl<'a> Track<'a> {
         }
     }
 
-    /// Check `!` refs: diagram node ids while a diagram is shown, project refs otherwise.
+    /// Apply a `|` line; reports an unknown panel or block.
+    fn side(&mut self, part: &'a Part, at: &str, side: &str, bad: &mut Vec<String>) {
+        match find_side(part, side) {
+            Ok(s) => self.side = s.map(|s| s.ids()).unwrap_or_default(),
+            Err(e) => {
+                self.side.clear();
+                bad.push(format!("{}: {}", at, e));
+            }
+        }
+    }
+
+    /// Check `!` refs: side panel ids, diagram node ids while a diagram is shown, project refs
+    /// otherwise.
     fn hl(&self, p: &Project, at: &str, refs: &[String], bad: &mut Vec<String>) {
         for r in refs {
+            if self.side.contains(r) {
+                continue;
+            }
             match (self.mode, self.diagram) {
                 (Some(Mode::Diagram), Some(d)) => {
                     if !d.has(r) {
@@ -748,17 +885,27 @@ impl<'a> Track<'a> {
 /// All refs in a script that do not resolve, with their location.
 pub fn check(p: &Project, s: &Script) -> Vec<String> {
     let mut bad = Vec::new();
-    let mut t = Track { mode: None, diagram: None };
+    let mut t = Track { mode: None, diagram: None, side: vec![] };
     for part in &s.parts {
         for (i, d) in part.diagrams.iter().enumerate() {
             for e in &d.errors {
                 bad.push(format!("{} / diagram {}: {}", part.name, i + 1, e));
             }
         }
+        for (i, l) in part.layouts.iter().enumerate() {
+            for e in &l.errors {
+                bad.push(format!("{} / bytes {}: {}", part.name, i + 1, e));
+            }
+        }
+        // the side panel is per part
+        t.side.clear();
         for (i, c) in part.cues.iter().enumerate() {
             let at = format!("{} / cue {}", part.name, i + 1);
             if let Some(show) = &c.show {
                 t.show(p, part, &at, show, &mut bad);
+            }
+            if let Some(sd) = &c.side {
+                t.side(part, &at, sd, &mut bad);
             }
             if let Some(refs) = &c.hl {
                 t.hl(p, &at, refs, &mut bad);
@@ -780,9 +927,12 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
                     bad.push(format!("{}: question without an answer (indent the answer lines)", at));
                 }
                 // an answer's directives apply while it is shown, then the cue comes back
-                let mut qt = t;
+                let mut qt = t.clone();
                 if let Some(show) = &q.show {
                     qt.show(p, part, &at, show, &mut bad);
+                }
+                if let Some(sd) = &q.side {
+                    qt.side(part, &at, sd, &mut bad);
                 }
                 if let Some(refs) = &q.hl {
                     qt.hl(p, &at, refs, &mut bad);
@@ -803,7 +953,7 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
 /// Turn the generated tour into a script: one part per chapter (`GuideStep::part`).
 pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
     let mut s = Script { title: format!("Tour of {}", p.name), ..Default::default() };
-    let mut part = Part { name: String::new(), audio: None, cues: vec![], diagrams: vec![], summary: None };
+    let mut part = Part::default();
     let mut last_show: Option<String> = None;
     for st in steps {
         if st.part != part.name {
@@ -825,7 +975,7 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
             }
         }
         let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
-        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![], ops: vec![] });
+        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![], ops: vec![], side: None });
         last_show = Some(show);
     }
     if !part.cues.is_empty() {

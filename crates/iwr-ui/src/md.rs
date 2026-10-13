@@ -61,7 +61,9 @@ pub fn Markdown(text: String) -> Element {
     let inline = |t: &str| inline(t, &pron, parens);
     let mut blocks: Vec<Element> = Vec::new();
     let mut code: Option<Vec<String>> = None;
-    let mut bullets: Vec<String> = Vec::new();
+    // (indent level, `1.` marker of a numbered item, text)
+    let mut bullets: Vec<(usize, Option<String>, String)> = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
     let mut para: Vec<String> = Vec::new();
     let flush_para = |para: &mut Vec<String>, blocks: &mut Vec<Element>| {
         if !para.is_empty() {
@@ -71,11 +73,26 @@ pub fn Markdown(text: String) -> Element {
             blocks.push(rsx! { p { for x in parts { {x} } } });
         }
     };
-    let flush_bullets = |bullets: &mut Vec<String>, blocks: &mut Vec<Element>| {
+    let flush_bullets = |bullets: &mut Vec<(usize, Option<String>, String)>, blocks: &mut Vec<Element>| {
         if !bullets.is_empty() {
-            let items: Vec<Vec<Element>> = bullets.iter().map(|b| inline(b)).collect();
+            let items: Vec<(String, String, Vec<Element>)> = bullets
+                .iter()
+                .map(|(lvl, num, b)| (format!("margin-left:{}px", lvl * 16), num.clone().unwrap_or_else(|| "•".into()), inline(b)))
+                .collect();
             bullets.clear();
-            blocks.push(rsx! { ul { for it in items { li { for x in it { {x} } } } } });
+            blocks.push(rsx! { ul { class: "mdl", for (style, mark, it) in items { li { style: "{style}", span { class: "lnum", "{mark}" } span { for x in it { {x} } } } } } });
+        }
+    };
+    // `| a | b |` rows; the first is the header, `|---|` lines are skipped
+    let flush_rows = |rows: &mut Vec<Vec<String>>, blocks: &mut Vec<Element>| {
+        if !rows.is_empty() {
+            let mut cells: Vec<Vec<Vec<Element>>> = rows.iter().map(|r| r.iter().map(|c| inline(c)).collect()).collect();
+            rows.clear();
+            let head = cells.remove(0);
+            blocks.push(rsx! { table { class: "mdt",
+                thead { tr { for c in head { th { for x in c { {x} } } } } }
+                tbody { for r in cells { tr { for c in r { td { for x in c { {x} } } } } } }
+            } });
         }
     };
     for line in text.lines() {
@@ -96,17 +113,37 @@ pub fn Markdown(text: String) -> Element {
             continue;
         }
         let t = line.trim();
+        let indent = (line.len() - line.trim_start().len()) / 2;
+        if !t.starts_with('|') {
+            flush_rows(&mut rows, &mut blocks);
+        }
+        let numbered = t.split_once(". ").filter(|(n, _)| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()));
         if t.is_empty() {
             flush_para(&mut para, &mut blocks);
             flush_bullets(&mut bullets, &mut blocks);
-        } else if let Some(b) = t.strip_prefix("• ").or_else(|| t.strip_prefix("- ")) {
+        } else if t.starts_with('|') {
             flush_para(&mut para, &mut blocks);
-            bullets.push(b.to_string());
+            flush_bullets(&mut bullets, &mut blocks);
+            if !t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) {
+                rows.push(t.trim_matches('|').split('|').map(|c| c.trim().to_string()).collect());
+            }
+        } else if let Some(h) = t.strip_prefix("### ").or_else(|| t.strip_prefix("## ")).or_else(|| t.strip_prefix("# ")) {
+            flush_para(&mut para, &mut blocks);
+            flush_bullets(&mut bullets, &mut blocks);
+            let parts = inline(h);
+            blocks.push(rsx! { h4 { class: "mdh", for x in parts { {x} } } });
+        } else if let Some(b) = t.strip_prefix("• ").or_else(|| t.strip_prefix("- ")).or_else(|| t.strip_prefix("* ")) {
+            flush_para(&mut para, &mut blocks);
+            bullets.push((indent, None, b.to_string()));
+        } else if let Some((n, b)) = numbered {
+            flush_para(&mut para, &mut blocks);
+            bullets.push((indent, Some(format!("{}.", n)), b.to_string()));
         } else {
             flush_bullets(&mut bullets, &mut blocks);
             para.push(t.to_string());
         }
     }
+    flush_rows(&mut rows, &mut blocks);
     if let Some(c) = code {
         let t = c.join("\n");
         blocks.push(rsx! { pre { "{t}" } });
