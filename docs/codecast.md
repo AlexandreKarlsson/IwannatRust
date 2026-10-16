@@ -67,12 +67,13 @@ audio: 02-running.mp3                    optional recording of this part only
 ! crate::run/b5 crate::run/b6
 Every task is saved, in a loop.
 // comment lines are ignored
+architecture_tour                        generated cues, e.g. every module with its `//!` doc (see Tours)
 ? What is a crate?                       question offered under this cue (click → pause, answer, resume)
   = src/main.rs:49:17-44                 an answer may carry its own @ ! = directives
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
+Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -85,6 +86,30 @@ button opens the page at any time.
 `audio:` before the first part names a recording of the whole script; inside a part, a recording of that
 part only (then its `[t]` times count from the start of that file). Names are relative to the script's
 directory. A per-part recording wins over the script-level one and over `--audio`.
+
+## Tours
+
+A line holding only a tour name is replaced, when the script is played, checked or spoken, by
+cues generated from the project. They stay in sync with the code: rename a module, rewrite its
+`//!` doc, and the tour follows.
+
+| Line | Cues |
+|------|---------|
+| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds). Folded boxes say how many modules they hold. |
+| `types_tour[:mod]` | `@ types`, then per type (traits, errors, structs, enums): kind, fields / variants / implementors, `///` doc |
+| `errors_tour[:mod]` | `@ errors`: each error type + who returns it + `From` conversions; where `?` passes errors up; who handles them; who can panic |
+| `entry_tour` | `@ calls:main`: what `main` calls; then `@ structure`: each `pub` item with its doc |
+| `flow_tour:fn` | `@ flow:fn`: the function step by step in reading order, each step opened by its `//` comment |
+| `todo_tour[:mod]` | `@ code:fn` per stop: each `TODO`/`FIXME`/`XXX`/`HACK` comment, `unsafe`, `unwrap`/`expect`/`panic!` |
+| `files_tour[:mod]` | `@ code:<file>` per file: its `//!` doc and what it defines |
+
+`:mod` limits a tour to a module subtree (`types_tour:crate::storage`). At most 20 stops; the
+last says how many were left out. Tests are skipped.
+
+`@` / `!` / `=` / `|` lines written just above the tour line, and `?` questions just below it,
+go to its first cue. Write your own cues around it to introduce and hand over. `iwr check` reports
+unknown tour names; `iwr speak` prints the generated text (it reads the project next to the script,
+or `--path`).
 
 ## Questions
 

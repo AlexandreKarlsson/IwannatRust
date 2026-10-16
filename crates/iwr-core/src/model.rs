@@ -43,6 +43,10 @@ impl Span {
     pub fn contains_line(&self, line: usize) -> bool {
         line >= self.line_start && line <= self.line_end
     }
+    /// Does `other` lie within this span (same file, by lines)?
+    pub fn contains_lines(&self, other: &Span) -> bool {
+        self.file == other.file && other.line_start >= self.line_start && other.line_end <= self.line_end
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -395,6 +399,18 @@ pub enum CfgNodeKind {
     Panic,
     /// `.await`
     Await,
+    /// `let` binding of a new variable (plain, no project call)
+    Let,
+    /// changes existing state: `x = …`, `x += …`, `v.push(…)`, `map.insert(…)`
+    Assign,
+    /// input / output: `println!`, `write!`, files, stdin, sockets
+    Io,
+    /// a logging macro (`log::info!`, `debug!`, …); only kept when a `//` comment titles it
+    Log,
+    /// `return Err(…)`
+    ReturnErr,
+    /// `std::process::exit(…)` / `abort()`: the program stops here
+    Halt,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -410,6 +426,12 @@ pub struct CfgNode {
     pub calls: Vec<ItemId>,
     /// Depth of nesting (for indentation in the branch tree).
     pub depth: usize,
+    /// Short `//` comment on the line just above the statement: shown instead of the code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Innermost loop node this node is inside of (for collapsing loops).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_loop: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -561,6 +583,9 @@ pub struct Block {
     pub uses: Vec<String>,
     /// Project functions called from this block's head/expression.
     pub calls: Vec<ItemId>,
+    /// Short `//` comment on the line just above the construct: shown instead of the code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 impl Block {

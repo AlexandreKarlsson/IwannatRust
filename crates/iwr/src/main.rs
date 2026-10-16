@@ -132,9 +132,16 @@ fn main() -> Result<()> {
             print!("{}", iwr_core::script::to_text(&iwr_core::script::from_guide(&p, &steps)));
             Ok(())
         }
-        Cmd::Speak { script, path: _ } => {
+        Cmd::Speak { script, path } => {
             let loaded = codecast::load(&script)?;
-            let s = iwr_core::script::parse(&loaded.text);
+            let mut s = iwr_core::script::parse(&loaded.text);
+            // generated tours read the project; without one they are left out
+            let root = path.unwrap_or_else(|| script.canonicalize().ok().and_then(|f| f.parent().map(|d| d.to_path_buf())).unwrap_or_else(|| PathBuf::from(".")));
+            if s.parts.iter().any(|p| p.cues.iter().any(|c| c.tour.is_some())) {
+                if let Ok(p) = iwr_core::analyze_path(&root) {
+                    iwr_core::script::expand_tours(&p, &mut s);
+                }
+            }
             let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
             println!("# {}", s.title);
             for p in &s.parts {

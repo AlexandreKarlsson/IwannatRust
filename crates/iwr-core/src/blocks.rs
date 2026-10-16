@@ -138,7 +138,7 @@ impl<'a> Builder<'a> {
         self.next_id += 1;
         let mut calls: Vec<ItemId> = self.calls.iter().filter(|c| c.to.is_some() && c.kind != CallKind::Construct && contains(&span, &c.span)).filter_map(|c| c.to).collect();
         calls.dedup();
-        Block { id, kind, label: shorten(&label, 70), detail, span, children: vec![], defines: vec![], uses: vec![], calls }
+        Block { id, kind, label: shorten(&label, 70), detail, span, children: vec![], defines: vec![], uses: vec![], calls, note: None }
     }
 
     fn in_scope(&self, name: &str) -> bool {
@@ -421,7 +421,19 @@ impl<'a> Builder<'a> {
 }
 
 /// Build the block tree of a function.
-pub fn build(sig: &syn::Signature, body: &syn::Block, file: FileId, calls: &[CallEdge], fn_span: Span) -> Block {
+/// Give every block the short `//` comment just above it, when the block starts its own line
+/// (`} else if` would read the comment closing the branch before).
+fn add_notes(b: &mut Block, lines: &[&str]) {
+    for c in &mut b.children {
+        let starts_line = lines.get(c.span.line_start.wrapping_sub(1)).is_some_and(|l| l.chars().take(c.span.col_start.saturating_sub(1)).all(char::is_whitespace));
+        if starts_line {
+            c.note = crate::cfg::note_above(lines, c.span.line_start);
+        }
+        add_notes(c, lines);
+    }
+}
+
+pub fn build(sig: &syn::Signature, body: &syn::Block, file: FileId, calls: &[CallEdge], fn_span: Span, source: &str) -> Block {
     let mut params = Vec::new();
     for input in &sig.inputs {
         match input {
@@ -430,9 +442,11 @@ pub fn build(sig: &syn::Signature, body: &syn::Block, file: FileId, calls: &[Cal
         }
     }
     let mut b = Builder { file, calls, scope: vec![params.iter().cloned().collect()], next_id: 1 };
-    let mut root = Block { id: 0, kind: BlockKind::Fn, label: tokens_to_string(sig), detail: tokens_to_string(sig), span: fn_span, children: vec![], defines: params, uses: vec![], calls: vec![] };
+    let mut root = Block { id: 0, kind: BlockKind::Fn, label: tokens_to_string(sig), detail: tokens_to_string(sig), span: fn_span, children: vec![], defines: params, uses: vec![], calls: vec![], note: None };
     let mut kids = Vec::new();
     b.block(body, &mut kids);
     root.children = kids;
+    let lines: Vec<&str> = source.lines().collect();
+    add_notes(&mut root, &lines);
     root
 }

@@ -63,7 +63,7 @@ impl Default for GuideOptions {
     }
 }
 
-fn label(p: &Project, id: ItemId) -> String {
+pub(crate) fn label(p: &Project, id: ItemId) -> String {
     let it = p.item(id);
     match it.fn_info().and_then(|f| f.owner_type_name.clone().or(f.trait_name.clone())) {
         Some(o) if it.kind == ItemKind::Method => format!("{}::{}", o, it.name),
@@ -72,7 +72,7 @@ fn label(p: &Project, id: ItemId) -> String {
 }
 
 /// First paragraph of a doc comment, as one line ending with a period.
-fn doc_sentence(doc: Option<&String>) -> Option<String> {
+pub(crate) fn doc_sentence(doc: Option<&String>) -> Option<String> {
     let d = doc?;
     let para: Vec<&str> = d.lines().map(str::trim).take_while(|l| !l.is_empty()).collect();
     if para.is_empty() {
@@ -85,8 +85,90 @@ fn doc_sentence(doc: Option<&String>) -> Option<String> {
     Some(s)
 }
 
+/// What a module is for: the first paragraph of its `//!` doc, else what it holds.
+pub fn module_sentence(p: &Project, m: &Module) -> String {
+    doc_sentence(m.doc.as_ref()).unwrap_or_else(|| {
+        let fns = m.items.iter().filter(|i| p.item(**i).is_callable()).count();
+        let tys = m.items.iter().filter(|i| p.item(**i).is_type()).count();
+        let names: Vec<String> = m.items.iter().filter(|i| p.item(**i).kind != ItemKind::Method && p.item(**i).kind != ItemKind::Impl).take(4).map(|i| format!("`{}`", p.item(*i).name)).collect();
+        format!("It has no module doc yet. It holds {} function{} and {} type{}{}.", fns, if fns == 1 { "" } else { "s" }, tys, if tys == 1 { "" } else { "s" }, if names.is_empty() { String::new() } else { format!(", among them {}", join_and(&names)) })
+    })
+}
+
+/// Modules worth a stop in a tour, in the Architecture view's reading order: top to bottom
+/// (users before what they use, the entry point first), then left to right. Only boxes the
+/// view shows: no tests, nothing folded inside another box, not the crate root of a
+/// single crate (the intro speaks for it). `scope` limits it like the view's module scope.
+pub fn tour_modules(p: &Project, scope: Option<ModuleId>) -> Vec<&Module> {
+    let g = crate::views::build(p, Mode::Architecture, &crate::views::ViewOptions { module: scope, ..Default::default() });
+    let mut boxes: Vec<(f64, f64, ModuleId)> = g
+        .nodes
+        .iter()
+        .filter_map(|n| n.id.strip_prefix('m').and_then(|x| x.parse::<ModuleId>().ok()).map(|m| (n.y, n.x, m)))
+        .collect();
+    boxes.sort_by(|a, b| (a.0, a.1).partial_cmp(&(b.0, b.1)).unwrap_or(std::cmp::Ordering::Equal));
+    boxes.into_iter().map(|(_, _, m)| p.module(m)).filter(|m| m.path != "crate" && Some(m.id) != scope).collect()
+}
+
+/// Lead-in for the i-th of n stops: "First, the", "Then the", ... "And last, the".
+pub fn tour_lead(i: usize, n: usize) -> &'static str {
+    match i {
+        0 => "First, the",
+        _ if i + 1 == n => "And last, the",
+        _ => ["Then the", "Next, the", "The"][i % 3],
+    }
+}
+
+/// One sentence about a type: what kind it is, its fields / variants / implementors, then its doc.
+pub fn type_sentence(p: &Project, it: &Item) -> String {
+    let desc = match &it.extra {
+        ItemExtra::Struct(s) => {
+            let names: Vec<String> = s.fields.iter().take(5).map(|f| format!("`{}`", f.name)).collect();
+            if s.is_unit {
+                format!("`{}`, a struct with no fields, a plain marker.", it.name)
+            } else if names.is_empty() || s.is_tuple {
+                format!("`{}`, a struct with {} field{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" })
+            } else {
+                format!("`{}`, a struct with {} field{}: {}{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" }, join_and(&names), if s.fields.len() > 5 { " and more" } else { "" })
+            }
+        }
+        ItemExtra::Enum(e) => {
+            let names: Vec<String> = e.variants.iter().take(6).map(|v| format!("`{}`", v.name)).collect();
+            let role = if it.name.ends_with("Error") { "an error type" } else { "an enum" };
+            format!("`{}`, {} with {} variant{}: {}{}.", it.name, role, e.variants.len(), if e.variants.len() == 1 { "" } else { "s" }, join_and(&names), if e.variants.len() > 6 { " and more" } else { "" })
+        }
+        ItemExtra::Trait(t) => {
+            let impls: Vec<String> = p.items.iter().filter(|o| matches!(&o.extra, ItemExtra::Impl(ii) if ii.trait_id == Some(it.id))).filter_map(|o| match &o.extra { ItemExtra::Impl(ii) => Some(format!("`{}`", ii.target)), _ => None }).collect();
+            let methods: Vec<String> = t.methods.iter().take(4).map(|m| format!("`{}`", p.item(*m).name)).collect();
+            format!(
+                "the `{}` trait{}{}.",
+                it.name,
+                if methods.is_empty() { String::new() } else { format!(", with {}", join_and(&methods)) },
+                if impls.is_empty() { String::new() } else { format!("; it is implemented by {}", join_and(&impls)) }
+            )
+        }
+        ItemExtra::TypeAlias { target } => format!("`{}`, an alias for `{}`.", it.name, target),
+        _ => format!("`{}`.", it.name),
+    };
+    let doc = doc_sentence(it.doc.as_ref()).map(|d| format!(" {}", d)).unwrap_or_default();
+    format!("{}{}", desc, doc)
+}
+
+/// Types in tour order: traits, error enums, structs, other enums.
+pub fn tour_types(p: &Project) -> Vec<&Item> {
+    let mut ranked: Vec<&Item> = p.items.iter().filter(|i| i.is_type() && !crate::views::is_test_module(p, i.module)).collect();
+    ranked.sort_by_key(|i| match i.kind {
+        ItemKind::Trait => 0,
+        ItemKind::Enum if i.name.ends_with("Error") => 1,
+        ItemKind::Struct => 2,
+        ItemKind::Enum => 3,
+        _ => 4,
+    });
+    ranked
+}
+
 /// "a, b and c"
-fn join_and(items: &[String]) -> String {
+pub(crate) fn join_and(items: &[String]) -> String {
     match items.len() {
         0 => String::new(),
         1 => items[0].clone(),
@@ -117,6 +199,8 @@ struct Gen<'a> {
     queue: VecDeque<(ItemId, Option<ItemId>, usize)>,
     queued: HashSet<ItemId>,
     walked: HashSet<ItemId>,
+    /// one function only: no callees queued, no "next" at the end
+    single: bool,
 }
 
 impl<'a> Gen<'a> {
@@ -277,6 +361,7 @@ impl<'a> Gen<'a> {
             (Some(r), _, _) => format!("it returns `{}`", r),
         };
         let next = match self.queue.front() {
+            _ if self.single => String::new(),
             Some((nid, Some(c), _)) if *c == id => format!("Next, let's open `{}`, which we just saw it call.", label(p, *nid)),
             Some((nid, _, _)) => format!("Next, let's open `{}`.", label(p, *nid)),
             None if caller.is_none() => "That was the whole program. Thanks for following along.".to_string(),
@@ -331,7 +416,17 @@ impl<'a> Gen<'a> {
         let callees = join_and(&call_names);
         let (title, text, kind) = match node.kind {
             CfgNodeKind::Exit | CfgNodeKind::Entry => return,
-            CfgNodeKind::Block => (
+            CfgNodeKind::Io => (
+                "Input / output".to_string(),
+                format!("{} input or output: `{}`. This is where the program talks to the outside world.", conn, short),
+                StepKind::Statement,
+            ),
+            CfgNodeKind::Assign => (
+                "State changes".to_string(),
+                format!("{} a change of state: `{}`. Something that already exists is modified here.", conn, short),
+                StepKind::Statement,
+            ),
+            CfgNodeKind::Block | CfgNodeKind::Let | CfgNodeKind::Log => (
                 "Plain statements".to_string(),
                 format!("{} {}: `{}`. Straight-line code, nothing branches here.", conn, if node.detail.matches(';').count() > 1 { "a few plain statements" } else { "a plain statement" }, short),
                 StepKind::Statement,
@@ -386,7 +481,12 @@ impl<'a> Gen<'a> {
                 format!("Watch out here: `{}` can panic. No error goes back to the caller; the thread simply stops, unless something catches it. {}", short, call_notes.join(" ")),
                 StepKind::Error,
             ),
-            CfgNodeKind::Return => (
+            CfgNodeKind::Halt => (
+                "The program stops".to_string(),
+                format!("{} the program stops here: {}. No caller gets control back; the whole process ends.", conn, node.label),
+                StepKind::Return,
+            ),
+            CfgNodeKind::Return | CfgNodeKind::ReturnErr => (
                 "Early return".to_string(),
                 format!("{} an early exit: `{}`. `{}` leaves here and skips the rest of its body. {}", conn, short, fname, call_notes.join(" ")),
                 StepKind::Return,
@@ -402,6 +502,14 @@ impl<'a> Gen<'a> {
                 StepKind::Statement,
             ),
         };
+        // the author's own short comment says best what this step is for
+        let (title, text) = match &node.note {
+            Some(note) => {
+                let end = if note.ends_with(['.', '!', '?']) { "" } else { "." };
+                (note.clone(), format!("{}{} {}", note, end, text.trim_end()))
+            }
+            None => (title, text),
+        };
         self.push(GuideStep { title, text: text.trim_end().to_string(), mode: Mode::ControlFlow, part: part.to_string(), focus_item: Some(fn_id), focus_cfg: Some(n), highlight_items: vec![fn_id], refs: vec![], span: Some(node.span), stack: vec![fn_id], kind });
     }
 }
@@ -410,13 +518,22 @@ fn module_display(path: &str) -> String {
     path.trim_start_matches("crate::").to_string()
 }
 
+/// The guide's chapter on one function: enter, each step of its body in reading order, leave.
+/// Callees are named but not visited.
+pub fn function_steps(p: &Project, id: ItemId, opts: &GuideOptions) -> Vec<GuideStep> {
+    let opts = GuideOptions { max_depth: 1, ..opts.clone() };
+    let mut g = Gen { p, opts: &opts, steps: vec![], queue: VecDeque::new(), queued: HashSet::new(), walked: HashSet::new(), single: true };
+    g.walk_fn(id, None, 0);
+    g.steps
+}
+
 /// Build the tour starting at `root` (defaults to `main`).
 pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<GuideStep> {
-    let mut g = Gen { p, opts, steps: vec![], queue: VecDeque::new(), queued: HashSet::new(), walked: HashSet::new() };
+    let mut g = Gen { p, opts, steps: vec![], queue: VecDeque::new(), queued: HashSet::new(), walked: HashSet::new(), single: false };
     let root = root.or(p.main).or_else(|| crate::views::default_root(p));
     let n_fn = p.functions().count();
     let n_ty = p.items.iter().filter(|i| i.is_type()).count();
-    let mods: Vec<&Module> = p.modules.iter().filter(|m| m.path != "crate" && !m.items.is_empty() && !crate::views::is_test_module(p, m.id)).collect();
+    let mods: Vec<&Module> = tour_modules(p, None).into_iter().filter(|m| !m.items.is_empty() || m.doc.is_some()).collect();
 
     // ---- welcome + architecture
     let goal = p.modules.first().and_then(|m| doc_sentence(m.doc.as_ref())).map(|d| format!(" {}", d)).unwrap_or_default();
@@ -441,18 +558,8 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
     );
     let shown = mods.iter().take(opts.max_overview_items).count();
     for (i, m) in mods.iter().take(opts.max_overview_items).enumerate() {
-        let fns = m.items.iter().filter(|i| p.item(**i).is_callable()).count();
-        let tys = m.items.iter().filter(|i| p.item(**i).is_type()).count();
-        let what = doc_sentence(m.doc.as_ref()).unwrap_or_else(|| {
-            let names: Vec<String> = m.items.iter().filter(|i| p.item(**i).kind != ItemKind::Method && p.item(**i).kind != ItemKind::Impl).take(4).map(|i| format!("`{}`", p.item(*i).name)).collect();
-            format!("It holds {} function{} and {} type{}{}.", fns, if fns == 1 { "" } else { "s" }, tys, if tys == 1 { "" } else { "s" }, if names.is_empty() { String::new() } else { format!(", among them {}", join_and(&names)) })
-        });
-        let lead = match i {
-            0 => "First, the",
-            _ if i + 1 == shown => "And last, the",
-            _ => ["Next to it, the", "Then the", "The"][i % 3],
-        };
-        g.overview("Welcome", &format!("Module {}", module_display(&m.path)), format!("{} `{}` module. {}", lead, module_display(&m.path), what), Mode::Architecture, vec![m.path.clone()], None);
+        let what = module_sentence(p, m).replace("It has no module doc yet. ", "");
+        g.overview("Welcome", &format!("Module {}", module_display(&m.path)), format!("{} `{}` module. {}", tour_lead(i, shown), module_display(&m.path), what), Mode::Architecture, vec![m.path.clone()], None);
     }
 
     // ---- data types
@@ -481,37 +588,8 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
                 _ if i + 1 == shown => "And finally",
                 _ => ["Next,", "Then", "Then there is"][i % 3],
             };
-            let desc = match &it.extra {
-                ItemExtra::Struct(s) => {
-                    let names: Vec<String> = s.fields.iter().take(5).map(|f| format!("`{}`", f.name)).collect();
-                    if s.is_unit {
-                        format!("`{}`, a struct with no fields, a plain marker.", it.name)
-                    } else if names.is_empty() || s.is_tuple {
-                        format!("`{}`, a struct with {} field{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" })
-                    } else {
-                        format!("`{}`, a struct with {} field{}: {}{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" }, join_and(&names), if s.fields.len() > 5 { " and more" } else { "" })
-                    }
-                }
-                ItemExtra::Enum(e) => {
-                    let names: Vec<String> = e.variants.iter().take(6).map(|v| format!("`{}`", v.name)).collect();
-                    let role = if it.name.ends_with("Error") { "an error type" } else { "an enum" };
-                    format!("`{}`, {} with {} variant{}: {}{}.", it.name, role, e.variants.len(), if e.variants.len() == 1 { "" } else { "s" }, join_and(&names), if e.variants.len() > 6 { " and more" } else { "" })
-                }
-                ItemExtra::Trait(t) => {
-                    let impls: Vec<String> = p.items.iter().filter(|o| matches!(&o.extra, ItemExtra::Impl(ii) if ii.trait_id == Some(it.id))).filter_map(|o| match &o.extra { ItemExtra::Impl(ii) => Some(format!("`{}`", ii.target)), _ => None }).collect();
-                    let methods: Vec<String> = t.methods.iter().take(4).map(|m| format!("`{}`", p.item(*m).name)).collect();
-                    format!(
-                        "the `{}` trait{}{}.",
-                        it.name,
-                        if methods.is_empty() { String::new() } else { format!(", with {}", join_and(&methods)) },
-                        if impls.is_empty() { String::new() } else { format!("; it is implemented by {}", join_and(&impls)) }
-                    )
-                }
-                ItemExtra::TypeAlias { target } => format!("`{}`, an alias for `{}`.", it.name, target),
-                _ => format!("`{}`.", it.name),
-            };
-            let doc = doc_sentence(it.doc.as_ref()).map(|d| format!(" {}", d)).unwrap_or_default();
-            g.overview("The data", &it.name.clone(), format!("{} {}{}", lead, desc, doc), Mode::Types, vec![it.path.clone()], None);
+            let desc = type_sentence(p, it);
+            g.overview("The data", &it.name.clone(), format!("{} {}", lead, desc), Mode::Types, vec![it.path.clone()], None);
         }
     }
 

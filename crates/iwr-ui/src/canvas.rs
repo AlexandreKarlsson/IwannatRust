@@ -226,7 +226,10 @@ pub fn Canvas() -> Element {
                             edge: e.clone(),
                             highlighted: hi.contains(&e.from) && hi.contains(&e.to),
                             near: focus_id.as_ref().map(|f| &e.from == f || &e.to == f).unwrap_or(false),
-                            dim: mode == Mode::Architecture && e.kind == EdgeKind::Dependency && focus_id.as_ref().map(|f| &e.from != f && &e.to != f).unwrap_or(false),
+                            // architecture: dependency arrows stay faint unless they touch the box in focus or a glowing one
+                            dim: mode == Mode::Architecture && e.kind == EdgeKind::Dependency
+                                && focus_id.as_ref().is_none_or(|f| &e.from != f && &e.to != f)
+                                && !hi.contains(&e.from) && !hi.contains(&e.to),
                             sideways: sideways(e, &g),
                         }
                     }
@@ -306,8 +309,11 @@ pub fn hl_hit(n: &VNode, refs: &[Resolved]) -> bool {
             return n.id == format!("m{}", m);
         }
         if r.inner {
+            // a folded loop stands for everything inside it
+            let folded = n.kind == NodeKind::Loop && n.expandable && !n.expanded;
             match n.span {
-                Some(s) => n.cfg_node.is_some() && s.file == r.span.file && s.line_start >= r.span.line_start && s.line_end <= r.span.line_end && n.kind != NodeKind::Entry && n.kind != NodeKind::Exit,
+                Some(s) if folded && s.contains_lines(&r.span) => true,
+                Some(s) => n.cfg_node.is_some() && r.span.contains_lines(&s) && n.kind != NodeKind::Entry && n.kind != NodeKind::Exit,
                 None => false,
             }
         } else {
@@ -371,7 +377,14 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     let exp_y = if container { 12.0 } else { node.h / 2.0 };
     let title_y = if container { 17.0 } else if multi { 18.0 } else { node.h / 2.0 + 4.5 };
     // diagram nodes: text centred, diamonds drawn as diamonds
-    let centered = mode == Mode::Diagram && !container;
+    // control-flow entry: the function name as the graph's title
+    let fn_title = node.kind == NodeKind::Entry && node.cfg_node.is_some();
+    let title_y = if fn_title { node.h / 2.0 + 7.5 } else { title_y };
+    // a caption (module file under its doc label) takes the bottom line of the box
+    let has_caption = !node.caption.is_empty() && !container;
+    let title_y = if has_caption && !multi { (node.h - 14.0) / 2.0 + 4.5 } else { title_y };
+    let folded = node.kind == NodeKind::Loop && node.expandable && !node.expanded;
+    let centered = (mode == Mode::Diagram && !container) || fn_title;
     let tx = if centered { node.w / 2.0 } else { 12.0 };
     let anchor = if centered { "middle" } else { "start" };
     let diamond = node.kind == NodeKind::Diamond;
@@ -439,6 +452,10 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 }
             },
             onmouseleave: move |_| state.hovered.set(None),
+            if folded {
+                // a stack of cards: the loop body is folded inside
+                rect { x: "5", y: "5", width: "{node.w:.1}", height: "{node.h:.1}", rx: "{rx}", fill: "var(--bg)", stroke: "{color}", "stroke-width": "1.2", "stroke-opacity": "0.7" }
+            }
             if diamond {
                 polygon { class: "body", points: "{poly}", fill: "{color}", "fill-opacity": "{fill_op}", stroke: "{color}", "stroke-width": "1.6", "stroke-linejoin": "round" }
             } else {
@@ -447,7 +464,7 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
             if container {
                 rect { width: "{node.w:.1}", height: "24", rx: "{rx}", fill: "{color}", "fill-opacity": "0.25" }
             }
-            text { x: "{tx:.1}", y: "{title_y:.1}", "text-anchor": "{anchor}", class: if container { "cont" } else { "" },
+            text { x: "{tx:.1}", y: "{title_y:.1}", "text-anchor": "{anchor}", class: if container { "cont" } else if fn_title { "fn-title" } else { "" },
                 if multi {
                     for (i, l) in lines.iter().enumerate() {
                         tspan { x: "{tx:.1}", dy: if i == 0 { "0" } else { "15" }, "{l}" }
@@ -455,6 +472,16 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 } else {
                     "{node.label}"
                 }
+            }
+            if has_caption {
+                text { x: "{tx:.1}", y: "{node.h - 8.0:.1}", "text-anchor": "{anchor}", class: "cap", "{node.caption}" }
+            }
+            // hub chips: the hub's own on its top-right border, the hubs it uses along the bottom right
+            for (i, c) in node.chips.iter().filter(|c| c.node != node.id).enumerate() {
+                Chip { chip: c.clone(), x: node.w - 12.0 - 18.0 * i as f64, y: node.h - 11.0, r: 7.5 }
+            }
+            for c in node.chips.iter().filter(|c| c.node == node.id) {
+                Chip { chip: c.clone(), x: node.w - 4.0, y: 2.0, r: 10.0 }
             }
             if !detail_lines.is_empty() {
                 g { class: "detail",
@@ -478,17 +505,43 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     }
 }
 
+/// A hub chip: coloured dot with the hub's initials; hovering it focuses the hub (its arrows show).
+#[component]
+fn Chip(chip: iwr_core::views::Chip, x: f64, y: f64, r: f64) -> Element {
+    let mut state = use_context::<State>();
+    let color = theme::hub_color(chip.hue);
+    let fs = if r > 9.0 { 9.5 } else { 8.0 };
+    let id = chip.node.clone();
+    rsx! {
+        g { class: "chip-dot", transform: "translate({x:.1},{y:.1})",
+            onmouseenter: move |e| {
+                let c = e.data().client_coordinates();
+                state.hovered.set(Some((id.clone(), c.x, c.y)));
+            },
+            onmouseleave: move |_| state.hovered.set(None),
+            circle { r: "{r}", fill: "{color}", stroke: "var(--bg)", "stroke-width": "1.5" }
+            text { x: "0", y: "{fs * 0.36:.1}", "text-anchor": "middle", "font-size": "{fs}", "{chip.text}" }
+        }
+    }
+}
+
 #[component]
 fn Edge(edge: VEdge, highlighted: bool, near: bool, dim: bool, sideways: bool) -> Element {
     let (color, dash, width) = theme::edge_style(edge.kind);
+    // counted edges (architecture) get thicker with use, up to about twice the base width
+    let width = if edge.weight > 1 { width + (edge.weight as f64).log2().min(4.0) * 0.45 } else { width };
     let d = path_d(&edge.points, edge.backward, sideways);
     let head = arrow(&edge.points, sideways);
+    let tail = if edge.both { arrow(&edge.points.iter().rev().copied().collect::<Vec<_>>(), sideways) } else { None };
     let (mx, my) = mid(&edge.points);
     let label_w = edge.label.as_ref().map(|l| l.chars().count() as f64 * 6.0 + 8.0).unwrap_or(0.0);
     rsx! {
-        g { class: format!("edge{}{}{}", if highlighted { " hi" } else { "" }, if near { " near" } else { "" }, if dim { " dim" } else { "" }),
+        g { class: format!("edge{}{}{}{}", if highlighted { " hi" } else { "" }, if near { " near" } else { "" }, if dim { " dim" } else { "" }, if edge.hub { " hub" } else { "" }),
             path { d: "{d}", fill: "none", stroke: "{color}", "stroke-width": "{width}", "stroke-dasharray": "{dash}", "stroke-linejoin": "round", "stroke-linecap": "round", opacity: "0.9" }
             if let Some((pts, _, _)) = head {
+                polygon { points: "{pts}", fill: "{color}" }
+            }
+            if let Some((pts, _, _)) = tail {
                 polygon { points: "{pts}", fill: "{color}" }
             }
             if let Some(l) = &edge.label {
@@ -571,6 +624,9 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
                 }
                 if node.kind == NodeKind::Loop {
                     div { class: "doc", "Body repeats; exits on the 'done' edge or a break." }
+                    if node.expandable && !node.expanded {
+                        div { class: "doc", "Folded: click ⊕ to show the steps inside." }
+                    }
                 }
             }
             if !node.badges.is_empty() && node.cfg_node.is_none() && info.is_none() {

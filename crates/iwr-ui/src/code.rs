@@ -245,7 +245,9 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
         _ => it.name.clone(),
     };
     let sig_rest = it.signature.clone();
-    let doc = it.doc.as_ref().and_then(|d| d.lines().next().map(|l| l.to_string()));
+    // a short `///` line is the item's title; the rest of its head gets small, details on hover
+    let note = iwr_core::views::short_doc_line(it.doc.as_deref());
+    let doc = it.doc.as_ref().and_then(|d| d.lines().next().map(|l| l.to_string())).filter(|_| note.is_none());
     let n_children = it.fn_info().and_then(|f| f.blocks.as_ref()).map(|b| b.children.len()).unwrap_or(children_items.len());
     let key2 = key.clone();
     let expandable = has_body && n_children > 0;
@@ -259,7 +261,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
         b
     }).unwrap_or_default();
     rsx! {
-        div { class: format!("iblk{}{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " sel" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }), style: "--c: {color}",
+        div { class: format!("iblk{}{}{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " sel" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }, if note.is_some() { " has-note" } else { "" }), style: "--c: {color}",
             div { class: "ihead",
                 onmouseenter: move |_| state.hover_span.set(Some(span)),
                 onclick: move |_| {
@@ -271,7 +273,12 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
                     }
                 },
                 span { class: "tag", "{it.kind.label()}" }
-                span { class: "name", "{title}" }
+                if let Some(n) = &note {
+                    span { class: "note", title: "{sig_rest}", "{n}" }
+                    span { class: "name small", "{title}" }
+                } else {
+                    span { class: "name", "{title}" }
+                }
                 span { class: "sig", "{sig_rest}" }
                 for b in fn_badges.iter() { span { class: "chip fact", "{b}" } }
                 if expandable {
@@ -327,7 +334,7 @@ fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize, h
     let hover_is_child = !open && hover.map(|h| contains(&span, &h) && h != span).unwrap_or(false);
     let is_nar = hl.iter().any(|r| r.inner && r.span.file == span.file && (contains(&r.span, &span) || (!open && contains(&span, &r.span))));
     rsx! {
-        div { class: format!("blk k-{}{}{}{}", word.replace(' ', "-").replace('?', "try"), if is_hover || hover_is_child { " hl" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }), style: "--c: {color}",
+        div { class: format!("blk k-{}{}{}{}{}", word.replace(' ', "-").replace('?', "try"), if is_hover || hover_is_child { " hl" } else { "" }, if open { " open" } else { "" }, if is_nar { " nar" } else { "" }, if block.note.is_some() { " has-note" } else { "" }), style: "--c: {color}",
             div { class: "bhead",
                 onmouseenter: move |e| { e.stop_propagation(); state.hover_span.set(Some(span)); },
                 onclick: move |e| {
@@ -339,7 +346,12 @@ fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize, h
                     }
                 },
                 if !word.is_empty() { span { class: "tag", "{word}" } }
-                span { class: "label", "{label}" }
+                // the author's comment says what the block is for; the code stays one hover away
+                if let Some(note) = &block.note {
+                    span { class: "label note", title: "{label}", "{note}" }
+                } else {
+                    span { class: "label", "{label}" }
+                }
                 for d in block.defines.iter() { span { class: "chip def", title: "defines {d}", "{d}" } }
                 for u in uses.iter() { span { class: "chip var", title: "uses {u}", "{u}" } }
                 for (cid, name) in calls.iter() {

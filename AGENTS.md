@@ -3,6 +3,7 @@
 - Project map: `docs/architecture.md`. Model: `docs/model.md`. Commands: `docs/cli.md`.
 - **To write a codecast for a Rust project:** read `docs/writing-codecasts.md`, run
   `iwr brief <path>` (or `iwr brief <path> --guide` to get the guide and the brief in one output),
+  add missing `//!` / `///` / short `//` comments if you may edit the code (guide: "Step 0"),
   write the script (markdown: one `codecast.md`, or a `codecast/` directory with `index.md` + one file per part),
   run `iwr check codecast.md --path <path>` (or `iwr check codecast/ --path <path>`), read `iwr speak codecast/`
   to hear-check the TTS text, play it with `iwr serve <path>`.

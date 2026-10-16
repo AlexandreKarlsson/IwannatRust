@@ -114,6 +114,44 @@ pub struct Cue {
     /// `| kind[:ref]`: what the side panel shows from this cue on; `Some("")` closes it
     #[serde(default)]
     pub side: Option<String>,
+    /// `architecture_tour` line: a generated tour that [`expand_tours`] puts in place of this cue
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tour: Option<String>,
+}
+
+/// A line that asks for a generated tour: `name_tour` or `name_tour:<ref>`.
+fn tour_line(t: &str) -> bool {
+    let name = t.split_once(':').map_or(t, |(n, _)| n);
+    name.ends_with("_tour") && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') && !t.contains(char::is_whitespace)
+}
+
+/// Replace every tour cue (`architecture_tour`, `flow_tour:crate::run`, …) by the cues it stands
+/// for ([`crate::tours`]). Tours that fail are dropped ([`check`] reports them). Directives
+/// written with the tour line and its questions go to the first generated cue.
+pub fn expand_tours(p: &Project, s: &mut Script) {
+    for part in &mut s.parts {
+        if part.cues.iter().all(|c| c.tour.is_none()) {
+            continue;
+        }
+        let mut cues = Vec::new();
+        for c in std::mem::take(&mut part.cues) {
+            let Some(line) = c.tour.as_deref() else {
+                cues.push(c);
+                continue;
+            };
+            let mut gen = crate::tours::generate(p, line).unwrap_or_default();
+            if let Some(first) = gen.first_mut() {
+                first.show = c.show.or(first.show.take());
+                first.hl = c.hl.or(first.hl.take());
+                first.code = c.code.or(first.code.take());
+                first.side = c.side.or(first.side.take());
+                first.ops.extend(c.ops);
+                first.questions.extend(c.questions);
+            }
+            cues.extend(gen);
+        }
+        part.cues = cues;
+    }
 }
 
 /// A question the listener can click. Answering pauses the codecast, shows and speaks the
@@ -297,6 +335,11 @@ pub fn parse(text: &str) -> Script {
         if t.starts_with("//") {
             continue;
         }
+        if tour_line(t) {
+            pending.tour = Some(t.to_string());
+            part.cues.push(std::mem::take(&mut pending));
+            continue;
+        }
         pending.say = t.to_string();
         part.cues.push(std::mem::take(&mut pending));
     }
@@ -381,9 +424,10 @@ pub fn to_text(s: &Script) -> String {
                 out.push_str(&format!("| {}\n", sd).replace("| \n", "|\n"));
             }
             let say = flatten(&c.say);
-            match c.t {
-                Some(t) => out.push_str(&format!("[{}] {}\n", t, say)),
-                None => out.push_str(&format!("{}\n", say)),
+            match (&c.tour, c.t) {
+                (Some(tour), _) => out.push_str(&format!("{}\n", tour)),
+                (None, Some(t)) => out.push_str(&format!("[{}] {}\n", t, say)),
+                (None, None) => out.push_str(&format!("{}\n", say)),
             }
             for q in &c.questions {
                 out.push_str(&format!("? {}\n", q.ask));
@@ -885,6 +929,17 @@ impl<'a> Track<'a> {
 /// All refs in a script that do not resolve, with their location.
 pub fn check(p: &Project, s: &Script) -> Vec<String> {
     let mut bad = Vec::new();
+    for part in &s.parts {
+        for c in &part.cues {
+            if let Some(Err(e)) = c.tour.as_deref().map(|t| crate::tours::generate(p, t)) {
+                bad.push(format!("{}: {}", part.name, e));
+            }
+        }
+    }
+    // refs are checked on the script as it will play
+    let mut expanded = s.clone();
+    expand_tours(p, &mut expanded);
+    let s = &expanded;
     let mut t = Track { mode: None, diagram: None, side: vec![] };
     for part in &s.parts {
         for (i, d) in part.diagrams.iter().enumerate() {
@@ -962,26 +1017,32 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
             }
             part.name = st.part.clone();
         }
-        let show = format!("{}{}", view_name(st.mode), st.focus_item.map(|f| format!(":{}", p.item(f).path)).unwrap_or_default());
-        let mut hl: Vec<String> = st.refs.clone();
-        if hl.is_empty() {
-            if let Some(sp) = st.span {
-                let f = &p.files[sp.file].path;
-                hl.push(if sp.line_start == sp.line_end { format!("{}:{}", f, sp.line_start) } else { format!("{}:{}-{}", f, sp.line_start, sp.line_end) });
-            } else {
-                for h in &st.highlight_items {
-                    hl.push(p.item(*h).path.clone());
-                }
-            }
-        }
-        let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
-        part.cues.push(Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), code: None, t: None, questions: vec![], ops: vec![], side: None });
-        last_show = Some(show);
+        part.cues.push(step_cue(p, st, &mut last_show));
     }
     if !part.cues.is_empty() {
         s.parts.push(part);
     }
     s
+}
+
+/// One guide step as a cue: its view (only when it changes), its glow, its text.
+pub fn step_cue(p: &Project, st: &crate::guide::GuideStep, last_show: &mut Option<String>) -> Cue {
+    let show = format!("{}{}", view_name(st.mode), st.focus_item.map(|f| format!(":{}", p.item(f).path)).unwrap_or_default());
+    let mut hl: Vec<String> = st.refs.clone();
+    if hl.is_empty() {
+        if let Some(sp) = st.span {
+            let f = &p.files[sp.file].path;
+            hl.push(if sp.line_start == sp.line_end { format!("{}:{}", f, sp.line_start) } else { format!("{}:{}-{}", f, sp.line_start, sp.line_end) });
+        } else {
+            for h in &st.highlight_items {
+                hl.push(p.item(*h).path.clone());
+            }
+        }
+    }
+    let say = if st.text.trim().is_empty() { st.title.clone() } else { st.text.clone() };
+    let cue = Cue { say, show: if last_show.as_deref() == Some(&show) { None } else { Some(show.clone()) }, hl: Some(hl), ..Default::default() };
+    *last_show = Some(show);
+    cue
 }
 
 /// Spoken form of a cue: markdown and code blocks stripped, code tokens said as words

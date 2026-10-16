@@ -19,6 +19,94 @@ struct Builder<'a> {
     exit: usize,
     calls: &'a [CallEdge],
     depth: usize,
+    /// Source lines of the file (to read `//` comments, which syn drops).
+    lines: Vec<&'a str>,
+    /// Comment found above the current statement, given to the next node created.
+    pending_note: Option<String>,
+    /// Conditions leading to the current point: (number of open loops when pushed, description).
+    conds: Vec<(usize, String)>,
+    /// `let x =` of a `let x = match …` / `let x = if …`: put in front of that node's label
+    let_prefix: Option<String>,
+}
+
+/// Logging macros: noise in a flow graph unless a comment says why they matter.
+fn is_log_macro(path: &syn::Path) -> bool {
+    let first = path.segments.first().map(|s| s.ident.to_string()).unwrap_or_default();
+    let last = path_last(path);
+    matches!(first.as_str(), "log" | "tracing") || matches!(last.as_str(), "trace" | "debug" | "info" | "warn" | "error" | "log" | "event")
+}
+
+/// Input / output, read from the statement's text.
+fn is_io(text: &str) -> bool {
+    const IO: &[&str] = &["println!", "print!", "eprintln!", "eprint!", "write!", "writeln!", "dbg!", "std::fs", "fs::", "File::", "OpenOptions", "stdin()", "stdout()", "stderr()", "read_to_string", "read_line", "TcpStream", "UdpSocket", "TcpListener", ".flush()"];
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    IO.iter().any(|w| compact.contains(&w.replace(' ', "")))
+}
+
+/// `std::process::exit(code)` / `process::abort()`: the exit code, or "abort".
+fn halt_of(text: &str) -> Option<String> {
+    // the statement itself must be the call: `x.unwrap_or_else(|| exit(1))` only sometimes stops
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let call = compact.trim_start_matches("std::").trim_start_matches("process::");
+    if call.starts_with("abort(") {
+        return Some("abort".into());
+    }
+    let rest = call.strip_prefix("exit(")?;
+    Some(rest.chars().take_while(|c| *c != ')').collect())
+}
+
+/// The sentence for a halt: "exit with code 2", "print error, exit with code 2", "abort".
+fn halt_sentence(code: &str, printed: Option<&str>) -> String {
+    let stop = if code == "abort" { "abort".to_string() } else { format!("exit with code {}", code) };
+    match printed {
+        Some(p) if p.starts_with("eprint") => format!("print error, {}", stop),
+        Some(_) => format!("print message, {}", stop),
+        None => stop,
+    }
+}
+
+/// An arm body that only hands a value on (`c`, `0`, `&x`, `None`): no box, it goes on the edge.
+fn is_trivial(e: &syn::Expr) -> bool {
+    match e {
+        syn::Expr::Path(_) | syn::Expr::Lit(_) => true,
+        syn::Expr::Reference(r) => is_trivial(&r.expr),
+        syn::Expr::Paren(p) => is_trivial(&p.expr),
+        syn::Expr::Block(b) => b.block.stmts.len() == 1 && matches!(&b.block.stmts[0], syn::Stmt::Expr(x, None) if is_trivial(x)),
+        _ => false,
+    }
+}
+
+/// Does this expression change existing state (assignment, compound assignment, a mutating method)?
+fn is_mutation(e: &syn::Expr) -> bool {
+    const MUT: &[&str] = &["push", "push_str", "push_back", "push_front", "insert", "remove", "clear", "extend", "pop", "truncate", "sort", "sort_by", "sort_by_key", "sort_unstable", "retain", "dedup", "drain", "append", "swap", "entry", "set"];
+    match e {
+        syn::Expr::Assign(_) => true,
+        syn::Expr::Binary(b) => matches!(
+            b.op,
+            syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) | syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) | syn::BinOp::RemAssign(_) | syn::BinOp::BitOrAssign(_) | syn::BinOp::BitAndAssign(_) | syn::BinOp::BitXorAssign(_) | syn::BinOp::ShlAssign(_) | syn::BinOp::ShrAssign(_)
+        ),
+        syn::Expr::MethodCall(m) => MUT.contains(&m.method.to_string().as_str()) || is_mutation(&m.receiver),
+        _ => false,
+    }
+}
+
+pub use crate::views::NOTE_MAX;
+
+/// A short single-line `//` comment directly above `line` (1-based), if any.
+pub(crate) fn note_above(lines: &[&str], line: usize) -> Option<String> {
+    let comment = |i: usize| -> Option<&str> {
+        let t = lines.get(i)?.trim();
+        (t.starts_with("//") && !t.starts_with("///") && !t.starts_with("//!")).then(|| t[2..].trim())
+    };
+    if line < 2 {
+        return None;
+    }
+    let text = comment(line - 2)?;
+    // part of a longer comment block: that is an explanation, not a title
+    if line >= 3 && comment(line - 3).is_some() {
+        return None;
+    }
+    (!text.is_empty() && text.chars().count() <= NOTE_MAX).then(|| text.to_string())
 }
 
 fn contains(outer: &Span, inner: &Span) -> bool {
@@ -91,12 +179,14 @@ impl<'a> Builder<'a> {
                 calls_dedup.push(c);
             }
         }
-        self.cfg.nodes.push(CfgNode { id, kind, label, detail, span, calls: calls_dedup, depth: self.depth });
+        let note = self.pending_note.take();
+        let in_loop = self.loops.last().map(|l| l.0);
+        self.cfg.nodes.push(CfgNode { id, kind, label, detail, span, calls: calls_dedup, depth: self.depth, note, in_loop });
         id
     }
 
     fn edge(&mut self, from: usize, to: usize, kind: CfgEdgeKind, label: Option<String>) {
-        if self.cfg.edges.iter().any(|e| e.from == from && e.to == to && e.kind == kind) {
+        if self.cfg.edges.iter().any(|e| e.from == from && e.to == to && e.kind == kind && e.label == label) {
             return;
         }
         self.cfg.edges.push(CfgEdge { from, to, label, kind });
@@ -125,14 +215,32 @@ impl<'a> Builder<'a> {
     }
 
     fn stmt(&mut self, s: &syn::Stmt) {
+        self.pending_note = note_above(&self.lines, span_of(s, self.file).line_start);
+        self.stmt_inner(s);
+        self.pending_note = None;
+    }
+
+    /// What leads to the current point inside the innermost loop, e.g. the `if` around a `break`.
+    fn cond_here(&self) -> Option<String> {
+        self.conds.last().filter(|(level, _)| *level == self.loops.len()).map(|(_, c)| c.clone())
+    }
+
+    fn stmt_inner(&mut self, s: &syn::Stmt) {
         match s {
             syn::Stmt::Local(l) => {
                 let span = span_of(l, self.file);
                 let pat = tokens_to_string(&l.pat);
                 if let Some(init) = &l.init {
                     let e = &*init.expr;
+                    if matches!(e, syn::Expr::If(_) | syn::Expr::Match(_)) {
+                        // `let x = match …`: one node, "let x = match …" (or the comment above), arms from it
+                        self.let_prefix = Some(format!("let {} =", pat));
+                        self.expr(e);
+                        self.let_prefix = None;
+                        return;
+                    }
                     if is_structured(e) {
-                        // `let x = if ... { } else { }` : structural expr gets its own nodes
+                        // `let x = loop { … }` : structural expr gets its own nodes
                         let label = format!("let {} =", pat);
                         self.seq(CfgNodeKind::Block, shorten(&label, 40), tokens_to_string(l), span_of(&l.pat, self.file));
                         self.expr(e);
@@ -149,6 +257,13 @@ impl<'a> Builder<'a> {
                 let span = span_of(m, self.file);
                 let text = tokens_to_string(m);
                 let name = path_last(&m.mac.path);
+                if is_log_macro(&m.mac.path) {
+                    // logging: shown only when a comment above says why it matters
+                    if self.pending_note.is_some() {
+                        self.seq(CfgNodeKind::Log, shorten(&text, 40), text, span);
+                    }
+                    return;
+                }
                 if matches!(name.as_str(), "panic" | "unreachable" | "todo" | "unimplemented") {
                     let id = self.seq(CfgNodeKind::Panic, shorten(&text, 40), text, span);
                     self.open.clear();
@@ -168,6 +283,10 @@ impl<'a> Builder<'a> {
     /// A plain statement: merged into the previous Block node when possible,
     /// unless it contains something interesting (call / ? / await / unwrap).
     fn plain(&mut self, label: &str, detail: String, span: Span, e: Option<&syn::Expr>) {
+        if let Some(code) = halt_of(&detail) {
+            self.halt(&code, detail, span);
+            return;
+        }
         let f = e.map(facts).unwrap_or_default();
         let has_calls = self.calls.iter().any(|c| c.to.is_some() && c.kind != CallKind::Construct && contains(&span, &c.span));
         let kind = if f.has_return {
@@ -180,14 +299,22 @@ impl<'a> Builder<'a> {
             CfgNodeKind::Call
         } else if f.has_await {
             CfgNodeKind::Await
+        } else if is_io(&detail) {
+            CfgNodeKind::Io
+        } else if label.starts_with("let ") {
+            CfgNodeKind::Let
+        } else if e.is_some_and(is_mutation) {
+            CfgNodeKind::Assign
         } else {
             CfgNodeKind::Block
         };
-        if kind == CfgNodeKind::Block {
+        if matches!(kind, CfgNodeKind::Block | CfgNodeKind::Let | CfgNodeKind::Assign | CfgNodeKind::Io) {
             // try to merge with previous block node
-            if self.open.len() == 1 {
+            if self.open.len() == 1 && self.pending_note.is_none() {
                 let (prev, k, _) = self.open[0].clone();
-                if k == CfgEdgeKind::Next && self.cfg.nodes[prev].kind == CfgNodeKind::Block && self.cfg.nodes[prev].depth == self.depth {
+                let p = &self.cfg.nodes[prev];
+                let same_paragraph = p.note.is_none() || span.line_start <= p.span.line_end + 1;
+                if k == CfgEdgeKind::Next && p.kind == kind && p.depth == self.depth && same_paragraph {
                     let n = &mut self.cfg.nodes[prev];
                     if n.label.lines().count() < 4 {
                         n.label.push('\n');
@@ -199,7 +326,7 @@ impl<'a> Builder<'a> {
                     }
                 }
             }
-            self.seq(CfgNodeKind::Block, shorten(label, 40), detail, span);
+            self.seq(kind, shorten(label, 40), detail, span);
             return;
         }
         let id = self.seq(kind, shorten(label, 40), detail, span);
@@ -209,7 +336,8 @@ impl<'a> Builder<'a> {
             CfgNodeKind::Panic => self.edge(id, exit, CfgEdgeKind::Error, Some("panic".into())),
             CfgNodeKind::Return => {
                 self.open.clear();
-                self.edge(id, exit, CfgEdgeKind::Return, Some("return".into()));
+                let label = self.exit_label("return");
+                self.edge(id, exit, CfgEdgeKind::Return, Some(label));
             }
             _ => {}
         }
@@ -220,18 +348,25 @@ impl<'a> Builder<'a> {
         match e {
             syn::Expr::If(i) => {
                 let cond = tokens_to_string(&i.cond);
-                let id = self.seq(CfgNodeKind::If, shorten(&format!("if {}", cond), 40), format!("if {}", cond), span_of(&i.cond, self.file));
+                let pre = self.let_prefix.take().map(|p| format!("{} ", p)).unwrap_or_default();
+                let id = self.seq(CfgNodeKind::If, shorten(&format!("{}if {}", pre, cond), 40), format!("{}if {}", pre, cond), span_of(&i.cond, self.file));
                 self.open.clear();
                 self.depth += 1;
+                let what = self.cfg.nodes[id].note.clone().unwrap_or_else(|| format!("if {}", cond));
+                let level = self.loops.len();
                 // then
+                self.conds.push((level, what.clone()));
                 self.open.push((id, CfgEdgeKind::True, Some("true".into())));
                 self.block(&i.then_branch);
                 let then_ends = std::mem::take(&mut self.open);
+                self.conds.pop();
                 // else
+                self.conds.push((level, format!("not ({})", what)));
                 self.open.push((id, CfgEdgeKind::False, Some("false".into())));
                 if let Some((_, else_e)) = &i.else_branch {
                     self.expr(else_e);
                 }
+                self.conds.pop();
                 self.depth -= 1;
                 let mut ends = std::mem::take(&mut self.open);
                 ends.extend(then_ends);
@@ -239,7 +374,8 @@ impl<'a> Builder<'a> {
             }
             syn::Expr::Match(m) => {
                 let scrut = tokens_to_string(&m.expr);
-                let id = self.seq(CfgNodeKind::Match, shorten(&format!("match {}", scrut), 40), format!("match {}", scrut), span_of(&m.expr, self.file));
+                let pre = self.let_prefix.take().map(|p| format!("{} ", p)).unwrap_or_default();
+                let id = self.seq(CfgNodeKind::Match, shorten(&format!("{}match {}", pre, scrut), 40), format!("{}match {}", pre, scrut), span_of(&m.expr, self.file));
                 self.open.clear();
                 self.depth += 1;
                 let mut ends = Vec::new();
@@ -249,8 +385,17 @@ impl<'a> Builder<'a> {
                         pat.push_str(" if ");
                         pat.push_str(&tokens_to_string(g));
                     }
+                    if is_trivial(&arm.body) {
+                        // `Ok(c) => c`: nothing happens but handing the value on
+                        let label = format!("{} → {}", pat, tokens_to_string(&arm.body).trim_start_matches("{ ").trim_end_matches(" }"));
+                        ends.push((id, CfgEdgeKind::Arm, Some(shorten(&label, 30))));
+                        continue;
+                    }
                     self.open.push((id, CfgEdgeKind::Arm, Some(shorten(&pat, 24))));
+                    let level = self.loops.len();
+                    self.conds.push((level, pat));
                     self.arm_body(&arm.body);
+                    self.conds.pop();
                     ends.extend(std::mem::take(&mut self.open));
                 }
                 self.depth -= 1;
@@ -275,17 +420,20 @@ impl<'a> Builder<'a> {
                     self.calls.iter().any(|c| c.to.is_some() && contains(&s, &c.span))
                 }).unwrap_or(false);
                 let _ = has_calls;
-                let id = self.seq(CfgNodeKind::Return, shorten(&text, 40), text, span);
+                let kind = if r.expr.as_ref().is_some_and(|x| return_label(x) == "return Err") { CfgNodeKind::ReturnErr } else { CfgNodeKind::Return };
+                let id = self.seq(kind, shorten(&text, 40), text, span);
                 self.open.clear();
                 let exit = self.exit;
                 let label = r.expr.as_ref().map(|x| return_label(x)).unwrap_or_else(|| "return".into());
+                let label = self.exit_label(&label);
                 self.edge(id, exit, CfgEdgeKind::Return, Some(label));
             }
             syn::Expr::Break(_) => {
                 let id = self.seq(CfgNodeKind::Jump, "break".into(), tokens_to_string(e), span);
                 self.open.clear();
+                let label = self.cond_here().map(|c| shorten(&c, 40)).unwrap_or_else(|| "break".into());
                 if let Some((_, breaks)) = self.loops.last_mut() {
-                    breaks.push((id, CfgEdgeKind::Break, Some("break".into())));
+                    breaks.push((id, CfgEdgeKind::Break, Some(label)));
                 }
             }
             syn::Expr::Continue(_) => {
@@ -302,10 +450,58 @@ impl<'a> Builder<'a> {
                 let exit = self.exit;
                 self.edge(id, exit, CfgEdgeKind::Error, Some("Err / None".into()));
             }
+            syn::Expr::Macro(m) if is_log_macro(&m.mac.path) => {
+                if self.pending_note.is_some() {
+                    let text = tokens_to_string(e);
+                    self.seq(CfgNodeKind::Log, shorten(&text, 40), text, span);
+                }
+            }
             _ => {
                 let text = tokens_to_string(e);
                 self.plain(&text, text.clone(), span, Some(e));
             }
+        }
+    }
+
+    /// The program stops: a print just before (same paragraph) joins the node, nothing follows.
+    fn halt(&mut self, code: &str, detail: String, span: Span) {
+        let prev = match self.open.as_slice() {
+            [(prev, CfgEdgeKind::Next, _)] => Some(*prev),
+            _ => None,
+        };
+        let printed = prev.filter(|p| {
+            let n = &self.cfg.nodes[*p];
+            n.kind == CfgNodeKind::Io && n.depth == self.depth && n.detail.lines().count() == 1 && n.detail.trim_start().starts_with(['e', 'p']) && n.detail.contains("print")
+        });
+        let id = match printed {
+            Some(p) => {
+                let n = &mut self.cfg.nodes[p];
+                n.kind = CfgNodeKind::Halt;
+                n.label = halt_sentence(code, Some(n.detail.trim_start()));
+                n.detail = format!("{}\n{}", n.detail, detail);
+                n.span = span_union(n.span, span);
+                if n.note.is_none() {
+                    n.note = self.pending_note.take();
+                }
+                self.open.clear();
+                p
+            }
+            None => {
+                let id = self.seq(CfgNodeKind::Halt, halt_sentence(code, None), detail, span);
+                self.open.clear();
+                id
+            }
+        };
+        let exit = self.exit;
+        let label = if code == "abort" { "abort".to_string() } else { format!("exit {}", code) };
+        self.edge(id, exit, CfgEdgeKind::Error, Some(label));
+    }
+
+    /// Label of an edge leaving a loop early: the condition that leads there, then what happens.
+    fn exit_label(&self, what: &str) -> String {
+        match self.cond_here() {
+            Some(c) if !self.loops.is_empty() => format!("{} → {}", shorten(&c, 32), what),
+            _ => what.to_string(),
         }
     }
 
@@ -320,6 +516,8 @@ impl<'a> Builder<'a> {
         let id = self.seq(CfgNodeKind::Loop, shorten(label, 40), label.to_string(), head_span);
         self.open.clear();
         self.loops.push((id, vec![]));
+        // conditions outside the loop do not explain its exits
+        let outer_conds = std::mem::take(&mut self.conds);
         self.depth += 1;
         self.open.push((id, CfgEdgeKind::LoopBody, Some("each iteration".into())));
         self.block(body);
@@ -329,6 +527,7 @@ impl<'a> Builder<'a> {
             self.edge(from, id, CfgEdgeKind::LoopBack, Some("next iteration".into()));
         }
         self.depth -= 1;
+        self.conds = outer_conds;
         let (_, breaks) = self.loops.pop().unwrap();
         self.open = breaks;
         if !label.starts_with("loop") {
@@ -361,8 +560,9 @@ fn is_structured(e: &syn::Expr) -> bool {
 }
 
 /// Build the CFG of a function body. `calls` are the (already resolved) call edges of that function.
-pub fn build(block: &syn::Block, file: FileId, calls: &[CallEdge], fn_span: Span) -> Cfg {
-    let mut b = Builder { cfg: Cfg::default(), file, open: vec![], loops: vec![], exit: 0, calls, depth: 0 };
+pub fn build<'a>(block: &syn::Block, file: FileId, calls: &'a [CallEdge], fn_span: Span, source: &'a str) -> Cfg {
+    let lines = source.lines().collect();
+    let mut b = Builder { cfg: Cfg::default(), file, open: vec![], loops: vec![], exit: 0, calls, depth: 0, lines, pending_note: None, conds: vec![], let_prefix: None };
     let entry = b.add(CfgNodeKind::Entry, "start".into(), "function entry".into(), Span { file, line_start: fn_span.line_start, col_start: fn_span.col_start, line_end: fn_span.line_start, col_end: fn_span.col_start });
     let exit = b.add(CfgNodeKind::Exit, "end".into(), "function exit".into(), Span { file, line_start: fn_span.line_end, col_start: fn_span.col_end, line_end: fn_span.line_end, col_end: fn_span.col_end });
     b.exit = exit;

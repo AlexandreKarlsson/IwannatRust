@@ -24,7 +24,13 @@ pub fn node_color(k: NodeKind) -> &'static str {
         NodeKind::Match => "#f97316",
         NodeKind::Loop => "#06b6d4",
         NodeKind::Call => "#3b82f6",
-        NodeKind::Return => "#ef4444",
+        NodeKind::Return => "#10b981",
+        NodeKind::ReturnErr => "#ef4444",
+        NodeKind::Halt => "#be123c",
+        NodeKind::Let => "#38bdf8",
+        NodeKind::Assign => "#f472b6",
+        NodeKind::Io => "#a3e635",
+        NodeKind::Log => "#64748b",
         NodeKind::Jump => "#06b6d4",
         NodeKind::Propagate => "#f43f5e",
         NodeKind::Panic => "#dc2626",
@@ -63,6 +69,12 @@ pub fn node_kind_label(k: NodeKind) -> &'static str {
         NodeKind::Loop => "loop",
         NodeKind::Call => "call",
         NodeKind::Return => "return",
+        NodeKind::ReturnErr => "return error",
+        NodeKind::Halt => "program stops",
+        NodeKind::Let => "new variable",
+        NodeKind::Assign => "changes state",
+        NodeKind::Io => "input / output",
+        NodeKind::Log => "log",
         NodeKind::Jump => "break / continue",
         NodeKind::Propagate => "? propagation",
         NodeKind::Panic => "panic",
@@ -79,6 +91,13 @@ pub fn node_kind_label(k: NodeKind) -> &'static str {
 }
 
 /// (colour, dash array, width)
+/// Hub chip colours (architecture): distinct, readable on light and dark backgrounds.
+pub const HUB_COLORS: [&str; 8] = ["#f472b6", "#fb923c", "#a3e635", "#22d3ee", "#c084fc", "#facc15", "#34d399", "#f87171"];
+
+pub fn hub_color(hue: usize) -> &'static str {
+    HUB_COLORS[hue % HUB_COLORS.len()]
+}
+
 pub fn edge_style(k: EdgeKind) -> (&'static str, &'static str, f64) {
     match k {
         EdgeKind::Call => ("#60a5fa", "", 1.6),
@@ -164,7 +183,7 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
     match mode {
         Mode::Code => vec![],
         Mode::CallTree => vec![n(NodeKind::Main), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::External), e(EdgeKind::Call), e(EdgeKind::CallInLoop), e(EdgeKind::CallInBranch), e(EdgeKind::Recursion), e(EdgeKind::Propagate), e(EdgeKind::Unwrap)],
-        Mode::ControlFlow | Mode::BranchTree => vec![n(NodeKind::Entry), n(NodeKind::Block), n(NodeKind::If), n(NodeKind::Match), n(NodeKind::Loop), n(NodeKind::Call), n(NodeKind::Propagate), n(NodeKind::Panic), n(NodeKind::Return), n(NodeKind::Exit), e(EdgeKind::True), e(EdgeKind::False), e(EdgeKind::Arm), e(EdgeKind::LoopBody), e(EdgeKind::LoopBack), e(EdgeKind::Error)],
+        Mode::ControlFlow | Mode::BranchTree => vec![n(NodeKind::Entry), n(NodeKind::Block), n(NodeKind::Let), n(NodeKind::Assign), n(NodeKind::Io), n(NodeKind::If), n(NodeKind::Match), n(NodeKind::Loop), n(NodeKind::Call), n(NodeKind::Propagate), n(NodeKind::Panic), n(NodeKind::Return), n(NodeKind::ReturnErr), n(NodeKind::Halt), n(NodeKind::Exit), e(EdgeKind::True), e(EdgeKind::False), e(EdgeKind::Arm), e(EdgeKind::LoopBody), e(EdgeKind::LoopBack), e(EdgeKind::Error)],
         Mode::Architecture => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Struct), n(NodeKind::Trait), n(NodeKind::External), e(EdgeKind::Contains), e(EdgeKind::Dependency)],
         Mode::Structure => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Impl), n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::Trait), n(NodeKind::Const)],
         Mode::Types => vec![n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::ErrorType), n(NodeKind::Trait), n(NodeKind::TypeAlias), n(NodeKind::Function), e(EdgeKind::Contains), e(EdgeKind::Implements), e(EdgeKind::Supertrait), e(EdgeKind::Uses)],
@@ -191,14 +210,14 @@ pub fn is_theme(id: &str) -> bool {
 }
 
 pub const CSS: &str = r#"
-:root, .theme-dark { --bg:#0b1020; --panel:#111827; --panel2:#0f172a; --panel3:#1f2937; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; --hi:#fbbf24; --hl-bg:#3b2f0b; --sel-bg:#0f1a2e; --code:#93c5fd; --grid:#1f2937; --fill-op:0.28; --icon-filter:invert(.88); --icon-active:none; }
-.theme-light { --bg:#f8fafc; --panel:#ffffff; --panel2:#f1f5f9; --panel3:#e2e8f0; --border:#cbd5e1; --text:#0f172a; --muted:#64748b; --accent:#2563eb; --hi:#b45309; --hl-bg:#fef3c7; --sel-bg:#e0f2fe; --code:#1d4ed8; --grid:#e2e8f0; --fill-op:0.18; --icon-filter:invert(.2); --icon-active:invert(1); }
-.theme-paper { --bg:#f5efe0; --panel:#fbf7ec; --panel2:#f1eadb; --panel3:#e6dcc5; --border:#d6c9a8; --text:#2b2416; --muted:#7a6d52; --accent:#8a4b08; --hi:#9a3412; --hl-bg:#fde68a; --sel-bg:#e9dfc2; --code:#7c2d12; --grid:#e3d8bd; --fill-op:0.2; --icon-filter:invert(.25) sepia(.5); --icon-active:invert(1); }
-.theme-midnight { --bg:#0a0a14; --panel:#12121f; --panel2:#0e0e1a; --panel3:#1c1c30; --border:#26263d; --text:#ececf6; --muted:#8f8fb0; --accent:#a78bfa; --hi:#f0abfc; --hl-bg:#3b1d4a; --sel-bg:#1e1540; --code:#c4b5fd; --grid:#1a1a2e; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; }
-.theme-forest { --bg:#0c1a12; --panel:#112419; --panel2:#0e1f15; --panel3:#1a3324; --border:#234231; --text:#e3f2e8; --muted:#8fb39d; --accent:#4ade80; --hi:#fbbf24; --hl-bg:#3a3410; --sel-bg:#15301f; --code:#86efac; --grid:#16281d; --fill-op:0.28; --icon-filter:invert(.9); --icon-active:none; }
-.theme-nord { --bg:#2e3440; --panel:#3b4252; --panel2:#353b4a; --panel3:#434c5e; --border:#4c566a; --text:#eceff4; --muted:#a3adc2; --accent:#88c0d0; --hi:#ebcb8b; --hl-bg:#4a4330; --sel-bg:#3f4a60; --code:#8fbcbb; --grid:#3b4252; --fill-op:0.3; --icon-filter:invert(.92); --icon-active:none; }
-.theme-solar { --bg:#fdf6e3; --panel:#fffbf0; --panel2:#f7efd9; --panel3:#eee8d5; --border:#d9d2b8; --text:#073642; --muted:#657b83; --accent:#268bd2; --hi:#b58900; --hl-bg:#f5e6a8; --sel-bg:#e3eef5; --code:#2aa198; --grid:#ece5cf; --fill-op:0.2; --icon-filter:invert(.15) sepia(.4); --icon-active:invert(1); }
-.theme-dusk { --bg:#1a1016; --panel:#241720; --panel2:#1f1319; --panel3:#33202c; --border:#3f2a37; --text:#f5e8ef; --muted:#b48ca2; --accent:#fb7185; --hi:#fcd34d; --hl-bg:#4a3414; --sel-bg:#3a1f30; --code:#fda4af; --grid:#2a1a24; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; }
+:root, .theme-dark { --bg:#0b1020; --panel:#111827; --panel2:#0f172a; --panel3:#1f2937; --border:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; --hi:#fbbf24; --hl-bg:#3b2f0b; --sel-bg:#0f1a2e; --code:#93c5fd; --grid:#1f2937; --fill-op:0.28; --icon-filter:invert(.88); --icon-active:none; --hl-line:color-mix(in srgb, var(--hi) 30%, var(--panel2)); }
+.theme-light { --bg:#f8fafc; --panel:#ffffff; --panel2:#f1f5f9; --panel3:#e2e8f0; --border:#cbd5e1; --text:#0f172a; --muted:#64748b; --accent:#2563eb; --hi:#b45309; --hl-bg:#fef3c7; --sel-bg:#e0f2fe; --code:#1d4ed8; --grid:#e2e8f0; --fill-op:0.18; --icon-filter:invert(.2); --icon-active:invert(1); --hl-line:var(--hl-bg); }
+.theme-paper { --bg:#f5efe0; --panel:#fbf7ec; --panel2:#f1eadb; --panel3:#e6dcc5; --border:#d6c9a8; --text:#2b2416; --muted:#7a6d52; --accent:#8a4b08; --hi:#9a3412; --hl-bg:#fde68a; --sel-bg:#e9dfc2; --code:#7c2d12; --grid:#e3d8bd; --fill-op:0.2; --icon-filter:invert(.25) sepia(.5); --icon-active:invert(1); --hl-line:var(--hl-bg); }
+.theme-midnight { --bg:#0a0a14; --panel:#12121f; --panel2:#0e0e1a; --panel3:#1c1c30; --border:#26263d; --text:#ececf6; --muted:#8f8fb0; --accent:#a78bfa; --hi:#f0abfc; --hl-bg:#3b1d4a; --sel-bg:#1e1540; --code:#c4b5fd; --grid:#1a1a2e; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; --hl-line:color-mix(in srgb, var(--hi) 30%, var(--panel2)); }
+.theme-forest { --bg:#0c1a12; --panel:#112419; --panel2:#0e1f15; --panel3:#1a3324; --border:#234231; --text:#e3f2e8; --muted:#8fb39d; --accent:#4ade80; --hi:#fbbf24; --hl-bg:#3a3410; --sel-bg:#15301f; --code:#86efac; --grid:#16281d; --fill-op:0.28; --icon-filter:invert(.9); --icon-active:none; --hl-line:color-mix(in srgb, var(--hi) 30%, var(--panel2)); }
+.theme-nord { --bg:#2e3440; --panel:#3b4252; --panel2:#353b4a; --panel3:#434c5e; --border:#4c566a; --text:#eceff4; --muted:#a3adc2; --accent:#88c0d0; --hi:#ebcb8b; --hl-bg:#4a4330; --sel-bg:#3f4a60; --code:#8fbcbb; --grid:#3b4252; --fill-op:0.3; --icon-filter:invert(.92); --icon-active:none; --hl-line:color-mix(in srgb, var(--hi) 30%, var(--panel2)); }
+.theme-solar { --bg:#fdf6e3; --panel:#fffbf0; --panel2:#f7efd9; --panel3:#eee8d5; --border:#d9d2b8; --text:#073642; --muted:#657b83; --accent:#268bd2; --hi:#b58900; --hl-bg:#f5e6a8; --sel-bg:#e3eef5; --code:#2aa198; --grid:#ece5cf; --fill-op:0.2; --icon-filter:invert(.15) sepia(.4); --icon-active:invert(1); --hl-line:var(--hl-bg); }
+.theme-dusk { --bg:#1a1016; --panel:#241720; --panel2:#1f1319; --panel3:#33202c; --border:#3f2a37; --text:#f5e8ef; --muted:#b48ca2; --accent:#fb7185; --hi:#fcd34d; --hl-bg:#4a3414; --sel-bg:#3a1f30; --code:#fda4af; --grid:#2a1a24; --fill-op:0.3; --icon-filter:invert(.9); --icon-active:none; --hl-line:color-mix(in srgb, var(--hi) 30%, var(--panel2)); }
 .app { color:var(--text); background:var(--bg); }
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
@@ -246,6 +265,11 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .sidebar .mod:hover { background:var(--panel3); color:var(--text); }
 .sidebar .mod.scoped { background:var(--hl-bg); color:var(--hi); }
 .edge.dim { opacity:.18; }
+.edge.hub.dim { opacity:0; }
+.node .chip-dot { pointer-events:all; cursor:pointer; }
+.node .chip-dot text { fill:#0b1020; font-weight:800; pointer-events:none; font-family: system-ui, sans-serif; }
+.node .chip-dot:hover circle { stroke:var(--text); }
+.edge.dim .edge-label, .edge.dim .edge-label-bg { display:none; }
 .edge.near path { stroke-width:3 !important; opacity:1; }
 .hud .chip { background:var(--hl-bg); color:var(--hi); border-radius:999px; padding:1px 8px; font-size:11px; cursor:pointer; }
 .kinds { display:inline-flex; gap:4px; flex-wrap:wrap; align-items:center; }
@@ -264,7 +288,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .file-bar .path { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--muted); }
 .moddoc { color:var(--muted); font-style:italic; margin:0 0 10px 2px; white-space:pre-wrap; }
 .iblk { border-left:4px solid var(--c); background:color-mix(in srgb, var(--c) 10%, var(--panel)); border-radius:8px; margin:6px 0; transition: box-shadow .35s; }
-.iblk.hl { box-shadow: 0 0 0 2px var(--hi); }
+.iblk.hl { box-shadow: 0 0 0 2px var(--hi), 0 0 14px color-mix(in srgb, var(--hi) 45%, transparent); background:color-mix(in srgb, var(--hi) 12%, var(--panel)); }
 .iblk.sel { box-shadow: inset 0 0 0 1px var(--accent); }
 .iblk.sel.hl { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 2px var(--hi); }
 .ihead { display:flex; align-items:center; gap:8px; padding:7px 10px; cursor:pointer; flex-wrap:wrap; }
@@ -286,10 +310,18 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .chip.act { background:transparent; border-color:var(--border); color:var(--muted); cursor:pointer; }
 .chip.act:hover { color:var(--accent); border-color:var(--accent); }
 .blk { border-left:4px solid var(--c); background:color-mix(in srgb, var(--c) 9%, var(--panel)); border-radius:6px; margin:4px 0; transition: box-shadow .35s; }
-.blk.hl { box-shadow: 0 0 0 2px var(--hi); }
+.blk.hl { box-shadow: 0 0 0 2px var(--hi), 0 0 12px color-mix(in srgb, var(--hi) 45%, transparent); background:color-mix(in srgb, var(--hi) 16%, var(--panel)); }
 .bhead { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer; flex-wrap:wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
 .bhead:hover { background:color-mix(in srgb, var(--c) 20%, var(--panel)); border-radius:0 6px 6px 0; }
 .bhead .label { white-space:pre-wrap; }
+.bhead .label.note { font-family: system-ui, sans-serif; font-weight:600; font-size:13.5px; color:var(--text); }
+/* commented blocks and items: the comment is what you read; the rest is small, details on hover */
+.blk.has-note > .bhead .tag, .iblk.has-note > .ihead .tag { font-size:8.5px; padding:0 4px; opacity:.8; }
+.blk.has-note > .bhead .chip, .iblk.has-note > .ihead .chip, .iblk.has-note > .ihead .sig { display:none; }
+.blk.has-note > .bhead:hover .chip, .iblk.has-note > .ihead:hover .chip { display:inline-block; }
+.iblk.has-note > .ihead:hover .sig { display:inline; }
+.ihead .note { font-weight:700; font-size:14.5px; }
+.ihead .name.small { font-size:11px; font-weight:500; color:var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
 .blk.k-loop > .bhead, .blk.k-if > .bhead, .blk.k-else-if > .bhead, .blk.k-else > .bhead, .blk.k-match > .bhead { font-family: system-ui, sans-serif; font-weight:600; }
 .blk.k-arm { border-left-style:dashed; }
 .blk.k-closure { border-left-style:dotted; }
@@ -311,6 +343,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .node text { fill:var(--text); font-size:13px; pointer-events:none; }
 .node text.sub { fill:var(--muted); font-size:11px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .node text.cont { font-weight:700; }
+.node text.cap { fill:var(--muted); font-size:10.5px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.node.hi text.cap, .node.sel text.cap, .node:hover text.cap { fill:var(--text); }
+.node text.fn-title { font-size:22px; font-weight:800; letter-spacing:.2px; }
 .node .expander circle { fill:var(--bg); stroke:var(--muted); stroke-width:1.2; }
 .node .expander:hover circle { stroke:var(--text); fill:var(--panel3); }
 .node .expander text { fill:var(--text); font-size:13px; font-weight:700; }
@@ -345,10 +380,10 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .source .path, .source-pane .path { position:sticky; top:0; background:var(--panel); padding:4px 10px; color:var(--muted); border-bottom:1px solid var(--border); font-size:11px; z-index:1; }
 .source .line, .source-pane .line { display:flex; white-space:pre; }
 .source .line .ln, .source-pane .line .ln { width:44px; text-align:right; padding-right:8px; color:var(--muted); opacity:.6; user-select:none; flex:none; }
-.source .line.hl, .source-pane .line.hl { background:var(--hl-bg); }
+.source .line.hl, .source-pane .line.hl { background:var(--hl-line); box-shadow: inset 3px 0 0 var(--hi); }
 .source .line.hl .ln, .source-pane .line.hl .ln { color:var(--hi); opacity:1; }
 .source .line.fn, .source-pane .line.fn { background:var(--sel-bg); }
-.source-pane .line.fn.hl { background:var(--hl-bg); }
+.source-pane .line.fn.hl { background:var(--hl-line); }
 .guide { border-top:1px solid var(--border); background:var(--panel); padding:8px 12px; display:flex; gap:12px; align-items:flex-start; max-height:34vh; }
 .guide .ctl { display:flex; flex-direction:column; gap:6px; min-width:150px; }
 .guide .ctl .row { display:flex; gap:4px; }
@@ -358,8 +393,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .guide .stack { color:var(--muted); font-size:11px; margin-top:4px; }
 .guide .stack span { color:#cbd5e1; }
 .md p { margin:3px 0; }
-.iblk.nar, .blk.nar { box-shadow: 0 0 0 2px var(--hi), 0 0 12px color-mix(in srgb, var(--hi) 60%, transparent); }
-.source-pane .line.nar, .source .line.nar { background:var(--hl-bg); }
+.iblk.nar, .blk.nar { box-shadow: 0 0 0 2px var(--hi), 0 0 12px color-mix(in srgb, var(--hi) 60%, transparent); background:color-mix(in srgb, var(--hi) 14%, var(--panel)); }
+.source-pane .line.nar, .source .line.nar { background:var(--hl-line); box-shadow: inset 3px 0 0 var(--hi); }
 .source-pane .line, .source .line { transition: background .3s; }
 .source .mark, .source-pane .mark { text-decoration: underline 2px var(--hi); text-underline-offset:3px; background:color-mix(in srgb, var(--hi) 35%, transparent); border-radius:2px; }
 .guide .parts { display:flex; gap:4px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }

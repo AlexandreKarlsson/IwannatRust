@@ -562,8 +562,8 @@ pub fn finish(c: Collected) -> Project {
         v.stats = Stats::default();
         v.visit_block(block);
         let fn_span = project.items[*item].span;
-        let cfg = cfg::build(block, *file, &v.edges, fn_span);
-        let blocks = crate::blocks::build(sig, block, *file, &v.edges, fn_span);
+        let cfg = cfg::build(block, *file, &v.edges, fn_span, &project.files[*file].content);
+        let blocks = crate::blocks::build(sig, block, *file, &v.edges, fn_span, &project.files[*file].content);
         let body_lines = fn_span.line_end + 1 - fn_span.line_start;
         cfgs.push((*item, cfg, blocks, v.stats, body_lines));
         all_calls.extend(v.edges);

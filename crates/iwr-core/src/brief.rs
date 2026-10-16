@@ -73,7 +73,8 @@ fn fn_brief(p: &Project, it: &Item, bodies: bool, out: &mut String) {
 pub fn build(p: &Project, opts: &BriefOptions) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {}  ({} rust files, {} modules, {} functions)\n", p.name, p.files.iter().filter(|f| f.rust).count(), p.modules.len(), p.functions().count()));
-    out.push_str("refs: <item path> | <item path>/b<n> (block n) | <file>:<line>[-<line>][:<c1>-<c2>]\nviews: code calls flow arch branches structure types errors\n\n");
+    out.push_str("refs: <item path> | <item path>/b<n> (block n) | <file>:<line>[-<line>][:<c1>-<c2>]\nviews: code calls flow arch branches structure types errors\n");
+    out.push_str(&format!("tours: {}\n\n", crate::tours::TOURS.iter().map(|(n, a)| format!("{}{}", n, a.split("  ").next().unwrap_or(""))).collect::<Vec<_>>().join(" ")));
     if let Some(only) = &opts.only {
         let Some(id) = crate::script::resolve(p, only).and_then(|r| r.item) else {
             out.push_str(&format!("unknown function {}\n", only));
@@ -109,7 +110,7 @@ pub fn build(p: &Project, opts: &BriefOptions) -> String {
                 continue;
             }
             let file = m.file.map(|f| p.files[f].path.clone()).unwrap_or_default();
-            let doc = m.doc.as_ref().and_then(|d| d.lines().next()).map(|l| format!("  \"{}\"", crate::shorten(l, 80))).unwrap_or_default();
+            let doc = m.doc.as_ref().and_then(|d| d.lines().next()).map(|l| format!("  \"{}\"", crate::shorten(l, 80))).unwrap_or_else(|| "  (no //! doc)".into());
             out.push_str(&format!("mod {:<28} {}{}\n", m.path, file, doc));
         }
         out.push('\n');

@@ -19,7 +19,11 @@ pub enum Voice {
 
 /// Player state (all signals live in `State`; these helpers act on them).
 impl State {
-    pub fn load_script(&mut self, s: Script) {
+    pub fn load_script(&mut self, mut s: Script) {
+        // generated tours (`architecture_tour`) need the project
+        if let Some(p) = self.project.read().clone() {
+            script::expand_tours(&p, &mut s);
+        }
         let mut pron = iwr_core::speech::builtin_pronounce();
         pron.extend(self.glossary_pronounce.read().iter().cloned());
         pron.extend(s.pronounce.iter().cloned());

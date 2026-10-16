@@ -19,6 +19,7 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
 | bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
+<name>_tour[:<ref>]          generated cues (see Tours): architecture types errors entry flow todo files
 <One or two spoken sentences.>
 ? <A question the listener may have>      optional, after the cue it belongs to
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
@@ -41,6 +42,76 @@ is unique. `//` starts a comment line.
 | where errors come from and go | `errors[:module]` | fn and error-enum refs |
 | files and impl blocks at a glance | `structure[:module]` | item refs |
 | a tour of the files | `code:<file>` per cue | item refs in that file |
+
+## Step 0: comment the code
+
+The player shows the code's own comments. Better comments = clearer views and less script to write.
+If you may edit the project, comment first, then write the script.
+
+| Comment | Put it | Player uses it as |
+|---------|--------|-------------------|
+| `//!` | top of every file | the module's line in `architecture_tour` and the guide (1st paragraph only) |
+| `///` | above every fn / struct / enum / trait | tooltip, details panel, brief, guide |
+| `//` | line above a statement, `let`, `if`, `match`, loop | the node's label in `flow` (code moves to hover); opens the guide's step |
+| `//` | above an `if` that `break`s / `return`s out of a loop | the label of that exit edge |
+
+`//` label rules: one line, directly above (no blank line), ≤ 60 chars, not part of a multi-line
+`//` block. Write intent, not code: `// Find the next biggest value`, not `// loop over v`.
+One comment titles one paragraph of plain statements (up to the next blank line).
+`//!` rule: first sentence says what the module is *for*; blank `//!` line; then details.
+`iwr brief` marks modules without one: `(no //! doc)`.
+
+```rust
+//! Pick tasks in priority order.
+
+/// Run every task, heaviest first.
+pub fn run_all(tasks: &[Task]) -> Result<usize, Error> {
+    // Find the next biggest task
+    for t in tasks {
+        // Out of budget
+        if t.cost > budget {
+            break;
+        }
+        …
+```
+
+In `flow:run_all` this shows: a big `run_all` title; one folded loop node "Find the next biggest
+task"; its exit edge "Out of budget".
+
+## What `flow` shows
+
+- Top node: the function name, big. Signature on hover.
+- Box colours say what a statement does: new variable, changes state, input/output, call, return
+  (green) / `return Err` (red), program stops (`process::exit`, merged with the `eprintln!` before it).
+- Logging macros (`log::info!`, `debug!`…) are hidden unless a `//` comment titles them.
+  `let x = match …` is one node; arms that only hand a value on (`Ok(c) => c`) are edge labels.
+- Loops start **folded**: one stacked node (comment or loop head), "N steps inside", exit edges
+  labelled by the comment or condition that leads out (`done` = normal end). The viewer unfolds
+  with ⊕; a script cannot. `!` on a block inside a folded loop glows the whole loop. To walk a
+  loop body step by step, use `@ code:fn`.
+
+## Tours (generated cues)
+
+A line holding only a tour name becomes cues built from the code at play time. It stays in sync
+with the code.
+
+| Line | Becomes |
+|------|---------|
+| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds). Folded boxes say how many modules they hold. |
+| `types_tour[:mod]` | `@ types`, then per type (traits, errors, structs, enums): kind, fields / variants / implementors, `///` doc |
+| `errors_tour[:mod]` | `@ errors`: each error type + who returns it + `From` conversions; where `?` passes errors up; who handles them; who can panic |
+| `entry_tour` | `@ calls:main`: what `main` calls; then `@ structure`: each `pub` item with its doc |
+| `flow_tour:fn` | `@ flow:fn`: the function step by step in reading order, each step opened by its `//` comment |
+| `todo_tour[:mod]` | `@ code:fn` per stop: each `TODO`/`FIXME`/`XXX`/`HACK` comment, `unsafe`, `unwrap`/`expect`/`panic!` |
+| `files_tour[:mod]` | `@ code:<file>` per file: its `//!` doc and what it defines |
+
+`:mod` limits a tour to a module subtree (`types_tour:crate::storage`). At most 20 stops; the
+last says how many were left out. Tests are skipped.
+
+Directives above the line and `?` questions below it attach to its first cue. Write your own cue
+before it (why we look) and after it (hand-over). Use them for the
+inventory parts (map, data, errors) and write by hand what needs judgement: why, how parts connect.
+`flow_tour` is only as good as the function's `//` comments. `iwr speak` prints the generated text; `iwr check` flags unknown tours.
 
 ## How to write it
 
@@ -170,4 +241,6 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
 - First cue of every part sets `@`; no part longer than twelve cues.
+- Every module has a `//!`, loops and key `if`s have a short `//` (if you may edit the code).
+- Inventory parts may use tours (`architecture_tour`, `types_tour`, `errors_tour`…) instead of hand-written cue lists.
 - `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.

@@ -668,17 +668,17 @@ impl<'a> Ctx<'a> {
             if a == b {
                 continue;
             }
-            ledges.push(LayoutEdge { from: a.to_string(), to: b.to_string(), reverse_rank: false });
+            ledges.push(LayoutEdge { from: a.to_string(), to: b.to_string(), reverse_rank: false, ..Default::default() });
             if a == e.from && b == e.to && !self.is_group(a) && !self.is_group(b) {
                 direct.push(ei);
             }
         }
         for (n, t) in &self.next_to {
             if self.lift(n, group) == Some(*n) && self.lift(t, group) == Some(*t) {
-                ledges.push(LayoutEdge { from: t.to_string(), to: n.to_string(), reverse_rank: false });
+                ledges.push(LayoutEdge { from: t.to_string(), to: n.to_string(), reverse_rank: false, ..Default::default() });
             }
         }
-        let opts = LayoutOptions { layer_gap: 56.0, node_gap: 22.0, margin: 0.0, horizontal, max_per_layer: 6 };
+        let opts = LayoutOptions { layer_gap: 56.0, node_gap: 22.0, margin: 0.0, horizontal, max_per_layer: 6, center_layers: false };
         let res = layout::layered(&lnodes, &ledges, &opts);
         for k in &kids {
             if let Some(r) = res.rects.get(k.id.as_str()) {
@@ -833,6 +833,8 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
             depth: depth_of(&ctx.parent, &n.id),
             parent: ctx.parent[n.id.as_str()].map(|p| p.to_string()),
             container: n.group,
+            caption: String::new(),
+            chips: vec![],
         });
     }
     // containers first (outer before inner), then the rest, so the UI draws them behind
@@ -855,7 +857,7 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
                 vec![a, ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0), b]
             }
         };
-        g.edges.push(VEdge { id: format!("e{}", ei), from: e.from.clone(), to: e.to.clone(), kind: edge_kind(e), label: e.label.clone(), points, backward: false });
+        g.edges.push(VEdge { id: format!("e{}", ei), from: e.from.clone(), to: e.to.clone(), kind: edge_kind(e), label: e.label.clone(), points, backward: false, ..Default::default() });
     }
     g.nodes = nodes;
     g.width = w + 2.0 * MARGIN;

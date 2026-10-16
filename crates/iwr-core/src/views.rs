@@ -89,6 +89,18 @@ pub enum NodeKind {
     Propagate,
     Panic,
     Await,
+    /// new variable
+    Let,
+    /// changes state
+    Assign,
+    /// input / output
+    Io,
+    /// logging (kept because commented)
+    Log,
+    /// `return Err(…)`
+    ReturnErr,
+    /// `process::exit` / `abort`
+    Halt,
     File,
     ErrorType,
     Note,
@@ -101,9 +113,10 @@ pub enum NodeKind {
     Group,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
+    #[default]
     Call,
     CallInLoop,
     CallInBranch,
@@ -160,9 +173,15 @@ pub struct VNode {
     pub parent: Option<String>,
     /// True for container boxes (module/impl/file) drawn behind their children.
     pub container: bool,
+    /// Small text always shown under the label (e.g. the file of a module labelled by its doc).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub caption: String,
+    /// Hub chips (architecture): see [`Chip`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chips: Vec<Chip>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct VEdge {
     pub id: String,
     pub from: String,
@@ -171,6 +190,30 @@ pub struct VEdge {
     pub label: Option<String>,
     pub points: Vec<(f64, f64)>,
     pub backward: bool,
+    /// Goes both ways: draw a head at each end (architecture: two modules using each other).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub both: bool,
+    /// How many uses the edge stands for (0 = not counted); drawn as thickness.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub weight: usize,
+    /// Into a hub module: hidden unless one of its ends is in focus (the chips stand for it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hub: bool,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+/// A small coloured tag on a box: a hub module's initials. On the hub itself it names the
+/// colour; on the modules that use it, it replaces the arrow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chip {
+    pub text: String,
+    /// index into the UI's hub palette
+    pub hue: usize,
+    /// the hub's node id
+    pub node: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -260,6 +303,49 @@ impl ViewOptions {
 const FONT: f64 = 13.0;
 
 /// Box size for the label only: details (signature, fields, badges) are shown by the UI on demand.
+/// A module used by this many others (in a view of at least `HUB_MIN_MODULES`) is a hub.
+pub const HUB_MIN_FAN_IN: usize = 4;
+pub const HUB_MIN_MODULES: usize = 6;
+/// At most this many hubs (one colour each).
+pub const HUB_MAX: usize = 8;
+
+/// Two capital letters for a hub chip, unique among `taken`: `model` → `MO`, then `ML`, `MD`…
+fn initials(name: &str, taken: &[String]) -> String {
+    let up: Vec<char> = name.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_uppercase()).collect();
+    let first = up.first().copied().unwrap_or('?');
+    for c in up.iter().skip(1).chain(['2', '3', '4', '5', '6', '7', '8', '9'].iter()) {
+        let t: String = [first, *c].iter().collect();
+        if !taken.contains(&t) {
+            return t;
+        }
+    }
+    first.to_string()
+}
+
+/// Label a node by `title` (a comment), with what it is (`caption`) in small underneath.
+fn titled(v: &mut VNode, title: String, caption: String) {
+    let (w, h) = node_size(&title, &v.sublabel);
+    v.w = w.max(layout::text_width(&caption, CAPTION_FONT) + 28.0).min(320.0);
+    v.h = h + 14.0;
+    v.label = title;
+    v.caption = caption;
+}
+
+/// Font size of [`VNode::caption`].
+pub const CAPTION_FONT: f64 = 10.5;
+
+/// Longest comment used as a label (same rule as `//` notes in the control flow).
+pub const NOTE_MAX: usize = 60;
+
+/// The first line of a doc comment when it is a whole sentence (a paragraph of its own) short
+/// enough to be a label.
+pub fn short_doc_line(doc: Option<&str>) -> Option<String> {
+    let mut lines = doc?.lines();
+    let first = lines.next()?.trim().trim_end_matches('.');
+    let alone = lines.next().is_none_or(|l| l.trim().is_empty());
+    (alone && !first.is_empty() && first.chars().count() <= NOTE_MAX).then(|| first.to_string())
+}
+
 fn node_size(label: &str, _sublabel: &str) -> (f64, f64) {
     let w = layout::text_width(label, FONT) + 28.0;
     let lines = label.lines().count().max(1);
@@ -370,6 +456,8 @@ fn mk_node(id: String, it: &Item, depth: usize) -> VNode {
         depth,
         parent: None,
         container: false,
+        caption: String::new(),
+        chips: vec![],
     }
 }
 
@@ -403,7 +491,7 @@ fn apply_layout(g: &mut Graph, res: &layout::LayoutResult) {
 
 fn layered_layout(g: &mut Graph, reverse: &dyn Fn(&VEdge) -> bool, opts: &LayoutOptions) {
     let nodes: Vec<LayoutNode> = g.nodes.iter().map(|n| LayoutNode { id: n.id.clone(), w: n.w, h: n.h }).collect();
-    let edges: Vec<LayoutEdge> = g.edges.iter().map(|e| LayoutEdge { from: e.from.clone(), to: e.to.clone(), reverse_rank: reverse(e) }).collect();
+    let edges: Vec<LayoutEdge> = g.edges.iter().map(|e| LayoutEdge { from: e.from.clone(), to: e.to.clone(), reverse_rank: reverse(e), rank_only: e.hub }).collect();
     let res = layout::layered(&nodes, &edges, opts);
     apply_layout(g, &res);
 }
@@ -527,11 +615,13 @@ fn call_tree(p: &Project, opts: &ViewOptions) -> Graph {
                             depth: depth + 1,
                             parent: None,
                             container: false,
+                            caption: String::new(),
+                            chips: vec![],
                         });
                         TreeNode { id: cid.clone(), w, h, children: vec![] }
                     }
                 };
-                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid, kind: edge_kind, label, points: vec![], backward: false });
+                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid, kind: edge_kind, label, points: vec![], backward: false, ..Default::default() });
                 children.push(child);
             }
             stack.pop();
@@ -566,6 +656,12 @@ fn cfg_kind(k: CfgNodeKind) -> NodeKind {
         CfgNodeKind::Propagate => NodeKind::Propagate,
         CfgNodeKind::Panic => NodeKind::Panic,
         CfgNodeKind::Await => NodeKind::Await,
+        CfgNodeKind::Let => NodeKind::Let,
+        CfgNodeKind::Assign => NodeKind::Assign,
+        CfgNodeKind::Io => NodeKind::Io,
+        CfgNodeKind::Log => NodeKind::Log,
+        CfgNodeKind::ReturnErr => NodeKind::ReturnErr,
+        CfgNodeKind::Halt => NodeKind::Halt,
     }
 }
 
@@ -586,18 +682,33 @@ fn cfg_edge_kind(k: CfgEdgeKind) -> EdgeKind {
 
 fn cfg_vnode(p: &Project, fn_item: ItemId, n: &CfgNode, id: String, depth: usize) -> VNode {
     let calls: Vec<String> = n.calls.iter().map(|c| item_label(p.item(*c))).collect();
-    let sublabel = if n.kind == CfgNodeKind::Entry {
+    let mut sublabel = if n.kind == CfgNodeKind::Entry {
         p.item(fn_item).signature.clone()
     } else if calls.is_empty() {
         String::new()
     } else {
         format!("→ {}", calls.join(", "))
     };
-    let sublabel = crate::shorten(&sublabel, 44);
-    let (w, h) = node_size(&n.label, &sublabel);
+    // a short comment above the statement says what it does; the code moves to the details
+    let label = match &n.note {
+        Some(note) if n.kind != CfgNodeKind::Entry => {
+            let code = n.label.lines().map(|l| crate::shorten(l, 44)).collect::<Vec<_>>().join("\n");
+            sublabel = if sublabel.is_empty() { code } else { format!("{}\n{}", code, sublabel) };
+            note.clone()
+        }
+        _ if n.kind == CfgNodeKind::Entry => p.item(fn_item).name.clone(),
+        _ => n.label.clone(),
+    };
+    let sublabel = sublabel.lines().map(|l| crate::shorten(l, 44)).collect::<Vec<_>>().join("\n");
+    let (w, h) = if n.kind == CfgNodeKind::Entry {
+        // the function name, in big: the title of the graph
+        ((layout::text_width(&label, ENTRY_FONT) + 44.0).max(120.0), 46.0)
+    } else {
+        node_size(&label, &sublabel)
+    };
     VNode {
         id,
-        label: n.label.clone(),
+        label,
         sublabel,
         kind: cfg_kind(n.kind),
         item: n.calls.first().copied().or(Some(fn_item)),
@@ -613,7 +724,25 @@ fn cfg_vnode(p: &Project, fn_item: ItemId, n: &CfgNode, id: String, depth: usize
         depth,
         parent: None,
         container: false,
+        caption: String::new(),
+        chips: vec![],
     }
+}
+
+/// Font size of the function name on the entry node of the control-flow view.
+pub const ENTRY_FONT: f64 = 22.0;
+
+/// The outermost collapsed loop that contains `n` (or `n` itself when it is visible).
+fn cfg_visible(cfg: &Cfg, collapsed: &HashSet<usize>, n: usize) -> usize {
+    let mut rep = n;
+    let mut cur = cfg.nodes[n].in_loop;
+    while let Some(l) = cur {
+        if collapsed.contains(&l) {
+            rep = l;
+        }
+        cur = cfg.nodes[l].in_loop;
+    }
+    rep
 }
 
 fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
@@ -627,18 +756,90 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
         g.note = Some(format!("{} has no body to show.", it.name));
         return g;
     };
+    // loops start folded into one node; the user unfolds them one by one
+    let collapsed: HashSet<usize> = cfg
+        .nodes
+        .iter()
+        .filter(|n| n.kind == CfgNodeKind::Loop && !opts.expanded.contains(&format!("c{}", n.id)))
+        .map(|n| n.id)
+        .collect();
+    let rep: Vec<usize> = (0..cfg.nodes.len()).map(|i| cfg_visible(cfg, &collapsed, i)).collect();
     for n in &cfg.nodes {
-        g.nodes.push(cfg_vnode(p, root, n, format!("c{}", n.id), 0));
+        if rep[n.id] != n.id {
+            continue;
+        }
+        let mut v = cfg_vnode(p, root, n, format!("c{}", n.id), 0);
+        if n.kind == CfgNodeKind::Loop {
+            let inside: Vec<&CfgNode> = cfg.nodes.iter().filter(|m| m.id != n.id && rep[m.id] == n.id).collect();
+            v.expandable = true;
+            v.expanded = !collapsed.contains(&n.id);
+            if !v.expanded {
+                let mut calls: Vec<ItemId> = n.calls.clone();
+                for m in &inside {
+                    if let Some(s) = v.span.as_mut() {
+                        if (m.span.line_start, m.span.col_start) < (s.line_start, s.col_start) {
+                            (s.line_start, s.col_start) = (m.span.line_start, m.span.col_start);
+                        }
+                        if (m.span.line_end, m.span.col_end) > (s.line_end, s.col_end) {
+                            (s.line_end, s.col_end) = (m.span.line_end, m.span.col_end);
+                        }
+                    }
+                    for c in &m.calls {
+                        if !calls.contains(c) {
+                            calls.push(*c);
+                        }
+                    }
+                }
+                let names: Vec<String> = calls.iter().map(|c| item_label(p.item(*c))).collect();
+                let code = if n.note.is_some() { n.label.clone() } else { String::new() };
+                let mut sub = vec![];
+                if !code.is_empty() {
+                    sub.push(code);
+                }
+                sub.push(format!("{} step{} inside", inside.len(), if inside.len() == 1 { "" } else { "s" }));
+                if !names.is_empty() {
+                    sub.push(crate::shorten(&format!("→ {}", names.join(", ")), 44));
+                }
+                v.sublabel = sub.join("\n");
+                v.badges = vec![format!("⟳ {}", inside.len())];
+            }
+        }
+        g.nodes.push(v);
     }
-    for (i, e) in cfg.edges.iter().enumerate() {
-        g.edges.push(VEdge { id: format!("e{}", i), from: format!("c{}", e.from), to: format!("c{}", e.to), kind: cfg_edge_kind(e.kind), label: e.label.clone(), points: vec![], backward: false });
+    let mut seen: HashSet<(usize, usize, CfgEdgeKind, Option<String>)> = HashSet::new();
+    for e in &cfg.edges {
+        let (from, to) = (rep[e.from], rep[e.to]);
+        // edges inside a folded loop disappear with it
+        if from == to {
+            continue;
+        }
+        if !seen.insert((from, to, e.kind, e.label.clone())) {
+            continue;
+        }
+        g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: format!("c{}", from), to: format!("c{}", to), kind: cfg_edge_kind(e.kind), label: e.label.clone(), points: vec![], backward: false, ..Default::default() });
+    }
+    // the program stops (`process::exit`, a panic): end right there in a stub, so the arrow never
+    // travels down to the function's end past the boxes of the paths that go on
+    let stops: Vec<usize> = (0..g.edges.len())
+        .filter(|&i| {
+            let e = &g.edges[i];
+            e.to == "c1" && e.kind == EdgeKind::Error && g.node(&e.from).is_some_and(|n| matches!(n.kind, NodeKind::Halt | NodeKind::Panic))
+        })
+        .collect();
+    for i in stops {
+        let sid = format!("{}/stop{}", g.edges[i].from, i);
+        let label = g.edges[i].label.take().unwrap_or_else(|| "stop".into());
+        let (w, h) = node_size(&label, "");
+        let span = g.node(&g.edges[i].from).and_then(|n| n.span);
+        g.nodes.push(VNode { id: sid.clone(), label, sublabel: String::new(), kind: NodeKind::Exit, item: Some(root), cfg_node: None, span, x: 0.0, y: 0.0, w, h, expandable: false, expanded: false, badges: vec![], depth: 0, parent: None, container: false, caption: String::new(), chips: vec![] });
+        g.edges[i].to = sid;
     }
     // exit node should be last: give every node an edge weight toward exit by ranking only real edges;
     // loop-back / continue edges are reversed for ranking so the layout flows downward.
     layered_layout(&mut g, &|e| matches!(e.kind, EdgeKind::LoopBack | EdgeKind::Continue), &LayoutOptions { layer_gap: 44.0, node_gap: 26.0, max_per_layer: 6, ..Default::default() });
     // push the exit node to the very bottom
-    if let Some(max_y) = g.nodes.iter().filter(|n| n.kind != NodeKind::Exit).map(|n| n.y + n.h).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))) {
-        if let Some(exit) = g.nodes.iter_mut().find(|n| n.kind == NodeKind::Exit) {
+    if let Some(max_y) = g.nodes.iter().filter(|n| n.id != "c1").map(|n| n.y + n.h).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))) {
+        if let Some(exit) = g.nodes.iter_mut().find(|n| n.id == "c1") {
             if exit.y < max_y + 30.0 {
                 exit.y = max_y + 44.0;
                 let (ex, ey, eid) = (exit.x + exit.w / 2.0, exit.y, exit.id.clone());
@@ -684,7 +885,7 @@ fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
                 let mut cpath = Vec::new();
                 let child = walk_cfg(p, opts, callee, ccfg, ccfg.entry(), inline_id.clone(), depth + 1, &mut cpath, fn_stack, g, count);
                 fn_stack.pop();
-                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: inline_id, kind: EdgeKind::Call, label: Some(format!("enter {}", p.item(callee).name)), points: vec![], backward: false });
+                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: inline_id, kind: EdgeKind::Call, label: Some(format!("enter {}", p.item(callee).name)), points: vec![], backward: false, ..Default::default() });
                 children.push(child);
             }
         }
@@ -698,13 +899,13 @@ fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
                     // loop closes: draw a leaf pointing back
                     let label = if e.kind == CfgEdgeKind::Continue { "↻ continue".to_string() } else { format!("↻ back to: {}", crate::shorten(&cfg.nodes[e.to].label, 24)) };
                     let (w, h) = node_size(&label, "");
-                    g.nodes.push(VNode { id: cid.clone(), label, sublabel: String::new(), kind: NodeKind::Loop, item: Some(fn_item), cfg_node: Some(e.to), span: Some(cfg.nodes[e.to].span), x: 0.0, y: 0.0, w, h, expandable: false, expanded: false, badges: vec![], depth, parent: None, container: false });
+                    g.nodes.push(VNode { id: cid.clone(), label, sublabel: String::new(), kind: NodeKind::Loop, item: Some(fn_item), cfg_node: Some(e.to), span: Some(cfg.nodes[e.to].span), x: 0.0, y: 0.0, w, h, expandable: false, expanded: false, badges: vec![], depth, parent: None, container: false, caption: String::new(), chips: vec![] });
                     *count += 1;
                     TreeNode { id: cid.clone(), w, h, children: vec![] }
                 } else {
                     walk_cfg(p, opts, fn_item, cfg, e.to, cid.clone(), depth, path, fn_stack, g, count)
                 };
-                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid, kind, label: e.label.clone(), points: vec![], backward: false });
+                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid, kind, label: e.label.clone(), points: vec![], backward: false, ..Default::default() });
                 children.push(child);
             }
             path.pop();
@@ -750,17 +951,66 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
     let root_mod = opts.module.unwrap_or(0);
     // module nodes
     let mod_id = |m: ModuleId| format!("m{}", m);
-    fn walk(p: &Project, opts: &ViewOptions, m: ModuleId, depth: usize, g: &mut Graph) -> TreeNode {
+    // module dependencies (calls / type uses), counted
+    let mut raw: HashMap<(ModuleId, ModuleId), usize> = HashMap::new();
+    for (a, b) in p.calls.iter().filter_map(|c| c.to.map(|t| (p.item(c.from).module, p.item(t).module))).chain(p.type_rels.iter().map(|r| (p.item(r.from).module, p.item(r.to).module))) {
+        if a != b {
+            *raw.entry((a, b)).or_default() += 1;
+        }
+    }
+    // a subtree whose modules have no arrow at all (generated code, plain data) folds into its
+    // top module: its insides would only be loose boxes here
+    let strictly_under = |x: ModuleId, m: ModuleId| x != m && {
+        let mut cur = p.module(x).parent;
+        loop {
+            match cur {
+                Some(c) if c == m => break true,
+                Some(c) => cur = p.module(c).parent,
+                None => break false,
+            }
+        }
+    };
+    let fold: HashSet<ModuleId> = p
+        .modules
+        .iter()
+        .filter(|m| m.id != root_mod && !m.children.is_empty() && !opts.expanded.contains(&format!("m{}/sub", m.id)))
+        .filter(|m| !raw.keys().any(|(a, b)| strictly_under(*a, m.id) || strictly_under(*b, m.id)))
+        .map(|m| m.id)
+        .collect();
+    fn count_under(p: &Project, m: ModuleId) -> usize {
+        p.module(m).children.iter().map(|c| 1 + count_under(p, *c)).sum()
+    }
+    fn walk(p: &Project, opts: &ViewOptions, fold: &HashSet<ModuleId>, m: ModuleId, depth: usize, g: &mut Graph) -> TreeNode {
         let module = p.module(m);
         let nid = format!("m{}", m);
         let items: Vec<&Item> = module.items.iter().map(|i| p.item(*i)).filter(|i| i.kind != ItemKind::Method && (opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false))).collect();
         let n_fn = items.iter().filter(|i| i.is_callable() || i.kind == ItemKind::Impl).count();
         let n_ty = items.iter().filter(|i| i.is_type()).count();
-        let shown: Vec<ModuleId> = module.children.iter().copied().filter(|c| opts.show_tests || !is_test_module(p, *c)).collect();
-        let sublabel = format!("{} fn · {} types · {} submodules", n_fn, n_ty, shown.len());
+        let folded = fold.contains(&m);
+        let shown: Vec<ModuleId> = if folded { vec![] } else { module.children.iter().copied().filter(|c| opts.show_tests || !is_test_module(p, *c)).collect() };
+        let sublabel = if folded {
+            format!("{} fn · {} types · {} modules folded inside", n_fn, n_ty, count_under(p, m))
+        } else {
+            format!("{} fn · {} types · {} submodules", n_fn, n_ty, shown.len())
+        };
         let is_ws_root = module.path == "crate" && module.file.is_none() && !module.children.is_empty();
-        let label = if is_ws_root { format!("workspace {}", p.name) } else if module.path == "crate" { format!("crate {}", p.name) } else if module.parent == Some(0) && p.module(0).file.is_none() { format!("crate {}", module.name) } else { module.name.clone() };
+        let name = if is_ws_root { format!("workspace {}", p.name) } else if module.path == "crate" { format!("crate {}", p.name) } else if module.parent == Some(0) && p.module(0).file.is_none() { format!("crate {}", module.name) } else { module.name.clone() };
+        // a short first `//!` line says what the module is for: it becomes the label, the
+        // module and its file move to the caption underneath
+        let file = module.file.map(|f| p.file(f).path.clone());
+        let (label, caption) = match short_doc_line(module.doc.as_deref()) {
+            Some(doc) => {
+                let cap = match &file {
+                    Some(f) if f.trim_end_matches(".rs").rsplit('/').next() == Some(module.name.as_str()) || f.ends_with("/mod.rs") && f.contains(&format!("/{}/", module.name)) => f.clone(),
+                    Some(f) => format!("{} · {}", name, f),
+                    None => name.clone(),
+                };
+                (doc, cap)
+            }
+            None => (name, String::new()),
+        };
         let (w, h) = node_size(&label, &sublabel);
+        let (w, h) = if caption.is_empty() { (w, h) } else { (w.max(layout::text_width(&caption, CAPTION_FONT) + 28.0).min(320.0), h + 14.0) };
         let expandable = !items.is_empty();
         let expanded = expandable && (opts.expanded.contains(&nid));
         let mut node = VNode {
@@ -781,11 +1031,13 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
             depth,
             parent: None,
             container: false,
+            caption,
+            chips: vec![],
         };
         let mut children = Vec::new();
         for c in shown {
-            let child = walk(p, opts, c, depth + 1, g);
-            g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: child.id.clone(), kind: EdgeKind::Contains, label: None, points: vec![], backward: false });
+            let child = walk(p, opts, fold, c, depth + 1, g);
+            g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: child.id.clone(), kind: EdgeKind::Contains, label: None, points: vec![], backward: false, ..Default::default() });
             children.push(child);
         }
         if expanded {
@@ -795,76 +1047,105 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
                 v.badges.clear();
                 let (w, h) = (v.w, v.h);
                 g.nodes.push(v);
-                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid.clone(), kind: EdgeKind::Contains, label: None, points: vec![], backward: false });
+                g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: nid.clone(), to: cid.clone(), kind: EdgeKind::Contains, label: None, points: vec![], backward: false, ..Default::default() });
                 children.push(TreeNode { id: cid, w, h, children: vec![] });
             }
         }
         if children.is_empty() {
             node.badges.truncate(1);
         }
+        if folded {
+            node.badges.push(format!("+{} inside", count_under(p, m)));
+        }
         let (w, h) = (node.w, node.h);
         g.nodes.push(node);
         TreeNode { id: nid, w, h, children }
     }
-    let _tree = walk(p, opts, root_mod, 0, &mut g);
-    layered_layout(&mut g, &|_| false, &LayoutOptions { layer_gap: 64.0, node_gap: 26.0, max_per_layer: 7, ..Default::default() });
-    // dependency edges between modules (calls / type uses), weighted
-    let mut deps: HashMap<(ModuleId, ModuleId), usize> = HashMap::new();
-    for c in &p.calls {
-        if let Some(t) = c.to {
-            let (a, b) = (p.item(c.from).module, p.item(t).module);
-            if a != b {
-                *deps.entry((a, b)).or_default() += 1;
+    let _tree = walk(p, opts, &fold, root_mod, 0, &mut g);
+    // arrows mean dependencies only: the module tree is told by the captions (file paths)
+    g.edges.retain(|e| e.kind != EdgeKind::Contains || e.to.contains('/'));
+    let shown: HashSet<String> = g.nodes.iter().map(|n| n.id.clone()).collect();
+    // dependencies between the modules shown
+    let deps: HashMap<(ModuleId, ModuleId), usize> = raw.iter().filter(|((a, b), _)| shown.contains(&mod_id(*a)) && shown.contains(&mod_id(*b))).map(|(k, v)| (*k, *v)).collect();
+    // a module box with nothing in it and no arrow (an empty workspace root) says nothing
+    let touched: HashSet<ModuleId> = deps.keys().flat_map(|(a, b)| [*a, *b]).collect();
+    g.nodes.retain(|n| {
+        let Some(m) = n.id.strip_prefix('m').and_then(|x| x.parse::<ModuleId>().ok()) else { return true };
+        !(p.module(m).items.is_empty() && !fold.contains(&m) && !touched.contains(&m))
+    });
+    // hubs: modules that many others use get a colour and initials instead of their arrows
+    let n_mods = g.nodes.iter().filter(|n| n.kind == NodeKind::Module).count();
+    let mut fan_in: HashMap<ModuleId, usize> = HashMap::new();
+    for (_, b) in deps.keys() {
+        *fan_in.entry(*b).or_default() += 1;
+    }
+    let mut hubs: Vec<(ModuleId, usize)> = fan_in.into_iter().filter(|(_, n)| n_mods >= HUB_MIN_MODULES && *n >= HUB_MIN_FAN_IN).collect();
+    hubs.sort_by_key(|(m, n)| (std::cmp::Reverse(*n), *m));
+    hubs.truncate(HUB_MAX);
+    let mut taken: Vec<String> = Vec::new();
+    for (hue, (h, _)) in hubs.iter().enumerate() {
+        let text = initials(&p.module(*h).name, &taken);
+        taken.push(text.clone());
+        let hub_id = mod_id(*h);
+        let chip = Chip { text, hue, node: hub_id.clone() };
+        let mut users: Vec<ModuleId> = deps.keys().filter(|(_, b)| b == h).map(|(a, _)| *a).collect();
+        users.sort();
+        for n in g.nodes.iter_mut() {
+            if n.id == hub_id || users.iter().any(|u| mod_id(*u) == n.id) {
+                n.chips.push(chip.clone());
             }
         }
     }
-    for r in &p.type_rels {
-        let (a, b) = (p.item(r.from).module, p.item(r.to).module);
-        if a != b {
-            *deps.entry((a, b)).or_default() += 1;
+    // room for the chips in the bottom-right corner (a hub's own chip sits on its border)
+    for n in g.nodes.iter_mut() {
+        let k = n.chips.iter().filter(|c| c.node != n.id).count();
+        if k > 0 {
+            n.w += 18.0 * k as f64 + 4.0;
         }
     }
-    let rects: HashMap<String, (f64, f64, f64, f64)> = g.nodes.iter().map(|n| (n.id.clone(), (n.x, n.y, n.w, n.h))).collect();
-    let mut deps: Vec<((ModuleId, ModuleId), usize)> = deps.into_iter().collect();
-    deps.sort();
-    for (i, ((a, b), n)) in deps.into_iter().enumerate() {
-        let (Some(ra), Some(rb)) = (rects.get(&mod_id(a)), rects.get(&mod_id(b))) else { continue };
-        let (ax, ay) = (ra.0 + ra.2 / 2.0, ra.1 + ra.3 / 2.0);
-        let (bx, by) = (rb.0 + rb.2 / 2.0, rb.1 + rb.3 / 2.0);
-        // curved via a control point offset perpendicular to the segment
-        let (dx, dy) = (bx - ax, by - ay);
-        let len = (dx * dx + dy * dy).sqrt().max(1.0);
-        let off = 40.0 + len / 5.0 + (i % 3) as f64 * 14.0;
-        let (mx, my) = ((ax + bx) / 2.0 - dy / len * off, (ay + by) / 2.0 + dx / len * off);
-        // start/end on node borders (approx: shrink toward center by half size)
-        let start = border_point(*ra, mx, my);
-        let end = border_point(*rb, mx, my);
-        g.edges.push(VEdge { id: format!("d{}", i), from: mod_id(a), to: mod_id(b), kind: EdgeKind::Dependency, label: Some(format!("{} use{}", n, if n == 1 { "" } else { "s" })), points: vec![start, (mx, my), end], backward: false });
+    // one edge per pair of modules: heavier direction first, a head at both ends when mutual
+    let mut pairs: HashMap<(ModuleId, ModuleId), (usize, usize)> = HashMap::new();
+    for ((a, b), n) in &deps {
+        let e = pairs.entry((*a.min(b), *a.max(b))).or_default();
+        if a < b {
+            e.0 += n;
+        } else {
+            e.1 += n;
+        }
     }
+    let mut pairs: Vec<((ModuleId, ModuleId), (usize, usize))> = pairs.into_iter().collect();
+    pairs.sort();
+    let is_hub = |m: ModuleId| hubs.iter().any(|(h, _)| *h == m);
+    for (i, ((lo, hi), (fwd, back))) in pairs.into_iter().enumerate() {
+        let (from, to, n_ft, n_tf) = if fwd >= back { (lo, hi, fwd, back) } else { (hi, lo, back, fwd) };
+        let both = n_tf > 0;
+        let label = if both { format!("{} ⇄ {}", n_ft, n_tf) } else { format!("{} use{}", n_ft, if n_ft == 1 { "" } else { "s" }) };
+        g.edges.push(VEdge {
+            id: format!("d{}", i),
+            from: mod_id(from),
+            to: mod_id(to),
+            kind: EdgeKind::Dependency,
+            label: Some(label),
+            both,
+            weight: n_ft + n_tf,
+            hub: is_hub(to) || (both && is_hub(from)),
+            ..Default::default()
+        });
+    }
+    // layered by dependency: users above, what they use below, so arrows run downward
+    layered_layout(&mut g, &|_| false, &LayoutOptions { layer_gap: 64.0, node_gap: 26.0, max_per_layer: 4, center_layers: true, ..Default::default() });
     if opts.show_external && !p.external_crates.is_empty() {
         let mut x = 24.0;
         let y = g.height + 20.0;
         for (i, c) in p.external_crates.iter().enumerate() {
             let (w, h) = node_size(c, "crate");
-            g.nodes.push(VNode { id: format!("x{}", i), label: c.clone(), sublabel: "external crate".into(), kind: NodeKind::External, item: None, cfg_node: None, span: None, x, y, w, h, expandable: false, expanded: false, badges: vec![], depth: 0, parent: None, container: false });
+            g.nodes.push(VNode { id: format!("x{}", i), label: c.clone(), sublabel: "external crate".into(), kind: NodeKind::External, item: None, cfg_node: None, span: None, x, y, w, h, expandable: false, expanded: false, badges: vec![], depth: 0, parent: None, container: false, caption: String::new(), chips: vec![] });
             x += w + 16.0;
             g.width = g.width.max(x);
             g.height = g.height.max(y + h + 24.0);
         }
     }
     g
-}
-
-fn border_point(r: (f64, f64, f64, f64), tx: f64, ty: f64) -> (f64, f64) {
-    let (cx, cy) = (r.0 + r.2 / 2.0, r.1 + r.3 / 2.0);
-    let (dx, dy) = (tx - cx, ty - cy);
-    if dx.abs() < 1e-6 && dy.abs() < 1e-6 {
-        return (cx, cy);
-    }
-    let sx = if dx.abs() > 1e-6 { (r.2 / 2.0) / dx.abs() } else { f64::INFINITY };
-    let sy = if dy.abs() > 1e-6 { (r.3 / 2.0) / dy.abs() } else { f64::INFINITY };
-    let s = sx.min(sy);
-    (cx + dx * s, cy + dy * s)
 }
 
 // ---------------------------------------------------------------- structure (blocks)
@@ -994,6 +1275,8 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
             depth: 0,
             parent: None,
             container: true,
+            caption: String::new(),
+            chips: vec![],
         });
         col_heights[ci] = y0 + h + GAP;
         let _ = &mut col_x;
@@ -1045,6 +1328,11 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
         let (w, h) = node_size(&v.label, &v.sublabel);
         v.w = w;
         v.h = h;
+        // a short `///` line says what the type is for: it is the label, "struct Task" goes underneath
+        if let Some(doc) = short_doc_line(it.doc.as_deref()) {
+            let caption = format!("{} {}", it.kind.label(), it.name);
+            titled(&mut v, doc, caption);
+        }
         v.expandable = true; // expand: show functions using this type
         v.expanded = opts.expanded.contains(&nid);
         present.insert(it.id);
@@ -1059,7 +1347,7 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
             TypeRelKind::UsesInSignature => continue,
         };
         if present.contains(&r.from) && present.contains(&r.to) {
-            g.edges.push(VEdge { id: format!("e{}", i), from: format!("i{}", r.from), to: format!("i{}", r.to), kind, label: r.label.clone(), points: vec![], backward: false });
+            g.edges.push(VEdge { id: format!("e{}", i), from: format!("i{}", r.from), to: format!("i{}", r.to), kind, label: r.label.clone(), points: vec![], backward: false, ..Default::default() });
         }
     }
     // expanded types: attach the functions that use them
@@ -1085,7 +1373,7 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
         }
         let v = mk_node(fid.clone(), f, 1);
         extra_nodes.push(v);
-        g.edges.push(VEdge { id: format!("u{}", g.edges.len()), from: fid, to: tid, kind: EdgeKind::Uses, label: None, points: vec![], backward: false });
+        g.edges.push(VEdge { id: format!("u{}", g.edges.len()), from: fid, to: tid, kind: EdgeKind::Uses, label: None, points: vec![], backward: false, ..Default::default() });
     }
     g.nodes.extend(extra_nodes);
     // traits on top: reverse implements/supertrait for ranking; uses edges also point up to the type
@@ -1146,7 +1434,7 @@ fn error_flow(p: &Project, opts: &ViewOptions) -> Graph {
             let last = e.rsplit("::").next().unwrap_or(e).split('<').next().unwrap_or(e).trim();
             if let Some(t) = p.items.iter().find(|i| i.is_type() && i.name == last) {
                 err_types.insert(t.id);
-                g.edges.push(VEdge { id: format!("t{}", g.edges.len()), from: format!("i{}", *id), to: format!("t{}", t.id), kind: EdgeKind::Error, label: Some("Err".into()), points: vec![], backward: false });
+                g.edges.push(VEdge { id: format!("t{}", g.edges.len()), from: format!("i{}", *id), to: format!("t{}", t.id), kind: EdgeKind::Error, label: Some("Err".into()), points: vec![], backward: false, ..Default::default() });
             }
         }
     }
@@ -1169,7 +1457,7 @@ fn error_flow(p: &Project, opts: &ViewOptions) -> Graph {
                     let inner = i.trait_name.as_ref().unwrap().trim_start_matches("From<").trim_end_matches('>');
                     let last = inner.rsplit("::").next().unwrap_or(inner);
                     if let Some(src) = err_types.iter().find(|e| p.item(**e).name == last) {
-                        g.edges.push(VEdge { id: format!("f{}", g.edges.len()), from: format!("t{}", src), to: format!("t{}", target), kind: EdgeKind::Aliases, label: Some("From".into()), points: vec![], backward: false });
+                        g.edges.push(VEdge { id: format!("f{}", g.edges.len()), from: format!("t{}", src), to: format!("t{}", target), kind: EdgeKind::Aliases, label: Some("From".into()), points: vec![], backward: false, ..Default::default() });
                     }
                 }
             }
@@ -1195,7 +1483,7 @@ fn error_flow(p: &Project, opts: &ViewOptions) -> Graph {
         } else {
             (EdgeKind::Call, None)
         };
-        g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: format!("i{}", c.from), to: format!("i{}", t), kind, label, points: vec![], backward: false });
+        g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: format!("i{}", c.from), to: format!("i{}", t), kind, label, points: vec![], backward: false, ..Default::default() });
     }
     layered_layout(&mut g, &|_| false, &LayoutOptions { layer_gap: 64.0, node_gap: 30.0, max_per_layer: 7, ..Default::default() });
     g

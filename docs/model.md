@@ -31,7 +31,7 @@ TypeRel { from, to, kind, label? }   kind: contains | implements | supertrait | 
 
 ```
 Cfg { nodes[CfgNode], edges[CfgEdge] }          node 0 = entry, node 1 = exit
-CfgNode { id, kind, label, detail, span, calls[], depth }
+CfgNode { id, kind, label, detail, span, calls[], depth, note?, in_loop? }   note = short `//` comment above (≤ 60 chars)
   kind: entry | exit | block | if | match | loop | call | return | jump | propagate | panic | await
 CfgEdge { from, to, label?, kind }
   kind: next | true | false | arm | loop_body | loop_back | break | continue | error | return

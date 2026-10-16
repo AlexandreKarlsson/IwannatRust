@@ -120,7 +120,7 @@ fn cfg_shapes() {
     let parse = p.items.iter().find(|i| i.name == "parse").unwrap().fn_info().unwrap();
     let pcfg = parse.cfg.as_ref().unwrap();
     assert!(pcfg.nodes.iter().any(|n| n.kind == CfgNodeKind::Propagate));
-    assert!(pcfg.nodes.iter().any(|n| n.kind == CfgNodeKind::Return));
+    assert!(pcfg.nodes.iter().any(|n| matches!(n.kind, CfgNodeKind::Return | CfgNodeKind::ReturnErr)));
     assert!(pcfg.edges.iter().any(|e| e.kind == CfgEdgeKind::Error));
 }
 
@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, tour: None });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -480,10 +480,11 @@ fn architecture_hides_test_modules() {
     );
     let labels = |show_tests: bool| -> Vec<String> { views::build(&p, Mode::Architecture, &ViewOptions { show_tests, ..Default::default() }).nodes.into_iter().map(|n| n.label).collect() };
     let hidden = labels(false);
-    assert!(hidden.contains(&"net".to_string()) && hidden.contains(&"real".to_string()), "{:?}", hidden);
+    // `net::real` has no arrows: folded into `net`
+    assert!(hidden.contains(&"net".to_string()) && !hidden.contains(&"real".to_string()), "{:?}", hidden);
     assert!(!hidden.iter().any(|l| l == "tests" || l == "api"), "{:?}", hidden);
     let shown = labels(true);
-    assert!(shown.contains(&"tests".to_string()) && shown.contains(&"api".to_string()), "{:?}", shown);
+    assert!(shown.contains(&"tests".to_string()), "{:?}", shown);
 }
 
 #[test]
@@ -508,4 +509,276 @@ fn script_side_panel() {
     assert_eq!(bad.len(), 2, "{:?}", bad);
     assert!(bad[0].contains("unresolved ref `magic`"), "{}", bad[0]);
     assert!(bad[1].contains("no byte layout `Nope`"), "{}", bad[1]);
+}
+
+#[test]
+fn cfg_comments_and_folded_loops() {
+    let src = "fn largest(v: &[u32], stop: u32) -> Option<u32> {
+    let mut best = None;
+    // Find the next biggest value
+    for x in v {
+        // Hit the stop value
+        if *x == stop {
+            break;
+        }
+        if *x == 0 {
+            return None;
+        }
+        best = Some(*x);
+    }
+    // This comment is far too long to be used as the label of a node in the graph, really
+    best
+}
+";
+    let p = iwr_core::analyze_source(src);
+    let f = p.items.iter().find(|i| i.name == "largest").unwrap();
+    let cfg = f.fn_info().unwrap().cfg.as_ref().unwrap();
+    let lp = cfg.nodes.iter().find(|n| n.kind == CfgNodeKind::Loop).unwrap();
+    assert_eq!(lp.note.as_deref(), Some("Find the next biggest value"));
+    assert!(cfg.nodes.iter().all(|n| n.note.as_deref().map_or(true, |s| s.len() <= 60)));
+    let brk = cfg.edges.iter().find(|e| e.kind == CfgEdgeKind::Break).unwrap();
+    assert_eq!(brk.label.as_deref(), Some("Hit the stop value"));
+    let ret = cfg.edges.iter().find(|e| e.kind == CfgEdgeKind::Return && e.label.as_deref().unwrap_or("").contains("→")).unwrap();
+    assert_eq!(ret.label.as_deref(), Some("if * x == 0 → return None"));
+
+    // folded by default: one node for the loop, labelled by the comment, exits kept
+    let opts = ViewOptions { root: Some(f.id), ..Default::default() };
+    let g = views::build(&p, Mode::ControlFlow, &opts);
+    let entry = g.nodes.iter().find(|n| n.kind == views::NodeKind::Entry).unwrap();
+    assert_eq!(entry.label, "largest");
+    // Code view blocks carry the same comments; `} else if` lines never pick one up
+    let blocks = f.fn_info().unwrap().blocks.as_ref().unwrap();
+    let mut notes = Vec::new();
+    fn walk(b: &iwr_core::model::Block, out: &mut Vec<(String, String)>) {
+        if let Some(n) = &b.note {
+            out.push((b.label.clone(), n.clone()));
+        }
+        b.children.iter().for_each(|c| walk(c, out));
+    }
+    walk(blocks, &mut notes);
+    assert!(notes.iter().any(|(l, n)| l.starts_with("for x in v") && n == "Find the next biggest value"), "{notes:?}");
+    assert!(notes.iter().any(|(l, n)| l.starts_with("if * x == stop") && n == "Hit the stop value"), "{notes:?}");
+    let lnode = g.node(&format!("c{}", lp.id)).unwrap();
+    assert_eq!(lnode.label, "Find the next biggest value");
+    assert!(lnode.expandable && !lnode.expanded);
+    assert!(g.nodes.iter().all(|n| n.kind != views::NodeKind::Jump));
+    assert!(g.edges.iter().any(|e| e.from == lnode.id && e.label.as_deref() == Some("Hit the stop value")));
+    assert!(g.edges.iter().all(|e| e.from != e.to));
+    // unfolded: the body comes back
+    let mut opts = opts;
+    opts.expanded.insert(lnode.id.clone());
+    let g2 = views::build(&p, Mode::ControlFlow, &opts);
+    assert!(g2.nodes.len() > g.nodes.len());
+    assert!(g2.nodes.iter().any(|n| n.label == "Hit the stop value"));
+}
+
+#[test]
+fn script_architecture_tour() {
+    let p = iwr_core::analyze_sources(
+        "demo",
+        "",
+        vec![
+            ("src/main.rs".into(), "//! Runs tasks.\nmod net;\nmod store;\nfn main() {}\n".into()),
+            ("src/net.rs".into(), "//! Talks to the network.\n//!\n//! Long details here.\npub fn get() {}\n".into()),
+            ("src/store.rs".into(), "pub fn put() {}\n".into()),
+        ],
+    );
+    // architecture boxes: a short one-line `//!` is the label, the file goes underneath
+    let g = views::build(&p, Mode::Architecture, &ViewOptions::default());
+    let net = g.nodes.iter().find(|n| n.caption == "src/net.rs").unwrap();
+    assert_eq!(net.label, "Talks to the network");
+    let store = g.nodes.iter().find(|n| n.label == "store").unwrap();
+    assert!(store.caption.is_empty());
+    let root = g.nodes.iter().find(|n| n.label == "Runs tasks").unwrap();
+    assert_eq!(root.caption, "crate demo · src/main.rs");
+    assert_eq!(views::short_doc_line(Some("A sentence that goes on
+over two lines.")), None);
+    // rough edges: a TODO, unsafe, an unwrap
+    let r = iwr_core::analyze_source("fn f(v: Option<u32>) -> u32 {\n    // TODO: retry later\n    let x = unsafe { g() };\n    v.unwrap() + x\n}\nunsafe fn g() -> u32 { 1 }\nfn main() { f(None); }\n");
+    let rough = iwr_core::tours::generate(&r, "todo_tour").unwrap();
+    let says: Vec<&str> = rough.iter().map(|c| c.say.as_str()).collect();
+    assert!(says[0].contains("1 note") && says[0].contains("2 unsafe blocks") && says[0].contains("1 place"), "{says:?}");
+    assert!(says.iter().any(|s| *s == "In `f`, a TODO: retry later"), "{says:?}");
+    assert!(says.iter().any(|s| s.contains("`v.unwrap() + x` can panic") || s.contains("unwrap") && s.contains("can panic")), "{says:?}");
+    let text = "# T\n\n## Map\n@ arch\nHello.\narchitecture_tour\n? Why?\n  Because.\nBye.\n";
+    let s = iwr_core::script::parse(text);
+    assert_eq!(s.parts[0].cues.len(), 3);
+    assert_eq!(s.parts[0].cues[1].tour.as_deref(), Some("architecture_tour"));
+    assert_eq!(iwr_core::script::parse(&iwr_core::script::to_text(&s)), s);
+    assert!(iwr_core::script::check(&p, &s).is_empty(), "{:?}", iwr_core::script::check(&p, &s));
+    let mut e = s.clone();
+    iwr_core::script::expand_tours(&p, &mut e);
+    let cues = &e.parts[0].cues;
+    // hello, intro, net, store, bye
+    assert_eq!(cues.len(), 5);
+    assert!(cues[1].say.contains("Runs tasks.") && cues[1].show.as_deref() == Some("arch"));
+    assert_eq!(cues[1].questions.len(), 1);
+    assert!(cues[2].say.contains("`net` module. Talks to the network.") && !cues[2].say.contains("Long details"));
+    assert_eq!(cues[2].hl.as_deref(), Some(&["crate::net".to_string()][..]));
+    assert!(cues[3].say.contains("no module doc yet"));
+    let bad = iwr_core::script::check(&p, &iwr_core::script::parse("## X\nfoo_tour\n"));
+    assert!(bad.iter().any(|b| b.contains("unknown tour `foo_tour`")));
+}
+
+#[test]
+fn every_tour_builds_and_checks_on_the_demo() {
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo");
+    let p = iwr_core::analyze_path(&demo).unwrap();
+    for line in ["architecture_tour", "types_tour", "errors_tour", "entry_tour", "flow_tour:crate::run", "todo_tour", "files_tour", "types_tour:crate::storage", "errors_tour:crate::parser"] {
+        let cues = iwr_core::tours::generate(&p, line).unwrap_or_else(|e| panic!("{line}: {e}"));
+        assert!(cues.len() >= if line == "todo_tour" { 1 } else { 2 }, "{line}: {} cues", cues.len());
+        assert!(cues[0].show.is_some(), "{line}: first cue sets no view");
+        assert!(cues.iter().all(|c| !c.say.trim().is_empty()), "{line}: empty cue");
+        let s = iwr_core::script::parse(&format!("## T\n{line}\n"));
+        let bad = iwr_core::script::check(&p, &s);
+        assert!(bad.is_empty(), "{line}: {bad:?}");
+    }
+    for (line, err) in [("flow_tour", "needs a function"), ("flow_tour:crate::nope", "not a function"), ("types_tour:crate::nope", "not a module"), ("foo_tour", "unknown tour")] {
+        let e = iwr_core::tours::generate(&p, line).unwrap_err();
+        assert!(e.contains(err), "{line}: {e}");
+    }
+}
+
+#[test]
+fn cfg_hides_logs_and_names_statement_kinds() {
+    let src = "fn f(v: &mut Vec<u32>, k: u32) -> Result<u32, String> {
+    log::info!(\"start\");
+    debug!(\"k = {}\", k);
+    // Tell the operator
+    log::warn!(\"careful\");
+    // Pick the mode
+    let mode = match k {
+        0 => 1,
+        _ => 2,
+    };
+    let total = k + mode;
+    v.push(total);
+    println!(\"{}\", total);
+    if total > 9 {
+        return Err(\"too big\".into());
+    }
+    Ok(total)
+}
+";
+    let p = iwr_core::analyze_source(src);
+    let f = p.items.iter().find(|i| i.name == "f").unwrap();
+    let cfg = f.fn_info().unwrap().cfg.as_ref().unwrap();
+    let kinds: Vec<CfgNodeKind> = cfg.nodes.iter().map(|n| n.kind).collect();
+    // only the commented log stays
+    let logs: Vec<&CfgNode> = cfg.nodes.iter().filter(|n| n.kind == CfgNodeKind::Log).collect();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].note.as_deref(), Some("Tell the operator"));
+    assert!(cfg.nodes.iter().all(|n| !n.detail.contains("start") && !n.detail.contains("k =")));
+    // `let mode = match k` is one node carrying the comment, arms leave from it
+    let m = cfg.nodes.iter().find(|n| n.kind == CfgNodeKind::Match).unwrap();
+    assert_eq!(m.label, "let mode = match k");
+    assert_eq!(m.note.as_deref(), Some("Pick the mode"));
+    assert_eq!(cfg.edges.iter().filter(|e| e.from == m.id && e.kind == CfgEdgeKind::Arm).count(), 2);
+    assert!(!cfg.nodes.iter().any(|n| n.label == "let mode ="));
+    for k in [CfgNodeKind::Let, CfgNodeKind::Assign, CfgNodeKind::Io, CfgNodeKind::ReturnErr] {
+        assert!(kinds.contains(&k), "{k:?} missing: {kinds:?}");
+    }
+}
+
+#[test]
+fn architecture_hubs_get_chips() {
+    // six modules all using `model`: it becomes a hub, its arrows hidden behind chips
+    let mut files: Vec<(String, String)> = vec![("src/main.rs".into(), "mod model; mod a; mod b; mod c; mod d; mod e;\nfn main() {}\n".into()), ("src/model.rs".into(), "pub struct T;\n".into())];
+    for m in ["a", "b", "c", "d", "e"] {
+        files.push((format!("src/{m}.rs"), format!("use crate::model::T;\npub fn {m}(t: T) -> T {{ t }}\n")));
+    }
+    files.push(("src/a.rs".into(), "use crate::model::T;\npub fn a(t: T) -> T { crate::b::b(t) }\n".into()));
+    files.remove(2);
+    let p = iwr_core::analyze_sources("hub", "", files);
+    let g = views::build(&p, Mode::Architecture, &ViewOptions::default());
+    let model = g.nodes.iter().find(|n| n.label == "model").unwrap();
+    assert_eq!(model.chips.len(), 1, "{:?}", model.chips);
+    assert_eq!(model.chips[0].node, model.id);
+    assert_eq!(model.chips[0].text, "MO");
+    let users = g.nodes.iter().filter(|n| n.chips.iter().any(|c| c.node == model.id && n.id != model.id)).count();
+    assert_eq!(users, 5);
+    assert!(g.edges.iter().filter(|e| e.to == model.id).all(|e| e.hub));
+    // a → b is a plain arrow; module tree edges are gone
+    let a = g.nodes.iter().find(|n| n.label == "a").unwrap();
+    let b = g.nodes.iter().find(|n| n.label == "b").unwrap();
+    assert!(g.edges.iter().any(|e| e.from == a.id && e.to == b.id && !e.hub && e.weight >= 1));
+    assert!(g.edges.iter().all(|e| e.kind != views::EdgeKind::Contains));
+    // users sit above what they use
+    assert!(a.y < b.y && b.y < model.y);
+}
+
+#[test]
+fn architecture_folds_arrowless_subtrees() {
+    // `proto` holds a tree of generated modules nobody calls into: one box, "+3 inside"
+    let p = iwr_core::analyze_sources(
+        "fold",
+        "",
+        vec![
+            ("src/main.rs".into(), "mod proto;\nmod net;\nfn main() { net::go(); }\n".into()),
+            ("src/net.rs".into(), "pub fn go() {}\n".into()),
+            ("src/proto.rs".into(), "pub mod a { pub mod b { pub struct B; } pub mod c { pub struct C; } }\n".into()),
+        ],
+    );
+    let g = views::build(&p, Mode::Architecture, &ViewOptions::default());
+    let proto = g.nodes.iter().find(|n| n.label == "proto").unwrap();
+    assert!(proto.badges.iter().any(|b| b == "+3 inside"), "{:?}", proto.badges);
+    assert!(!g.nodes.iter().any(|n| n.label == "b" || n.label == "a"));
+    assert!(g.nodes.iter().any(|n| n.label == "net"));
+}
+
+#[test]
+fn cfg_exit_stops_and_trivial_arms_go_on_edges() {
+    let src = "fn main() {
+    // Load config or write a default; exit 2 on error
+    let cfg = match load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(\"config: {e:#}\");
+            std::process::exit(2);
+        }
+    };
+    log::info!(\"config {}\", cfg);
+    let n = std::env::args().nth(1).unwrap_or_else(|| std::process::exit(1));
+    run(cfg, n);
+}
+fn load() -> Result<u32, String> { Ok(1) }
+fn run(_a: u32, _b: String) {}
+";
+    let p = iwr_core::analyze_source(src);
+    let cfg = p.item(p.main.unwrap()).fn_info().unwrap().cfg.as_ref().unwrap();
+    let m = cfg.nodes.iter().find(|n| n.kind == CfgNodeKind::Match).unwrap();
+    assert_eq!(m.note.as_deref(), Some("Load config or write a default; exit 2 on error"));
+    // `Ok(c) => c`: no box, the arm edge says it
+    assert!(cfg.edges.iter().any(|e| e.from == m.id && e.label.as_deref() == Some("Ok(c) → c")), "{:?}", cfg.edges);
+    assert!(!cfg.nodes.iter().any(|n| n.label == "c"));
+    // eprintln + exit: one node, a sentence, nothing after it but the exit
+    let halts: Vec<&CfgNode> = cfg.nodes.iter().filter(|n| n.kind == CfgNodeKind::Halt).collect();
+    assert_eq!(halts.len(), 1, "{:?}", cfg.nodes.iter().map(|n| (&n.label, n.kind)).collect::<Vec<_>>());
+    assert_eq!(halts[0].label, "print error, exit with code 2");
+    let out: Vec<&CfgEdge> = cfg.edges.iter().filter(|e| e.from == halts[0].id).collect();
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].to, 1);
+    assert_eq!(out[0].label.as_deref(), Some("exit 2"));
+    // drawn: the halt ends in its own stub right below it, not at the function's end
+    let g = views::build(&p, Mode::ControlFlow, &ViewOptions { root: p.main, ..Default::default() });
+    let h = g.nodes.iter().find(|n| n.kind == views::NodeKind::Halt).unwrap();
+    let outs: Vec<&views::VEdge> = g.edges.iter().filter(|e| e.from == h.id).collect();
+    assert_eq!(outs.len(), 1);
+    let stub = g.node(&outs[0].to).unwrap();
+    assert!(stub.kind == views::NodeKind::Exit && stub.label == "exit 2" && stub.id != "c1");
+    assert!(stub.y > h.y);
+    let end = g.node("c1").unwrap();
+    assert!(g.nodes.iter().filter(|n| n.id != "c1").all(|n| n.y + n.h <= end.y));
+}
+
+#[test]
+fn types_view_labels_by_doc() {
+    let p = iwr_core::analyze_source("/// A unit of work.\npub struct Task { pub name: String }\n/// Stores tasks somewhere, in memory or on disk, for as long as the run lasts.\npub trait Store { fn put(&self); }\npub enum Plain { A }\nfn main() {}\n");
+    let g = views::build(&p, Mode::Types, &ViewOptions::default());
+    let task = g.nodes.iter().find(|n| n.caption.ends_with(" Task")).unwrap();
+    assert_eq!(task.label, "A unit of work");
+    assert!(task.caption.starts_with("struct"), "{}", task.caption);
+    // too long for a label, or no doc: the name stays
+    assert!(g.nodes.iter().any(|n| n.label == "Store" && n.caption.is_empty()));
+    assert!(g.nodes.iter().any(|n| n.label == "Plain" && n.caption.is_empty()));
 }

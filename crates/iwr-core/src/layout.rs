@@ -34,12 +34,15 @@ pub struct LayoutNode {
     pub h: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LayoutEdge {
     pub from: String,
     pub to: String,
     /// Reverse this edge when computing ranks (e.g. `implements` edges so traits sit on top).
     pub reverse_rank: bool,
+    /// Counts for ranking only: no dummy nodes, no pull on the ordering, routed straight
+    /// (edges that are hidden most of the time, like architecture hub arrows).
+    pub rank_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -51,11 +54,14 @@ pub struct LayoutOptions {
     pub horizontal: bool,
     /// wider layers are split into several stacked ranks
     pub max_per_layer: usize,
+    /// after ordering, centre every layer on one axis: a compact tower instead of rows drifting
+    /// sideways (good for small layers, like modules)
+    pub center_layers: bool,
 }
 
 impl Default for LayoutOptions {
     fn default() -> Self {
-        Self { layer_gap: 70.0, node_gap: 28.0, margin: 24.0, horizontal: false, max_per_layer: 8 }
+        Self { layer_gap: 70.0, node_gap: 28.0, margin: 24.0, horizontal: false, max_per_layer: 8, center_layers: false }
     }
 }
 
@@ -152,15 +158,22 @@ pub fn layered(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOptions)
 fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOptions) -> LayoutResult {
     let n = nodes.len();
     let index: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (nd.id.as_str(), i)).collect();
-    // ranking edges (deduplicated, self-loops removed)
+    // ranking edges (deduplicated, self-loops removed); `light` ones only rank
     let mut rank_edges: Vec<(usize, usize)> = Vec::new();
     let mut seen = HashSet::new();
+    let mut light: HashSet<(usize, usize)> = HashSet::new();
+    let mut heavy: HashSet<(usize, usize)> = HashSet::new();
     for e in edges {
         let (Some(&a), Some(&b)) = (index.get(e.from.as_str()), index.get(e.to.as_str())) else { continue };
         if a == b {
             continue;
         }
         let (a, b) = if e.reverse_rank { (b, a) } else { (a, b) };
+        if e.rank_only {
+            light.insert((a, b));
+        } else {
+            heavy.insert((a, b));
+        }
         if seen.insert((a, b)) {
             rank_edges.push((a, b));
         }
@@ -252,7 +265,13 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
     let mut chains: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     let mut vpreds: Vec<Vec<usize>> = vec![vec![]; n];
     let mut vsuccs: Vec<Vec<usize>> = vec![vec![]; n];
-    for &(a, b) in &dag {
+    for (i, &(a, b)) in dag.iter().enumerate() {
+        let orig = rank_edges[i];
+        if light.contains(&orig) && !heavy.contains(&orig) {
+            // rank-only: a straight line later, no say in the ordering
+            chains.insert((a, b), vec![a, b]);
+            continue;
+        }
         let mut chain = vec![a];
         let (ra, rb) = (rank[a], rank[b]);
         if rb > ra + 1 {
@@ -349,6 +368,17 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
             }
             for (u, d) in desired {
                 cross[u] = (cross[u] + d) / 2.0;
+            }
+        }
+    }
+    if opts.center_layers {
+        for layer in &layers {
+            let (lo, hi) = layer.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &u| (lo.min(cross[u]), hi.max(cross[u] + size_cross(u))));
+            if lo.is_finite() {
+                let shift = -(lo + hi) / 2.0;
+                for &u in layer {
+                    cross[u] += shift;
+                }
             }
         }
     }
