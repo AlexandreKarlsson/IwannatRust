@@ -20,10 +20,43 @@ struct Index {
     methods: HashMap<String, Vec<ItemId>>,
     /// full path → id
     paths: HashMap<String, ItemId>,
+    /// module → its crate (the top module under a workspace's virtual root; 0 in a single crate)
+    crate_of: Vec<ModuleId>,
+    /// crate → the other crates its sources name (`torc_proto::call`, `use torc_proto`)
+    reach: HashMap<ModuleId, HashSet<ModuleId>>,
 }
 
 fn build_index(p: &Project) -> Index {
-    let mut ix = Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new(), paths: HashMap::new() };
+    let mut ix = Index { types: HashMap::new(), fns: HashMap::new(), methods: HashMap::new(), paths: HashMap::new(), crate_of: vec![], reach: HashMap::new() };
+    let workspace = p.modules.first().map(|m| m.file.is_none() && !m.children.is_empty()).unwrap_or(false);
+    ix.crate_of = p
+        .modules
+        .iter()
+        .map(|m| {
+            let mut cur = m.id;
+            while let Some(parent) = p.modules[cur].parent.filter(|pa| *pa != 0 || !workspace) {
+                cur = parent;
+            }
+            cur
+        })
+        .collect();
+    if workspace {
+        let crates: Vec<(ModuleId, String)> = p.modules[0].children.iter().map(|c| (*c, p.modules[*c].name.replace('-', "_"))).collect();
+        for m in &p.modules {
+            let Some(f) = m.file else { continue };
+            let src = &p.files[f].content;
+            let from = ix.crate_of[m.id];
+            for (c, ident) in &crates {
+                if *c != from && src.match_indices(ident.as_str()).any(|(i, _)| {
+                    let before = src[..i].chars().next_back().map(|ch| !(ch.is_alphanumeric() || ch == '_')).unwrap_or(true);
+                    let after = &src[i + ident.len()..];
+                    before && (after.starts_with("::") || after.starts_with(';') || after.starts_with(" as ") || after.starts_with(" {"))
+                }) {
+                    ix.reach.entry(from).or_default().insert(*c);
+                }
+            }
+        }
+    }
     for it in &p.items {
         ix.paths.insert(it.path.clone(), it.id);
         match it.kind {
@@ -38,8 +71,17 @@ fn build_index(p: &Project) -> Index {
     ix
 }
 
-/// Pick the candidate closest to `module` (same module, then ancestor, then anything).
-fn prefer_module(p: &Project, cands: &[ItemId], module: ModuleId) -> Option<ItemId> {
+/// `id` lives in the crate of `module`, or in a crate that crate names.
+fn reachable(p: &Project, ix: &Index, id: ItemId, module: ModuleId) -> bool {
+    let (from, to) = (ix.crate_of[module], ix.crate_of[p.items[id].module]);
+    from == to || ix.reach.get(&from).map(|r| r.contains(&to)).unwrap_or(false)
+}
+
+/// Pick the candidate closest to `module` (same module, then ancestor, then anything in a crate
+/// this one can reach: another crate of a workspace only when its sources name it).
+fn prefer_module(p: &Project, ix: &Index, cands: &[ItemId], module: ModuleId) -> Option<ItemId> {
+    let cands: Vec<ItemId> = cands.iter().copied().filter(|c| reachable(p, ix, *c, module)).collect();
+    let cands = &cands[..];
     if cands.is_empty() {
         return None;
     }
@@ -60,7 +102,7 @@ fn prefer_module(p: &Project, cands: &[ItemId], module: ModuleId) -> Option<Item
 }
 
 fn resolve_type(p: &Project, ix: &Index, name: &str, module: ModuleId) -> Option<ItemId> {
-    ix.types.get(name).and_then(|c| prefer_module(p, c, module))
+    ix.types.get(name).and_then(|c| prefer_module(p, ix, c, module))
 }
 
 /// Resolve `Type::method` / `Trait::method`.
@@ -80,19 +122,20 @@ fn resolve_assoc(p: &Project, ix: &Index, ty: &str, method: &str, module: Module
         let f = p.items[*id].fn_info().unwrap();
         f.impl_id.is_some() && f.trait_name.is_none()
     }).collect();
-    if let Some(c) = prefer_module(p, &inherent, module) {
+    if let Some(c) = prefer_module(p, ix, &inherent, module) {
         return Some(c);
     }
     let in_impl: Vec<ItemId> = filtered.iter().copied().filter(|id| p.items[*id].fn_info().unwrap().impl_id.is_some()).collect();
-    if let Some(c) = prefer_module(p, &in_impl, module) {
+    if let Some(c) = prefer_module(p, ix, &in_impl, module) {
         return Some(c);
     }
-    prefer_module(p, &filtered, module)
+    prefer_module(p, ix, &filtered, module)
 }
 
 /// Resolve `x.method()` without type info.
 fn resolve_method(p: &Project, ix: &Index, method: &str, receiver_is_self: bool, owner: Option<&str>, module: ModuleId, hint_types: &HashSet<String>) -> Option<ItemId> {
-    let cands = ix.methods.get(method)?;
+    let cands: Vec<ItemId> = ix.methods.get(method)?.iter().copied().filter(|id| reachable(p, ix, *id, module)).collect();
+    let cands = &cands[..];
     let with_body: Vec<ItemId> = cands.iter().copied().filter(|id| p.items[*id].fn_info().unwrap().impl_id.is_some()).collect();
     let pool: &[ItemId] = if with_body.is_empty() { cands } else { &with_body };
     if receiver_is_self {
@@ -126,7 +169,7 @@ fn resolve_method(p: &Project, ix: &Index, method: &str, receiver_is_self: bool,
             f.owner_type_name.as_ref().map(|t| hint_types.contains(t)).unwrap_or(false)
         })
         .collect();
-    if let Some(c) = prefer_module(p, &hinted, module) {
+    if let Some(c) = prefer_module(p, ix, &hinted, module) {
         return Some(c);
     }
     // if all candidates are impls of the same trait method, pick the trait declaration when it exists
@@ -140,7 +183,7 @@ fn resolve_method(p: &Project, ix: &Index, method: &str, receiver_is_self: bool,
             return Some(*decl);
         }
     }
-    prefer_module(p, pool, module)
+    prefer_module(p, ix, pool, module)
 }
 
 struct CallVisitor<'a> {
@@ -211,7 +254,7 @@ impl<'ast, 'a> Visit<'ast> for CallVisitor<'a> {
             match segs.len() {
                 1 => {
                     let n = &segs[0];
-                    if let Some(id) = self.ix.fns.get(n).and_then(|c| prefer_module(self.p, c, self.module)) {
+                    if let Some(id) = self.ix.fns.get(n).and_then(|c| prefer_module(self.p, self.ix, c, self.module)) {
                         self.push(Some(id), callee, CallKind::Call, span);
                     } else if let Some(id) = resolve_type(self.p, self.ix, n, self.module) {
                         // tuple struct constructor
@@ -237,7 +280,8 @@ impl<'ast, 'a> Visit<'ast> for CallVisitor<'a> {
                     } else if let Some(id) = self.ix.fns.get(&last).and_then(|c| {
                         // module::function
                         let suffix = format!("{}::{}", ty, last);
-                        c.iter().copied().find(|id| self.p.items[*id].path.ends_with(&suffix))
+                        let found: Vec<ItemId> = c.iter().copied().filter(|id| self.p.items[*id].path.ends_with(&suffix)).collect();
+                        prefer_module(self.p, self.ix, &found, self.module)
                     }) {
                         self.push(Some(id), callee, CallKind::Call, span);
                     } else {

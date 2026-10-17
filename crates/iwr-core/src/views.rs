@@ -308,6 +308,8 @@ pub const HUB_MIN_FAN_IN: usize = 4;
 pub const HUB_MIN_MODULES: usize = 6;
 /// At most this many hubs (one colour each).
 pub const HUB_MAX: usize = 8;
+/// Above this many modules the Architecture view folds each top module (each crate) into one box.
+pub const ARCH_MAX_MODULES: usize = 40;
 
 /// Two capital letters for a hub chip, unique among `taken`: `model` → `MO`, then `ML`, `MD`…
 fn initials(name: &str, taken: &[String]) -> String {
@@ -970,13 +972,40 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
             }
         }
     };
-    let fold: HashSet<ModuleId> = p
-        .modules
-        .iter()
-        .filter(|m| m.id != root_mod && !m.children.is_empty() && !opts.expanded.contains(&format!("m{}/sub", m.id)))
-        .filter(|m| !raw.keys().any(|(a, b)| strictly_under(*a, m.id) || strictly_under(*b, m.id)))
-        .map(|m| m.id)
-        .collect();
+    let foldable = |m: &Module| m.id != root_mod && !m.children.is_empty() && !opts.expanded.contains(&format!("m{}/sub", m.id));
+    let mut fold: HashSet<ModuleId> = p.modules.iter().filter(|m| foldable(m)).filter(|m| !raw.keys().any(|(a, b)| strictly_under(*a, m.id) || strictly_under(*b, m.id))).map(|m| m.id).collect();
+    // too many boxes (a big workspace): every top module (each crate) folds into one box carrying
+    // its subtree's arrows; double-click scopes into it
+    let visible = |m: ModuleId| strictly_under(m, root_mod) && (opts.show_tests || !is_test_module(p, m)) && !fold.iter().any(|f| strictly_under(m, *f));
+    if p.modules.iter().filter(|m| visible(m.id)).count() > ARCH_MAX_MODULES {
+        fold.extend(p.modules.iter().filter(|m| m.parent == Some(root_mod) && foldable(m)).map(|m| m.id));
+    }
+    // a module inside a folded box counts as that box
+    let rep = |m: ModuleId| {
+        let mut out = m;
+        let mut cur = Some(m);
+        while let Some(c) = cur {
+            if fold.contains(&c) {
+                out = c;
+            }
+            cur = p.module(c).parent;
+        }
+        out
+    };
+    let raw: HashMap<(ModuleId, ModuleId), usize> = raw.iter().map(|((a, b), n)| ((rep(*a), rep(*b)), *n)).filter(|((a, b), _)| a != b).fold(HashMap::new(), |mut acc, (k, n)| {
+        *acc.entry(k).or_default() += n;
+        acc
+    });
+    fn in_subtree(p: &Project, x: ModuleId, m: ModuleId) -> bool {
+        let mut cur = Some(x);
+        while let Some(c) = cur {
+            if c == m {
+                return true;
+            }
+            cur = p.module(c).parent;
+        }
+        false
+    }
     fn count_under(p: &Project, m: ModuleId) -> usize {
         p.module(m).children.iter().map(|c| 1 + count_under(p, *c)).sum()
     }
@@ -984,9 +1013,11 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
         let module = p.module(m);
         let nid = format!("m{}", m);
         let items: Vec<&Item> = module.items.iter().map(|i| p.item(*i)).filter(|i| i.kind != ItemKind::Method && (opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false))).collect();
-        let n_fn = items.iter().filter(|i| i.is_callable() || i.kind == ItemKind::Impl).count();
-        let n_ty = items.iter().filter(|i| i.is_type()).count();
         let folded = fold.contains(&m);
+        // a folded box counts what is inside it too
+        let inside: Vec<&Item> = if folded { p.items.iter().filter(|i| i.module != m && in_subtree(p, i.module, m) && i.kind != ItemKind::Method && (opts.show_tests || !i.fn_info().map(|f| f.is_test).unwrap_or(false))).collect() } else { vec![] };
+        let n_fn = items.iter().chain(&inside).filter(|i| i.is_callable() || i.kind == ItemKind::Impl).count();
+        let n_ty = items.iter().chain(&inside).filter(|i| i.is_type()).count();
         let shown: Vec<ModuleId> = if folded { vec![] } else { module.children.iter().copied().filter(|c| opts.show_tests || !is_test_module(p, *c)).collect() };
         let sublabel = if folded {
             format!("{} fn · {} types · {} modules folded inside", n_fn, n_ty, count_under(p, m))

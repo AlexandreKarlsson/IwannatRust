@@ -727,6 +727,51 @@ fn architecture_folds_arrowless_subtrees() {
 }
 
 #[test]
+fn architecture_folds_crates_of_a_big_workspace() {
+    // two crates with 30 modules each: too many boxes, so one box per crate and one arrow between them
+    let mut files = Vec::new();
+    for c in ["app", "lib"] {
+        let mods: String = (0..30).map(|i| format!("pub mod m{i};\n")).collect();
+        files.push((format!("crates/{c}/src/lib.rs"), mods));
+        for i in 0..30 {
+            let body = if c == "app" { format!("pub fn f{i}() {{ lib::m{i}::g{i}(); }}\n") } else { format!("pub fn g{i}() {{}}\n") };
+            files.push((format!("crates/{c}/src/m{i}.rs"), body));
+        }
+    }
+    let p = iwr_core::analyze_sources("ws", "", files);
+    let g = views::build(&p, Mode::Architecture, &ViewOptions::default());
+    let mods: Vec<&views::VNode> = g.nodes.iter().filter(|n| n.kind == views::NodeKind::Module).collect();
+    assert!(mods.len() <= 3, "{:?}", mods.iter().map(|n| &n.label).collect::<Vec<_>>());
+    let app = mods.iter().find(|n| n.label.contains("app")).unwrap();
+    let lib = mods.iter().find(|n| n.label.contains("lib")).unwrap();
+    assert!(app.badges.iter().any(|b| b == "+30 inside"), "{:?}", app.badges);
+    assert!(app.sublabel.starts_with("30 fn"), "{}", app.sublabel);
+    let e = g.edges.iter().find(|e| e.from == app.id && e.to == lib.id).unwrap();
+    assert_eq!(e.weight, 30);
+    // scoped into a crate, its modules are back
+    let m = p.modules.iter().find(|m| m.path == "app").unwrap().id;
+    let g = views::build(&p, Mode::Architecture, &ViewOptions { module: Some(m), ..Default::default() });
+    assert!(g.nodes.iter().filter(|n| n.kind == views::NodeKind::Module).count() >= 30, "{:?}", g.nodes.iter().map(|n| (&n.label, &n.badges)).collect::<Vec<_>>());
+}
+
+#[test]
+fn calls_do_not_jump_to_crates_never_named() {
+    // `a` names `shared` but not `b`: `helper()` and `x.flush()` stay unresolved instead of landing in `b`
+    let p = iwr_core::analyze_sources(
+        "ws",
+        "",
+        vec![
+            ("crates/a/src/main.rs".into(), "fn main() { helper(); shared::go(); let x = 1; x.flush(); }\n".into()),
+            ("crates/b/src/lib.rs".into(), "pub fn helper() {}\npub struct W;\nimpl W { pub fn flush(&self) {} }\n".into()),
+            ("crates/shared/src/lib.rs".into(), "pub fn go() {}\n".into()),
+        ],
+    );
+    let main = p.items.iter().find(|i| i.name == "main").unwrap().id;
+    let to: Vec<String> = p.calls.iter().filter(|c| c.from == main).filter_map(|c| c.to).map(|t| p.item(t).path.clone()).collect();
+    assert_eq!(to, vec!["shared::go".to_string()], "{:?}", to);
+}
+
+#[test]
 fn cfg_exit_stops_and_trivial_arms_go_on_edges() {
     let src = "fn main() {
     // Load config or write a default; exit 2 on error

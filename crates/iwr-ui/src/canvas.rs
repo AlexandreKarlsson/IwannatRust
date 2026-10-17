@@ -348,6 +348,8 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     let id = node.id.clone();
     let id2 = node.id.clone();
     let id3 = node.id.clone();
+    // a folded module box (a crate in a big workspace): double-click opens it as the module scope
+    let folded_module = (node.kind == NodeKind::Module && node.badges.iter().any(|b| b.ends_with(" inside"))).then(|| node.id.strip_prefix('m').and_then(|x| x.parse::<usize>().ok())).flatten();
     let expanded = node.expanded;
     let lines: Vec<String> = node.label.lines().map(|s| s.to_string()).collect();
     let multi = lines.len() > 1;
@@ -425,7 +427,9 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 // double click: dive into the function (cfg) or toggle expansion
                 let mode_now = *state.mode.read();
                 let item = node.item;
-                if node.cfg_node.is_some() {
+                if let Some(m) = folded_module {
+                    state.set_scope(Some(m));
+                } else if node.cfg_node.is_some() {
                     if let Some(item) = item {
                         if state.project.read().as_ref().map(|p| p.item(item).is_callable()).unwrap_or(false) && node.item != *state.root.read() {
                             state.set_root(Some(item));
@@ -635,7 +639,7 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
             div { class: "doc", style: "margin-top:4px; font-size:10px",
                 if node.expandable { "click ⊕ to expand · " }
                 "click: show source · double-click: "
-                if node.cfg_node.is_some() { "open callee" } else { "expand / open in control flow" }
+                if node.cfg_node.is_some() { "open callee" } else if node.badges.iter().any(|b| b.ends_with(" inside")) { "open the modules inside" } else { "expand / open in control flow" }
             }
         }
     }
