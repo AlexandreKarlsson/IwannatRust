@@ -66,6 +66,9 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
                 eprintln!("script: audio file not found: {}", loaded.dir.join(&a).display());
             }
         }
+        for stem in &loaded.stale {
+            eprintln!("script: {}: text changed since its recording, spoken by TTS (re-record: iwr voice {})", stem, s.display());
+        }
         eprintln!("script {} ({}): {} part(s), {} cue(s)", sc.title, s.display(), sc.parts.len(), sc.cue_count());
     }
     let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(project)), version: RwLock::new(1), path: path.clone(), script, audio });

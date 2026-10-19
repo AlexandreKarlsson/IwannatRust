@@ -35,7 +35,7 @@ impl State {
         self.answering.set(None);
         self.asked.set(vec![]);
         self.tts_gen += 1;
-        if self.effective_audio().is_some() {
+        if self.has_recording() {
             self.voice.set(Voice::Audio);
         }
         self.apply_cue();
@@ -88,7 +88,7 @@ impl State {
         self.apply_cue();
         if *self.resume_after_answer.read() {
             self.resume_after_answer.set(false);
-            if *self.voice.read() == Voice::Audio {
+            if *self.voice.read() == Voice::Audio && !self.uses_tts() {
                 document::eval("try { const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {}); } catch (e) {}");
             } else {
                 self.playing.set(true);
@@ -122,6 +122,21 @@ impl State {
             }
         }
         self.audio_url.read().clone()
+    }
+
+    /// Is there any recording: the script's, a part's, or one given from outside?
+    pub fn has_recording(&self) -> bool {
+        self.audio_url.read().is_some() || self.script.read().as_ref().is_some_and(|s| s.audio.is_some() || s.parts.iter().any(|p| p.audio.is_some()))
+    }
+
+    /// Is the current cue spoken by browser TTS: TTS mode, or recording mode on a part without a
+    /// recording (none made, or dropped by the loader because the text changed since).
+    pub fn uses_tts(&self) -> bool {
+        match *self.voice.read() {
+            Voice::Tts => true,
+            Voice::Audio => self.effective_audio().is_none(),
+            Voice::Read => false,
+        }
     }
 
     /// In recording mode, move the player head to the current cue's `[t]`.
@@ -411,7 +426,7 @@ pub fn PlayerBar() -> Element {
     // voices the browser offers, checked as soon as TTS is selected (None = not known yet)
     let mut tts_voices = use_signal(|| None::<usize>);
     use_effect(move || {
-        if *state.voice.read() != Voice::Tts {
+        if !state.uses_tts() {
             return;
         }
         spawn(async move {
@@ -430,7 +445,9 @@ pub fn PlayerBar() -> Element {
             }
         });
     });
-    let no_voice = voice == Voice::Tts && *tts_voices.read() == Some(0);
+    let tts_now = state.uses_tts();
+    let has_recording = state.has_recording();
+    let no_voice = tts_now && *tts_voices.read() == Some(0);
     let mut show_load = use_signal(|| false);
     let mut paste = use_signal(String::new);
     let answering = state.answering.read().clone();
@@ -440,11 +457,10 @@ pub fn PlayerBar() -> Element {
     let gen = *state.tts_gen.read();
     use_effect(move || {
         let playing = *state.playing.read();
-        let voice = *state.voice.read();
         let _ = *state.cue_idx.read();
         let _ = *state.part_idx.read();
         let _gen = *state.tts_gen.read();
-        if voice != Voice::Tts {
+        if !state.uses_tts() {
             return;
         }
         if !playing {
@@ -568,15 +584,18 @@ pub fn PlayerBar() -> Element {
             return;
         }
         spawn(async move {
-            // wait for the element, then stream currentTime
-            let mut ev = document::eval(
-                r#"const wait = () => new Promise(r => { const f = () => { const a = document.getElementById('iwr-audio'); if (a) r(a); else setTimeout(f, 100); }; f(); });
+            // wait for the element, then stream currentTime; keep playing when the tour comes
+            // here from a part spoken by TTS
+            let play = if *state.playing.peek() { "a.play().catch(() => {});" } else { "" };
+            let mut ev = document::eval(&format!(
+                r#"const wait = () => new Promise(r => {{ const f = () => {{ const a = document.getElementById('iwr-audio'); if (a) r(a); else setTimeout(f, 100); }}; f(); }});
                    const a = await wait();
+                   {play}
                    a.ontimeupdate = () => dioxus.send(a.currentTime);
                    a.onplay = () => dioxus.send(-1);
                    a.onpause = () => dioxus.send(-2);
-                   a.onended = () => dioxus.send(-3);"#,
-            );
+                   a.onended = () => dioxus.send(-3);"#
+            ));
             loop {
                 match ev.recv::<f64>().await {
                     Ok(t) if t == -1.0 => state.playing.set(true),
@@ -590,6 +609,11 @@ pub fn PlayerBar() -> Element {
                             if state.part_has_audio() {
                                 document::eval("setTimeout(() => { const a = document.getElementById('iwr-audio'); if (a) { a.currentTime = 0; a.play().catch(() => {}); } }, 150);");
                                 continue;
+                            }
+                            if state.uses_tts() {
+                                // no recording for that part: TTS speaks it
+                                state.playing.set(true);
+                                break;
                             }
                         }
                         state.playing.set(false);
@@ -637,7 +661,7 @@ pub fn PlayerBar() -> Element {
                     button { class: if playing { "active" } else { "" }, onclick: move |_| {
                         let p = *state.playing.read();
                         state.tts_gen += 1;
-                        if *state.voice.read() == Voice::Audio {
+                        if *state.voice.read() == Voice::Audio && !state.uses_tts() {
                             // the recording drives `playing` through its own events
                             document::eval(if p { "const a = document.getElementById('iwr-audio'); if (a) a.pause();" } else { "const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {});" });
                         } else {
@@ -653,7 +677,7 @@ pub fn PlayerBar() -> Element {
                         "⚠ This browser has no text-to-speech voice: the codecast cannot be spoken. Open it in another browser (Google Chrome or Firefox, not snap Chromium) or pick 📖 read."
                     }
                 }
-                if voice == Voice::Tts && !tts_info.is_empty() && !(no_voice && tts_info.starts_with('⚠')) {
+                if tts_now && !tts_info.is_empty() && !(no_voice && tts_info.starts_with('⚠')) {
                     div { class: "status", style: if tts_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" },
                         title: "browser text-to-speech status", "🔊 {tts_info}" }
                 }
@@ -661,7 +685,7 @@ pub fn PlayerBar() -> Element {
                     select { class: "theme-select", value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
                         onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
                         option { value: "tts", "🔊 voice (TTS)" }
-                        if audio_url.is_some() { option { value: "audio", "🎧 recording" } }
+                        if has_recording { option { value: "audio", "🎧 recording" } }
                         option { value: "read", "📖 read" }
                     }
                 }

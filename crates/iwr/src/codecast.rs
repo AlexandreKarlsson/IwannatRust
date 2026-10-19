@@ -15,6 +15,8 @@ pub struct Loaded {
     pub dir: PathBuf,
     /// the project's own glossary (`glossary.md` next to the script), if any
     pub glossary: Option<String>,
+    /// part files whose `iwr voice` recording was left out because their text changed since
+    pub stale: Vec<String>,
 }
 
 /// The project glossary file next to a script: `codecast/glossary.md` for a directory,
@@ -53,13 +55,63 @@ pub fn load(path: &Path) -> Result<Loaded> {
             }
             let text = std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?;
             let audio = AUDIO_EXTS.iter().map(|e| format!("{}.{}", stem, e)).find(|n| path.join(n).is_file());
-            parts.push(PartFile { stem, text, audio });
+            parts.push(PartFile { stem, text, audio, times: vec![] });
         }
-        Ok(Loaded { text: script::assemble(&index, &parts), dir: path.to_path_buf(), glossary: std::fs::read_to_string(glossary_path(path)).ok() })
+        let glossary = std::fs::read_to_string(glossary_path(path)).ok();
+        // a generated recording plays only while its cues still say what was recorded; else the
+        // part is spoken by TTS until `iwr voice` runs again
+        let pron = pronounce(&script::parse(&script::assemble(&index, &parts)), glossary.as_deref());
+        let mut stale = Vec::new();
+        for pf in parts.iter_mut() {
+            let times = read_times(&path.join(format!("{}.times", pf.stem)));
+            if times.is_empty() || pf.audio.is_none() {
+                continue;
+            }
+            if part_spoken(&pf.text, &pron).0.iter().map(|s| text_hash(s)).eq(times.iter().map(|(_, h)| h.clone())) {
+                pf.times = times.into_iter().map(|(t, _)| t).collect();
+            } else {
+                pf.audio = None;
+                stale.push(pf.stem.clone());
+            }
+        }
+        Ok(Loaded { text: script::assemble(&index, &parts), dir: path.to_path_buf(), glossary, stale })
     } else {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading script {}", path.display()))?;
-        Ok(Loaded { text, dir: path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")), glossary: std::fs::read_to_string(glossary_path(path)).ok() })
+        Ok(Loaded { text, dir: path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")), glossary: std::fs::read_to_string(glossary_path(path)).ok(), stale: vec![] })
     }
+}
+
+/// A `.times` file written by `iwr voice`: one `start-seconds text-hash` line per cue, `#` comments.
+pub fn read_times(path: &Path) -> Vec<(f64, String)> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            Some((w.next()?.parse().ok()?, w.next().unwrap_or_default().to_string()))
+        })
+        .collect()
+}
+
+/// A part file's cues as they will be spoken, and why it cannot be recorded by `iwr voice`, if so
+/// (generated tours expand at load time, after `times:` is given out).
+pub fn part_spoken(text: &str, pron: &[(String, String)]) -> (Vec<String>, Option<&'static str>) {
+    let s = script::parse(text);
+    let cues: Vec<_> = s.parts.iter().flat_map(|p| &p.cues).collect();
+    let skip = if s.parts.len() > 1 {
+        Some("more than one `##` part in the file")
+    } else if cues.iter().any(|c| c.tour.is_some()) {
+        Some("a generated tour line (its cues are only known at load time)")
+    } else {
+        None
+    };
+    (cues.iter().map(|c| iwr_core::speech::spoken(&c.say, pron)).collect(), skip)
+}
+
+/// Stable short hash of a cue's spoken text (FNV-1a), to tell when a `.times` file is stale.
+pub fn text_hash(s: &str) -> String {
+    let h = s.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    format!("{:016x}", h)
 }
 
 /// Audio files a script refers to (script-level and per part), relative to its directory.

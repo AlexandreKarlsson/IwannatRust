@@ -8,6 +8,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `iwr voice codecast/`: records each part file with Kokoro TTS (Python sidecar `kokoro-onnx`, set up
+  on first use) into `NN-part.ogg` (Opus, ~18 kbps, meant to be committed) + `NN-part.times`; the
+  loader feeds the times to the cues as a `times:` line, so recording mode follows the script
+  without `[t]` edits. Per-cue clip cache. A part whose text changed since its recording is left
+  out by the loader and spoken by browser TTS in recording mode (`serve` / `iwr check` name it).
 - Codecasts: `spell: IP, CoAP, HTTP` (script header or glossary) reads words letter by letter.
 - Codecasts: a **side panel** next to the view, opened by `|` lines (sticky inside a part, `|` alone
   closes it): `| bytes:Frame` shows a ```` ```bytes Frame ```` block, `| md:Steps` a ```` ```md ````

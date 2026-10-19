@@ -316,9 +316,9 @@ fn script_plan_page() {
     use iwr_core::script::{self, PartFile};
     let p = project();
     let parts = vec![
-        PartFile { stem: "01-welcome".into(), text: "## Welcome\n@ plan\nhi\n".into(), audio: None },
-        PartFile { stem: "02-data".into(), text: "## Data\nplan: the types, by hand\n@ types\ndata\n".into(), audio: None },
-        PartFile { stem: "03-end".into(), text: "## End\nbye\n".into(), audio: None },
+        PartFile { stem: "01-welcome".into(), text: "## Welcome\n@ plan\nhi\n".into(), audio: None, times: vec![] },
+        PartFile { stem: "02-data".into(), text: "## Data\nplan: the types, by hand\n@ types\ndata\n".into(), audio: None, times: vec![] },
+        PartFile { stem: "03-end".into(), text: "## End\nbye\n".into(), audio: None, times: vec![] },
     ];
     let index = "# T\nplan: a short tour\n\n- [Welcome](01-welcome.md) — where we go\n- `02-data.md`: overridden by the file\n- 03-end.md\n";
     assert_eq!(script::index_parts(index, &["01-welcome".into(), "02-data".into(), "03-end".into()]).len(), 3);
@@ -346,9 +346,9 @@ fn script_directory_assembly_and_part_audio() {
     assert_eq!(script::part_name_from_stem("welcome"), "Welcome");
     // directory: index lists the order; unlisted files follow by name; sibling audio is picked up
     let parts = vec![
-        PartFile { stem: "01-welcome".into(), text: "# Part file title\n## Welcome\n@ arch\nhi\n".into(), audio: Some("01-welcome.mp3".into()) },
-        PartFile { stem: "02-data".into(), text: "@ types\ndata\n".into(), audio: None },
-        PartFile { stem: "03-end".into(), text: "## The end\naudio: custom.ogg\nbye\n".into(), audio: Some("03-end.mp3".into()) },
+        PartFile { stem: "01-welcome".into(), text: "# Part file title\n## Welcome\n@ arch\nhi\n".into(), audio: Some("01-welcome.mp3".into()), times: vec![] },
+        PartFile { stem: "02-data".into(), text: "@ types\ndata\n".into(), audio: None, times: vec![] },
+        PartFile { stem: "03-end".into(), text: "## The end\naudio: custom.ogg\nbye\n".into(), audio: Some("03-end.mp3".into()), times: vec![] },
     ];
     let index = "# Tour\n\n- [The end](03-end.md)\n- 01-welcome.md\n";
     let text = script::assemble(index, &parts);
@@ -362,6 +362,10 @@ fn script_directory_assembly_and_part_audio() {
     assert_eq!(s.cue_count(), 3);
     // the part list does not become cues
     assert!(!text.contains("03-end.md"));
+    // `iwr voice` times: given to the cues in order, a cue's own `[t]` wins
+    let parts = vec![PartFile { stem: "01-a".into(), text: "## A\none\n[9] two\nthree\n".into(), audio: Some("01-a.mp3".into()), times: vec![0.0, 2.5, 5.25] }];
+    let s = script::parse(&script::assemble("# T\n", &parts));
+    assert_eq!(s.parts[0].cues.iter().map(|c| c.t).collect::<Vec<_>>(), [Some(0.0), Some(9.0), Some(5.25)]);
 }
 
 #[test]

@@ -13,6 +13,7 @@
 //! ! crate::run/b1 crate::run  highlight refs       (sticky; `!` alone clears)
 //! = src/main.rs:49:18-44      underline code       (this cue only)
 //! [9.4]                       start time in seconds (audio mode)
+//! times: 0 4.2 9.8            start times of the part's cues in order (written by `iwr voice`); `[t]` wins
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
 //! ? What is a crate?          a question the listener can click (pauses the codecast)
 //!   The answer, indented.     answer lines; may hold their own `@` `!` `=` directives
@@ -187,6 +188,8 @@ pub fn parse(text: &str) -> Script {
     let mut part = Part { name: "Codecast".into(), ..Default::default() };
     let mut pending = Cue::default();
     let mut in_part = false;
+    // `times:` of the current part, given to its cues when the part ends
+    let mut times: Vec<f64> = Vec::new();
     // a `?` block being read: it goes to the previous cue when no directive is pending for the
     // next one, else to the next cue
     let mut question: Option<(Question, bool)> = None;
@@ -255,6 +258,7 @@ pub fn parse(text: &str) -> Script {
         }
         if let Some(rest) = t.strip_prefix("## ") {
             flush(&mut question, &mut part, &mut pending);
+            apply_times(&mut part, &mut times);
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
             }
@@ -276,6 +280,10 @@ pub fn parse(text: &str) -> Script {
             } else {
                 s.audio = a;
             }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("times:") {
+            times = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
             continue;
         }
         if let Some(rest) = t.strip_prefix("plan:") {
@@ -346,6 +354,7 @@ pub fn parse(text: &str) -> Script {
     // unclosed block: keep what was read, the parser reports what is wrong with it
     close_fence(fence.take(), &mut part);
     flush(&mut question, &mut part, &mut pending);
+    apply_times(&mut part, &mut times);
     if !part.cues.is_empty() || s.parts.is_empty() {
         s.parts.push(part);
     }
@@ -353,6 +362,13 @@ pub fn parse(text: &str) -> Script {
         s.title = "Codecast".into();
     }
     s
+}
+
+/// Give a part's `times:` to its cues in order; a cue's own `[t]` wins.
+fn apply_times(part: &mut Part, times: &mut Vec<f64>) {
+    for (c, t) in part.cues.iter_mut().zip(times.drain(..)) {
+        c.t = c.t.or(Some(t));
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -491,6 +507,8 @@ pub struct PartFile {
     pub text: String,
     /// sibling recording with the same stem (`01-welcome.mp3`), if any
     pub audio: Option<String>,
+    /// cue start times of that recording (sibling `01-welcome.times`, written by `iwr voice`)
+    pub times: Vec<f64>,
 }
 
 /// Part name from a file stem: `01-how_it-runs` → `How it runs`.
@@ -579,7 +597,7 @@ fn index_body(index: &str, stems: &[String]) -> String {
 
 /// Join `index.md` and the part files into one script text. Each part file becomes a `##` part:
 /// its first `##` heading names it, otherwise the file name does; a sibling recording becomes its
-/// `audio:` line unless the file sets one.
+/// `audio:` line unless the file sets one, with its cue times as a `times:` line.
 pub fn assemble(index: &str, parts: &[PartFile]) -> String {
     let stems: Vec<String> = parts.iter().map(|p| p.stem.clone()).collect();
     let order = order_parts(index, &stems);
@@ -596,6 +614,9 @@ pub fn assemble(index: &str, parts: &[PartFile]) -> String {
         if let Some(a) = &pf.audio {
             if !body.iter().any(|l| l.trim_start().starts_with("audio:")) {
                 body.insert(1, format!("audio: {}", a));
+                if !pf.times.is_empty() {
+                    body.insert(2, format!("times: {}", pf.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")));
+                }
             }
         }
         if let Some(d) = descs.get(&stem) {

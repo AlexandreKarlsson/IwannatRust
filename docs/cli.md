@@ -8,7 +8,8 @@ iwr summary [PATH]                         text dump: modules, items, calls, rel
 iwr brief   [PATH] [--fn P] [--no-body] [--no-overview]   compact text brief for writing a codecast (see codecast.md)
 iwr guide   [PATH] [--fn P]                built-in walkthrough as a codecast script (text) on stdout
 iwr speak   SCRIPT                         print a codecast as it will be spoken (code said as words), to review the TTS text
-iwr check   SCRIPT [--path PATH]           validate a script's refs (file or codecast/ directory) and its glossary.md; exit 1 if any is unresolved, a question has no answer, or a recording is missing
+iwr voice   DIR [--voice V] [--speed X] [--lang L] [--gap S] [--level Q] [--force]   record a codecast/ directory with Kokoro TTS: NN-part.ogg (Opus) + NN-part.times per part file (unchanged parts and cues are skipped)
+iwr check   SCRIPT [--path PATH]           validate a script's refs (file or codecast/ directory) and its glossary.md; exit 1 if any is unresolved, a question has no answer, or a recording is missing (notes parts whose recording is stale: TTS speaks them)
 ```
 
 `PATH` = directory with `Cargo.toml` (name taken from it), any directory of `.rs` files, or a single `.rs` file. Skipped dirs: `target`, `.git`, `node_modules`, `.dx`, `dist`.

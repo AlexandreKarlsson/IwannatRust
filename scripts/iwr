@@ -23,6 +23,7 @@ cat <<'MENU'
   🧭  guide  [P]  Print the built-in walkthrough as a codecast script
   ✅  check  S [P]          Validate a codecast script's refs against a project
   🗣️  speak  S              Print a codecast as it will be spoken (code said as words)
+  🎤  voice  [P] [args]     Record a project's codecast/ with Kokoro TTS (Opus + cue times per part)
   🔍  summary [P] Text dump: modules, items, calls, block trees, views, guide steps
   🧪  test        Run tests and clippy
   🖼️  shot  [P]   Headless screenshot of the UI (needs google-chrome)
@@ -74,6 +75,7 @@ case "$cmd" in
   brief)   need_bin; exec "$BIN" brief "$(proj "${1:-}")" "${@:2}" ;;
   guide)   need_bin; exec "$BIN" guide "$(proj "${1:-}")" "${@:2}" ;;
   speak)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr speak SCRIPT" >&2; exit 1; }; exec "$BIN" speak "$1" ;;
+  voice)   need_bin; exec "$BIN" voice "$(proj "${1:-}")/codecast" "${@:2}" ;;
   check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$1" --path "$(proj "${2:-}")" ;;
   summary) need_bin; exec "$BIN" summary "$(proj "${1:-}")" ;;
   test)

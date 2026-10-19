@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod codecast;
 mod serve;
+mod voice;
 
 /// The codecast writing guide, embedded so `iwr brief --guide` works from any directory.
 const WRITING_GUIDE: &str = include_str!("../../../docs/writing-codecasts.md");
@@ -90,6 +91,27 @@ enum Cmd {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+    /// Record a `codecast/` directory with Kokoro TTS: NN-part.ogg + NN-part.times per part file
+    Voice {
+        /// The `codecast/` directory
+        script: PathBuf,
+        /// Kokoro voice (af_heart, af_bella, am_michael, bf_emma, bm_george, …)
+        #[arg(long, default_value = "af_heart")]
+        voice: String,
+        #[arg(long, default_value_t = 1.0)]
+        speed: f32,
+        #[arg(long, default_value = "en-us")]
+        lang: String,
+        /// Silence between cues, in seconds
+        #[arg(long, default_value_t = 0.4)]
+        gap: f32,
+        /// Opus compression level, 0..1 (0.95 ≈ 18 kbps; lower = bigger, cleaner)
+        #[arg(long, default_value_t = 0.95)]
+        level: f32,
+        /// Re-record every part, and replace recordings not made by `iwr voice`
+        #[arg(long)]
+        force: bool,
+    },
     /// Validate a codecast's refs against the project (a script file or a `codecast/` directory)
     Check {
         script: PathBuf,
@@ -156,6 +178,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        Cmd::Voice { script, voice, speed, lang, gap, level, force } => voice::run(&script, &voice::Opts { voice, speed, lang, gap, level, force }),
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
             let loaded = codecast::load(&script)?;
@@ -168,6 +191,9 @@ fn main() -> Result<()> {
                 if !loaded.dir.join(&a).is_file() {
                     bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
                 }
+            }
+            for stem in &loaded.stale {
+                println!("  note: {}: text changed since its recording, TTS speaks it until `iwr voice {}`", stem, script.display());
             }
             let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
             for p in &s.parts {

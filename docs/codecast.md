@@ -311,6 +311,21 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 | 🎧 recording | by time: cue with the largest `[t] ≤` position | `audio:` lines (per part or whole script), `--audio`, or a file picked in *load…*; with per-part recordings the tour continues into the next part's file |
 | 📖 read | prev / next, or autoplay every 3 s | |
 
+**Generated recording (the default way to voice a codecast).** `iwr voice codecast/` speaks every
+cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS, CPU, ~4× real time)
+and writes `NN-part.ogg` + `NN-part.times` next to each part file. Commit both: Opus at ~18 kbps
+(`--level 0.95`) is ~2.5 MB for 18 minutes, the browser plays it as is, and viewers need no model.
+The `.times` file holds each cue's start time and a hash of its spoken text; the loader turns it
+into the part's `times:` line (cue start times in order, a cue's own `[t]` wins), so the `.md` files
+stay as written and the player opens in 🎧 mode. When a part's text no longer matches its hashes
+the loader leaves its recording out and the player speaks that part with browser TTS, then goes
+back to the recordings; `serve` and `iwr check` name such parts. Clips are cached per cue: after an
+edit only changed cues are synthesized again.
+First run sets up a Python venv (`kokoro-onnx`) and downloads the int8 model (~120 MB) under
+`~/.cache/iwr/kokoro` (`IWR_KOKORO` overrides). Parts with a generated tour line, or a recording
+not made by `iwr voice`, are skipped (`--force` replaces the latter). Answers to questions are still
+spoken by browser TTS. Options: `--voice af_heart` (Kokoro voice name), `--speed`, `--lang en-us`, `--gap 0.4`.
+
 Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing
 continues with the next part until the script ends; unticked, it stops at the end of each part (`next part ▶`).
 `load…` accepts pasted text, a script file and an audio file. `▶ Narrate` (or `g`) plays the built-in
