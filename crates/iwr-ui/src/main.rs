@@ -5,12 +5,16 @@
 
 mod canvas;
 mod code;
+mod design;
+mod fonts;
+mod generate;
 mod icons;
 mod md;
 mod panels;
 mod player;
 mod settings;
 mod side;
+mod source;
 mod theme;
 
 use dioxus::prelude::*;
@@ -129,6 +133,12 @@ pub struct State {
     pub animate: Signal<bool>,
     // ---- settings
     pub settings_open: Signal<bool>,
+    /// the Generate page (record the codecast's voice with Kokoro)
+    pub generate_open: Signal<bool>,
+    /// every part and its recordings, from `/api/voice` (`iwr serve` only)
+    pub voice_status: Signal<Option<Rc<iwr_core::voice::VoiceStatus>>>,
+    /// the server's running (or last) recording
+    pub voice_job: Signal<Option<iwr_core::voice::VoiceJob>>,
     /// full tour: continue with the next part when one ends
     pub tour: Signal<bool>,
     pub tts_rate: Signal<f64>,
@@ -136,6 +146,25 @@ pub struct State {
     pub tts_info: Signal<String>,
     /// seconds per cue in silent reading mode
     pub read_delay: Signal<f64>,
+    // ---- language
+    /// is an `iwr serve` behind the page (else a static export)?
+    pub live: Signal<bool>,
+    /// language the codecast plays in (`en` = as written; see `iwr_core::i18n::LANGS`)
+    pub lang: Signal<String>,
+    /// the loaded script in English, tours expanded: what every translation starts from
+    pub script_src: Signal<Option<Rc<iwr_core::script::Script>>>,
+    /// the glossary with its questions and answers translated (same entries, same order)
+    pub glossary_tr: Signal<Option<Rc<Vec<iwr_core::glossary::Entry>>>>,
+    /// translation progress or failure, shown in the player
+    pub lang_info: Signal<String>,
+    /// the codecast's `codecast.toml`: fonts, colours, default settings
+    pub config: Signal<Rc<iwr_core::config::Config>>,
+    /// font of the box titles and headings: a bundled font's id, a codecast font file, or `""`
+    pub font_title: Signal<String>,
+    /// font of the interface text (same values)
+    pub font_text: Signal<String>,
+    /// where its font files are fetched from (`/api/codecast/`, or `codecast/` in an export)
+    pub config_base: Signal<String>,
 }
 
 impl State {
@@ -176,6 +205,12 @@ impl State {
             self.hover_span.set(None);
             self.fit_request += 1;
         }
+    }
+
+    /// Leave the Settings or Generate page for the views.
+    pub fn close_pages(&mut self) {
+        self.settings_open.set(false);
+        self.generate_open.set(false);
     }
 
     pub fn save_layout(&self) {
@@ -325,6 +360,10 @@ fn App() -> Element {
         voice: Signal::new(player::Voice::Tts),
         audio_url: Signal::new(None),
         audio_base: Signal::new("/api/codecast/".into()),
+        config: Signal::new(Rc::new(Default::default())),
+        config_base: Signal::new("/api/codecast/".into()),
+        font_title: Signal::new(String::new()),
+        font_text: Signal::new(String::new()),
         tts_gen: Signal::new(0),
         hl: Signal::new(vec![]),
         hl_ids: Signal::new(vec![]),
@@ -358,8 +397,16 @@ fn App() -> Element {
         drag: Signal::new(None),
         animate: Signal::new(false),
         settings_open: Signal::new(false),
+        generate_open: Signal::new(false),
+        voice_status: Signal::new(None),
+        voice_job: Signal::new(None),
         tour: Signal::new(true),
         tts_rate: Signal::new(1.0),
+        live: Signal::new(false),
+        lang: Signal::new("en".into()),
+        script_src: Signal::new(None),
+        glossary_tr: Signal::new(None),
+        lang_info: Signal::new(String::new()),
         tts_info: Signal::new(String::new()),
         read_delay: Signal::new(4.0),
     });
@@ -398,12 +445,29 @@ fn App() -> Element {
                 }
             }
         }
+        // `?lang=ja` in the URL plays the codecast in that language (not saved)
+        if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('lang') || '';").await {
+            if let Some(l) = v.as_str().filter(|l| iwr_core::i18n::lang(l).is_some()) {
+                state.set_lang(l);
+            }
+        }
+        // `?page=generate` / `?page=settings` open that page
+        if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('page') || '';").await {
+            match v.as_str() {
+                Some("generate") => state.generate_open.set(true),
+                Some("settings") => state.settings_open.set(true),
+                _ => {}
+            }
+        }
+        // the codecast's own defaults come after the viewer's saved settings
+        state.load_config().await;
     });
 
     // initial load + live reload polling. Without a server (static export) load ./project.json once.
     use_future(move || async move {
         let mut first = true;
         let live = fetch_version().await.is_some();
+        state.live.set(live);
         loop {
             let v = if live { fetch_version().await.unwrap_or(0) } else { 1 };
             if first || v != *state.version.read() {
@@ -447,6 +511,9 @@ fn App() -> Element {
         }
     });
 
+    // the Generate page's recording: status once, then follow a running job (it outlives the page)
+    use_future(move || async move { generate::watch(state).await });
+
     // autoplay in silent reading mode (voice modes advance themselves)
     use_future(move || async move {
         loop {
@@ -489,11 +556,11 @@ fn App() -> Element {
                             state.start_builtin_guide(None)
                         }
                     }
-                    "t" => { state.settings_open.set(false); state.start_tour() }
-                    "," => { let v = *state.settings_open.read(); state.settings_open.set(!v) }
+                    "t" => { state.close_pages(); state.start_tour() }
+                    "," => { let v = *state.settings_open.read(); state.close_pages(); state.settings_open.set(!v) }
                     "Escape" => {
-                        if *state.settings_open.read() {
-                            state.settings_open.set(false)
+                        if *state.settings_open.read() || *state.generate_open.read() {
+                            state.close_pages()
                         } else if state.answering.read().is_some() {
                             state.finish_answer()
                         } else {
@@ -514,14 +581,19 @@ fn App() -> Element {
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
+    let generate_open = *state.generate_open.read();
     let has_side = state.side.read().is_some();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
+        style { {fonts::faces()} }
+        style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
             panels::TopBar {}
             if settings_open {
                 settings::SettingsPage {}
+            } else if generate_open {
+                generate::GeneratePage {}
             } else {
             div { class: "main",
                 onmousemove: move |e| {

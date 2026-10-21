@@ -18,26 +18,31 @@ pub fn TopBar() -> Element {
     let show_source = *state.show_source.read();
     let sidebar_open = *state.sidebar_open.read();
     let settings_open = *state.settings_open.read();
+    let generate_open = *state.generate_open.read();
+    // a page hides the views: no view tab is active
+    let page_open = settings_open || generate_open;
+    let live = *state.live.read();
+    let (to_record, recording) = crate::generate::badge(&state);
     let tour_on = *state.tour.read() && has_guide && *state.playing.read();
     rsx! {
         div { class: "topbar",
             IconButton { name: "panel", tip: "Files and items panel".to_string(), active: sidebar_open, onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); } }
             div { class: "brand", icons::Logo { size: 24 } "IwannatRust" span { "{name}" } }
             div { class: "tabs",
-                IconButton { name: "code", tip: Mode::Code.description().to_string(), active: mode == Mode::Code && !settings_open, text: "Code", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Code); state.views_open.set(false); } }
+                IconButton { name: "code", tip: Mode::Code.description().to_string(), active: mode == Mode::Code && !page_open, text: "Code", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Code); state.views_open.set(false); } }
                 button { class: if views_open { "active" } else { "" }, title: "Show the analysis views", onclick: move |_| { let v = *state.views_open.read(); state.views_open.set(!v); },
                     if views_open { "Views ▾" } else { "Views ▸" }
                 }
                 if views_open {
                     for m in Mode::GRAPHS {
-                        button { class: if m == mode && !settings_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{m.label()} — {m.description()}", "aria-label": "{m.label()}",
-                            onclick: move |_| { state.settings_open.set(false); state.set_mode(m) },
+                        button { class: if m == mode && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{m.label()} — {m.description()}", "aria-label": "{m.label()}",
+                            onclick: move |_| { state.close_pages(); state.set_mode(m) },
                             img { class: "ico", src: icons::uri(icons::for_mode(m)), width: "18", height: "18", alt: "", draggable: false }
                         }
                     }
                     if has_diagram {
-                        button { class: if mode == Mode::Diagram && !settings_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{Mode::Diagram.label()} — {Mode::Diagram.description()}", "aria-label": "{Mode::Diagram.label()}",
-                            onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Diagram) },
+                        button { class: if mode == Mode::Diagram && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{Mode::Diagram.label()} — {Mode::Diagram.description()}", "aria-label": "{Mode::Diagram.label()}",
+                            onclick: move |_| { state.close_pages(); state.set_mode(Mode::Diagram) },
                             img { class: "ico", src: icons::uri("diagram"), width: "18", height: "18", alt: "", draggable: false }
                         }
                     }
@@ -51,8 +56,20 @@ pub fn TopBar() -> Element {
             div { class: "sep" }
             IconButton { name: "codecast", tip: if has_guide { "Stop the codecast (g)".to_string() } else { "Play the codecast (g): the loaded script, or the built-in tour. Load your own from the player bar.".to_string() }, active: has_guide, text: if has_guide { "stop".to_string() } else { "codecast".to_string() },
                 onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } } }
-            IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.settings_open.set(false); state.start_tour() } }
-            IconButton { name: "settings", tip: "Settings (,): theme, views, voice, layout".to_string(), active: settings_open, onclick: move |_| { let v = *state.settings_open.read(); state.settings_open.set(!v); } }
+            IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.close_pages(); state.start_tour() } }
+            if live {
+                button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { "Generating the voice… (open to follow it)".to_string() } else if to_record > 0 { format!("Generate the voice: {to_record} part(s) without an up-to-date recording") } else { "Generate the voice: record the codecast with Kokoro (voice, language, speed)".to_string() }, "aria-label": "Generate the voice",
+                    onclick: move |_| { state.close_pages(); state.generate_open.set(!generate_open); },
+                    img { class: "ico", src: icons::uri("voice"), width: "16", height: "16", alt: "", draggable: false }
+                    span { "generate" }
+                    if let Some(pct) = recording {
+                        span { class: "gen-ring", style: "--p:{pct}" }
+                    } else if to_record > 0 {
+                        span { class: "gen-dot", "{to_record}" }
+                    }
+                }
+            }
+            IconButton { name: "settings", tip: "Settings (,): theme, views, voice, layout".to_string(), active: settings_open, onclick: move |_| { state.close_pages(); state.settings_open.set(!settings_open); } }
         }
     }
 }
@@ -280,14 +297,14 @@ pub fn Details() -> Element {
             div { class: "info",
                 if let Some(info) = &info {
                     h3 { "{info.title} " span { class: "pill", "{info.kind}" } }
-                    div { class: "sig", "{info.signature}" }
+                    div { class: "sig", crate::source::RustText { text: info.signature.clone() } }
                     if let Some(d) = &info.doc { div { class: "doc", "{d}" } } else { div { "{info.summary}" } }
                     div { for f in info.facts.iter() { span { class: "pill", "{f}" } } }
                     if !info.params.is_empty() {
                         h4 { if info.kind == "struct" { "fields" } else if info.kind == "enum" { "variants" } else if info.kind == "trait" { "methods" } else { "parameters" } }
-                        table { for pa in info.params.iter() { tr { td { class: "n", "{pa.name}" } td { class: "ty", "{pa.ty}" } } } }
+                        table { for pa in info.params.iter() { tr { td { class: "n", "{pa.name}" } td { class: "ty", crate::source::RustText { text: pa.ty.clone() } } } } }
                     }
-                    if let Some(r) = &info.ret { h4 { "returns" } div { class: "sig", "{r}" } }
+                    if let Some(r) = &info.ret { h4 { "returns" } div { class: "sig", crate::source::RustText { text: r.clone() } } }
                     if !info.calls.is_empty() {
                         h4 { "calls" }
                         div { class: "links", for (id, l) in info.calls.iter() { {let id = *id; rsx!{ a { onclick: move |_| state.select_item(id), "{l}" } }} } }
@@ -320,6 +337,7 @@ pub fn Details() -> Element {
                 if let Some(f) = file {
                     {
                         let sf = p.file(f);
+                        let shaded = crate::source::shaded(&p, f);
                         let hl = span.filter(|s| s.file == f);
                         let fn_span = item_span.filter(|s| s.file == f);
                         let path = sf.path.clone();
@@ -330,21 +348,11 @@ pub fn Details() -> Element {
                                     let ln = i + 1;
                                     let is_hl = hl.map(|s| s.contains_line(ln)).unwrap_or(false) || hl_refs.iter().any(|r| r.inner && r.span.file == f && r.span.contains_line(ln));
                                     let in_fn = fn_span.map(|s| s.contains_line(ln)).unwrap_or(false);
-                                    let (pre, mid, post) = match code_mark.filter(|m| m.file == f && m.contains_line(ln)) {
-                                        Some(m) if m.col_end > 1 && m.line_start == m.line_end => {
-                                            let chars: Vec<char> = line.chars().collect();
-                                            let a = m.col_start.saturating_sub(1).min(chars.len());
-                                            let b = m.col_end.min(chars.len()).max(a);
-                                            (chars[..a].iter().collect::<String>(), chars[a..b].iter().collect::<String>(), chars[b..].iter().collect::<String>())
-                                        }
-                                        Some(_) => (String::new(), line.to_string(), String::new()),
-                                        None => (line.to_string(), String::new(), String::new()),
-                                    };
+                                    let mark = crate::source::mark_range(code_mark, f, ln, line.chars().count());
                                     rsx! {
                                         div { class: format!("line{}{}", if is_hl { " hl" } else { "" }, if in_fn { " fn" } else { "" }), id: "L{ln}",
                                             onmouseenter: move |_| state.hover_span.set(Some(iwr_core::model::Span { file: f, line_start: ln, col_start: 1, line_end: ln, col_end: 1 })),
-                                            span { class: "ln", "{ln}" }
-                                            span { "{pre}" if !mid.is_empty() { span { class: "mark", "{mid}" } } "{post}" }
+                                            {crate::source::line_body(&shaded, ln, mark)}
                                         }
                                     }
                                 }

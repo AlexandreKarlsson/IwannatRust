@@ -1,6 +1,7 @@
 //! "Code" view: the source as simple nested blocks, side by side with the real
 //! source. Hovering a block highlights its lines and vice versa.
 
+use crate::source::{self, RustText};
 use crate::theme::node_color;
 use crate::State;
 use dioxus::prelude::*;
@@ -97,6 +98,7 @@ pub fn CodeView() -> Element {
     let hl_refs = state.hl.read().clone();
     let code_mark = *state.code_mark.read();
     let sf = p.file(file);
+    let shaded = source::shaded(&p, file);
     // top-level items of this file (methods are rendered under their impl)
     let mut items: Vec<&Item> = p.items.iter().filter(|i| i.span.file == file && i.kind != ItemKind::Method).collect();
     items.sort_by_key(|i| i.span.line_start);
@@ -176,23 +178,12 @@ pub fn CodeView() -> Element {
                             let is_hover = hover.map(|h| h.file == file && h.contains_line(ln)).unwrap_or(false);
                             let is_sel = sel_span.map(|s| s.file == file && s.contains_line(ln)).unwrap_or(false);
                             let is_nar = hl_refs.iter().any(|r| r.span.file == file && r.inner && r.span.contains_line(ln));
-                            let mark = code_mark.filter(|m| m.file == file && m.contains_line(ln));
+                            let mark = source::mark_range(code_mark, file, ln, line.chars().count());
                             let mut lh = line_hover.clone();
-                            let (pre, mid, post) = match mark {
-                                Some(m) if m.col_end > 1 && m.line_start == m.line_end => {
-                                    let chars: Vec<char> = line.chars().collect();
-                                    let a = (m.col_start.saturating_sub(1)).min(chars.len());
-                                    let b = m.col_end.min(chars.len()).max(a);
-                                    (chars[..a].iter().collect::<String>(), chars[a..b].iter().collect::<String>(), chars[b..].iter().collect::<String>())
-                                }
-                                Some(_) => (String::new(), line.to_string(), String::new()),
-                                None => (line.to_string(), String::new(), String::new()),
-                            };
                             rsx! {
                                 div { class: format!("line{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " fn" } else { "" }, if is_nar { " nar" } else { "" }), id: "S{ln}",
                                     onmouseenter: move |_| lh(ln),
-                                    span { class: "ln", "{ln}" }
-                                    span { "{pre}" if !mid.is_empty() { span { class: "mark", "{mid}" } } "{post}" }
+                                    {source::line_body(&shaded, ln, mark)}
                                 }
                             }
                         }
@@ -203,7 +194,7 @@ pub fn CodeView() -> Element {
     }
 }
 
-fn item_kind_color(it: &Item) -> &'static str {
+pub fn item_kind_color(it: &Item) -> &'static str {
     match it.kind {
         ItemKind::Function => node_color(if it.fn_info().map(|f| f.is_main).unwrap_or(false) { NodeKind::Main } else { NodeKind::Function }),
         ItemKind::Method => node_color(NodeKind::Method),
@@ -279,7 +270,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
                 } else {
                     span { class: "name", "{title}" }
                 }
-                span { class: "sig", "{sig_rest}" }
+                span { class: "sig", RustText { text: sig_rest.clone() } }
                 for b in fn_badges.iter() { span { class: "chip fact", "{b}" } }
                 if expandable {
                     span { class: "count", if open { "▾" } else { "▸ {n_children}" } }

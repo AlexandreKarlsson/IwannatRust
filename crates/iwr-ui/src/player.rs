@@ -28,17 +28,107 @@ impl State {
         pron.extend(self.glossary_pronounce.read().iter().cloned());
         pron.extend(s.pronounce.iter().cloned());
         self.pronounce.set(Rc::new(pron));
-        self.script.set(Some(Rc::new(s)));
+        let s = Rc::new(s);
+        self.script_src.set(Some(s.clone()));
+        self.glossary_tr.set(None);
+        self.script.set(Some(s));
         self.part_idx.set(0);
         self.cue_idx.set(0);
         self.playing.set(false);
         self.answering.set(None);
         self.asked.set(vec![]);
         self.tts_gen += 1;
-        if self.has_recording() {
+        // a recording plays unless the codecast's config asks for TTS or silent reading
+        if self.has_recording() && !matches!(self.config.peek().voice.as_deref(), Some("tts" | "read")) {
             self.voice.set(Voice::Audio);
         }
         self.apply_cue();
+        if self.lang.peek().as_str() != "en" {
+            self.translate();
+        }
+    }
+
+    /// Play the codecast in another language (`en`: as written).
+    pub fn set_lang(&mut self, code: &str) {
+        if self.lang.peek().as_str() == code {
+            return;
+        }
+        self.lang.set(code.to_string());
+        self.tts_gen += 1;
+        self.playing.set(false);
+        document::eval("try { speechSynthesis.cancel(); } catch (e) {}");
+        // recordings are in English: a translated codecast is spoken by TTS
+        if code != "en" && *self.voice.peek() == Voice::Audio {
+            self.voice.set(Voice::Tts);
+        }
+        if code == "en" {
+            self.lang_info.set(String::new());
+            self.glossary_tr.set(None);
+            let src = self.script_src.peek().clone();
+            if let Some(src) = src {
+                self.script.set(Some(src));
+                if self.has_recording() {
+                    self.voice.set(Voice::Audio);
+                }
+                self.apply_cue();
+            }
+        } else {
+            // until the translation arrives: the English text, without its English recordings
+            let src = self.script_src.peek().clone();
+            if let Some(src) = src {
+                let mut s = (*src).clone();
+                iwr_core::i18n::use_voices(&mut s, "");
+                self.script.set(Some(Rc::new(s)));
+                self.translate();
+            }
+        }
+    }
+
+    /// Translate the English script and the glossary into `lang`: by the server's offline model
+    /// (`/api/translate`), or from the map a static export ships (`translations/<lang>.json`).
+    /// The script stays in English until the translation arrives; the position is kept.
+    fn translate(&mut self) {
+        let mut state = *self;
+        let lang = self.lang.peek().clone();
+        let Some(src) = self.script_src.peek().clone() else { return };
+        let Some(p) = self.project.peek().clone() else { return };
+        let glossary = self.glossary.peek().clone();
+        let name = iwr_core::i18n::lang(&lang).map(|l| l.name).unwrap_or(&lang).to_string();
+        let live = *self.live.peek();
+        spawn(async move {
+            let names = iwr_core::i18n::names(&p);
+            let texts = iwr_core::i18n::texts(&src, &glossary, &names);
+            state.lang_info.set(format!("translating {} pieces to {name}…", texts.len()));
+            let map: Result<std::collections::HashMap<String, String>, String> = if live {
+                fetch_translations(&lang, &texts).await.map(|done| texts.iter().cloned().zip(done).collect())
+            } else {
+                match fetch_text(&format!("translations/{lang}.json")).await {
+                    Some(t) => serde_json::from_str(&t).map_err(|e| e.to_string()),
+                    None => Err(format!("this site has no {name} translation (export it with --lang {lang})")),
+                }
+            };
+            // the language or the script changed meanwhile: that one wins
+            if *state.lang.peek() != lang || !state.script_src.peek().as_ref().is_some_and(|s| Rc::ptr_eq(s, &src)) {
+                return;
+            }
+            match map {
+                Ok(map) => {
+                    let mut s = (*src).clone();
+                    let mut g = (*glossary).clone();
+                    iwr_core::i18n::apply(&mut s, &mut g, &names, &|t| map.get(t).cloned());
+                    // parts recorded in this language (`iwr voice --lang`) play their recording
+                    iwr_core::i18n::use_voices(&mut s, &lang);
+                    state.glossary_tr.set(Some(Rc::new(g)));
+                    state.script.set(Some(Rc::new(s)));
+                    state.lang_info.set(String::new());
+                    if state.has_recording() && *state.voice.peek() == Voice::Tts {
+                        state.voice.set(Voice::Audio);
+                    }
+                    state.apply_cue();
+                }
+                Err(e) => state.lang_info.set(format!("⚠ no {name}: {e}. Playing in English.")),
+            }
+        });
     }
 
     /// Questions to offer for the current cue: the script's own, then glossary terms the cue
@@ -46,11 +136,13 @@ impl State {
     pub fn questions(&self) -> Vec<Question> {
         let Some(cue) = self.current_cue() else { return vec![] };
         let use_glossary = *self.glossary_on.read() && self.script.read().as_ref().map(|s| s.glossary).unwrap_or(true);
-        let g = self.glossary.read().clone();
+        let g = self.glossary_tr.read().clone().unwrap_or_else(|| self.glossary.read().clone());
         let asked = self.asked.read().clone();
         let empty: Vec<iwr_core::glossary::Entry> = vec![];
         let own: Vec<Question> = cue.questions.iter().filter(|q| !asked.iter().any(|a| a == &q.ask)).cloned().collect();
-        let cue = Cue { questions: own, ..cue };
+        // glossary terms are found in the English text, whatever the language played
+        let say = self.script_src.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())?.cues.get(*self.cue_idx.read()).map(|c| c.say.clone())).unwrap_or(cue.say);
+        let cue = Cue { questions: own, say, ..Default::default() };
         iwr_core::glossary::questions_for(&cue, if use_glossary { &g } else { &empty }, &asked, 4)
     }
 
@@ -110,7 +202,8 @@ impl State {
         self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).map(|p| p.audio.is_some()).unwrap_or(false)
     }
 
-    /// The recording to play now: the part's own, else the script's, else the one given from outside.
+    /// The recording to play now: the part's own, else the script's, else the one given from outside
+    /// (English only). A translated script carries the recordings of its language (`audio.ja:`).
     pub fn effective_audio(&self) -> Option<String> {
         let s = self.script.read().clone();
         if let Some(s) = &s {
@@ -121,12 +214,12 @@ impl State {
                 return Some(self.audio_src(a));
             }
         }
-        self.audio_url.read().clone()
+        self.audio_url.read().clone().filter(|_| self.lang.read().as_str() == "en")
     }
 
     /// Is there any recording: the script's, a part's, or one given from outside?
     pub fn has_recording(&self) -> bool {
-        self.audio_url.read().is_some() || self.script.read().as_ref().is_some_and(|s| s.audio.is_some() || s.parts.iter().any(|p| p.audio.is_some()))
+        self.lang.read().as_str() == "en" && self.audio_url.read().is_some() || self.script.read().as_ref().is_some_and(|s| s.audio.is_some() || s.parts.iter().any(|p| p.audio.is_some()))
     }
 
     /// Is the current cue spoken by browser TTS: TTS mode, or recording mode on a part without a
@@ -378,6 +471,34 @@ fn open_path(b: &iwr_core::model::Block, span: &Span, item: usize, ob: &mut std:
     }
 }
 
+/// The server's offline translation of `texts` into `lang` (the first call for a language sets up
+/// its model: minutes, once).
+async fn fetch_translations(lang: &str, texts: &[String]) -> Result<Vec<String>, String> {
+    let r = gloo_net::http::Request::post(&format!("/api/translate/{lang}")).json(texts).map_err(|e| e.to_string())?.send().await.map_err(|e| e.to_string())?;
+    if !r.ok() {
+        return Err(r.text().await.unwrap_or_else(|_| r.status().to_string()));
+    }
+    r.json::<Vec<String>>().await.map_err(|e| e.to_string())
+}
+
+/// JS that sets the utterance `u` to speak `lang`, with a voice for it when the browser has one
+/// (English keeps the browser's default voice). `name`: the codecast's `tts_voice`, picked first
+/// when a voice of that language has it in its name.
+pub fn voice_js(lang: &str, name: Option<&str>) -> String {
+    let Some(l) = iwr_core::i18n::lang(lang) else { return String::new() };
+    let name = serde_json::to_string(&name.unwrap_or_default().to_lowercase()).unwrap_or_else(|_| "\"\"".into());
+    if l.code == "en" && name == "\"\"" {
+        return String::new();
+    }
+    format!(
+        r#"{set_lang}
+           try {{ const vs = speechSynthesis.getVoices().filter(v => v.lang.replace("_", "-").toLowerCase().startsWith("{code}"));
+                  const v = ({name} && vs.find(v => v.name.toLowerCase().includes({name}))) || ("{code}" != "en" && vs[0]); if (v) u.voice = v; }} catch (e) {{}}"#,
+        set_lang = if l.code == "en" { String::new() } else { format!("u.lang = \"{}\";", l.speech) },
+        code = l.code
+    )
+}
+
 async fn fetch_text(url: &str) -> Option<String> {
     let r = gloo_net::http::Request::get(url).send().await.ok()?;
     if !r.ok() {
@@ -423,6 +544,9 @@ pub fn PlayerBar() -> Element {
     let n_parts = s.parts.len();
     let tour = *state.tour.read();
     let tts_info = state.tts_info.read().clone();
+    let lang = state.lang.read().clone();
+    let lang_info = state.lang_info.read().clone();
+    let locked = state.locked();
     // voices the browser offers, checked as soon as TTS is selected (None = not known yet)
     let mut tts_voices = use_signal(|| None::<usize>);
     use_effect(move || {
@@ -484,13 +608,15 @@ pub fn PlayerBar() -> Element {
                dioxus.send("voices:" + vs.length + ":" + (def ? def.name + " (" + def.lang + ")" : "none"));
                const u = new SpeechSynthesisUtterance({});
                u.rate = {rate:.2};
+               {voice}
                const t0 = performance.now();
                u.onstart = () => dioxus.send("start");
                u.onend = () => dioxus.send("end:" + Math.round(performance.now() - t0));
                u.onerror = (e) => dioxus.send("error:" + e.error);
                try {{ speechSynthesis.resume(); speechSynthesis.speak(u); }} catch (e) {{ dioxus.send("error:" + e); }}
                "#,
-            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into())
+            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
+            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref())
         );
         let my_gen = *state.tts_gen.peek();
         let cue_no = *state.cue_idx.peek() + 1;
@@ -553,11 +679,13 @@ pub fn PlayerBar() -> Element {
             r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
                const u = new SpeechSynthesisUtterance({});
                u.rate = {rate:.2};
+               {voice}
                u.onend = () => dioxus.send("end");
                u.onerror = (e) => dioxus.send("error:" + e.error);
                setTimeout(() => speechSynthesis.speak(u), 60);
                "#,
-            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into())
+            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
+            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref())
         );
         let my_gen = *state.tts_gen.peek();
         spawn(async move {
@@ -682,12 +810,22 @@ pub fn PlayerBar() -> Element {
                         title: "browser text-to-speech status", "🔊 {tts_info}" }
                 }
                 div { class: "row",
-                    select { class: "theme-select", value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
+                    select { class: "theme-select", disabled: locked, value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
                         onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
-                        option { value: "tts", "🔊 voice (TTS)" }
-                        if has_recording { option { value: "audio", "🎧 recording" } }
-                        option { value: "read", "📖 read" }
+                        // `selected` per option: the recording option comes and goes (language, loading)
+                        option { value: "tts", selected: voice == Voice::Tts, "🔊 voice (TTS)" }
+                        if has_recording { option { value: "audio", selected: voice == Voice::Audio, "🎧 recording" } }
+                        option { value: "read", selected: voice == Voice::Read, "📖 read" }
                     }
+                    select { class: "theme-select", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline), recordings are English only",
+                        onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
+                        for l in iwr_core::i18n::LANGS {
+                            option { value: l.code, "{l.name}" }
+                        }
+                    }
+                }
+                if !lang_info.is_empty() {
+                    div { class: "status", style: if lang_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" }, "🌐 {lang_info}" }
                 }
                 div { class: "row",
                     label { class: "status", style: "display:flex; gap:4px; align-items:center; cursor:pointer", title: "Full tour: continue with the next part when one ends",
@@ -696,14 +834,14 @@ pub fn PlayerBar() -> Element {
                     }
                 }
                 div { class: "row",
-                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.settings_open.set(false); state.set_mode(Mode::Plan); }, "plan" }
+                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Plan); }, "plan" }
                     button { class: "small", onclick: move |_| { let v = *show_load.read(); show_load.set(!v); }, "load…" }
                     button { class: "small", onclick: move |_| state.stop_script(), "✕ close" }
                 }
             }
             div { class: "body",
                 div { class: "parts",
-                    span { class: "status", "{title} · " }
+                    span { class: "status cast-title", "{title} · " }
                     for (i, p) in s.parts.iter().enumerate() {
                         { let name = p.name.clone(); let n = p.cues.len(); rsx! {
                             button { class: if i == part_idx { "small active" } else { "small" }, title: "{n} cues", onclick: move |_| state.goto_part(i), "{name}" }

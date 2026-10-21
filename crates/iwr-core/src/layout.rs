@@ -303,7 +303,11 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
             pos[u] = i as f64;
         }
     }
-    for sweep in 0..8 {
+    // sweeps keep the best ordering seen (a sweep can make things worse), then adjacent swaps
+    // (transpose) remove the crossings the barycenters leave
+    let mut best = layers.clone();
+    let mut best_x = crossings(&layers, &vsuccs, &pos);
+    for sweep in 0..24 {
         let down = sweep % 2 == 0;
         let idxs: Vec<usize> = if down { (1..layers.len()).collect() } else { (0..layers.len().saturating_sub(1)).rev().collect() };
         for li in idxs {
@@ -321,7 +325,22 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
                 pos[u] = i as f64;
             }
         }
+        let x = crossings(&layers, &vsuccs, &pos);
+        if x < best_x {
+            best_x = x;
+            best = layers.clone();
+        }
+        if best_x == 0 {
+            break;
+        }
     }
+    layers = best;
+    for layer in &layers {
+        for (i, &u) in layer.iter().enumerate() {
+            pos[u] = i as f64;
+        }
+    }
+    transpose(&mut layers, &vpreds, &vsuccs, &mut pos);
     // coordinates
     let (gap_main, gap_cross) = (opts.layer_gap, opts.node_gap);
     let size_cross = |u: usize| if opts.horizontal { vn[u].h.max(if u >= n { dummy_w } else { 0.0 }) } else { vn[u].w };
@@ -378,6 +397,24 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
                 let shift = -(lo + hi) / 2.0;
                 for &u in layer {
                     cross[u] += shift;
+                }
+            }
+        }
+    }
+    // straighten long edges: each dummy slides toward the line between its neighbours, inside
+    // the room its layer leaves it (boxes stay put, so the centring above is kept)
+    for _ in 0..16 {
+        for layer in &layers {
+            for (i, &u) in layer.iter().enumerate() {
+                if u < n || vpreds[u].is_empty() || vsuccs[u].is_empty() {
+                    continue;
+                }
+                let centre = |v: usize| cross[v] + size_cross(v) / 2.0;
+                let want = (centre(vpreds[u][0]) + centre(vsuccs[u][0])) / 2.0 - size_cross(u) / 2.0;
+                let lo = if i > 0 { let l = layer[i - 1]; cross[l] + size_cross(l) + gap_cross } else { f64::NEG_INFINITY };
+                let hi = if i + 1 < layer.len() { cross[layer[i + 1]] - gap_cross - size_cross(u) } else { f64::INFINITY };
+                if lo <= hi {
+                    cross[u] = want.clamp(lo, hi);
                 }
             }
         }
@@ -456,20 +493,126 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
         let down = if opts.horizontal { rb.x >= ra.x } else { rb.y >= ra.y };
         for (i, &u) in ordered.iter().enumerate() {
             let r = vrects[u];
-            let p = if i == 0 {
-                if opts.horizontal { if down { (r.right(), r.cy()) } else { (r.x, r.cy()) } } else if down { (r.cx(), r.bottom()) } else { (r.cx(), r.y) }
+            if i == 0 {
+                pts.push(if opts.horizontal { if down { (r.right(), r.cy()) } else { (r.x, r.cy()) } } else if down { (r.cx(), r.bottom()) } else { (r.cx(), r.y) });
             } else if i + 1 == ordered.len() {
-                if opts.horizontal { if down { (r.x, r.cy()) } else { (r.right(), r.cy()) } } else if down { (r.cx(), r.y) } else { (r.cx(), r.bottom()) }
+                pts.push(if opts.horizontal { if down { (r.x, r.cy()) } else { (r.right(), r.cy()) } } else if down { (r.cx(), r.y) } else { (r.cx(), r.bottom()) });
             } else {
-                (r.cx(), r.cy())
-            };
-            pts.push(p);
+                // a dummy: cross its whole layer band straight, so the curve bends only in the gaps
+                // between layers and never cuts a corner through a neighbouring box
+                let li = vn[u].rank;
+                let (lo, hi) = (layer_main[li], layer_main[li] + layer_size[li]);
+                let (enter, leave) = if down { (lo, hi) } else { (hi, lo) };
+                if opts.horizontal {
+                    pts.extend([(enter, r.cy()), (leave, r.cy())]);
+                } else {
+                    pts.extend([(r.cx(), enter), (r.cx(), leave)]);
+                }
+            }
         }
         // a cycle-broken edge between adjacent layers still points "up": mark backward so the UI curves it
         let backward = reversed.contains(&(a, b)) && ordered.len() == 2;
         routes.push(EdgeRoute { from: e.from.clone(), to: e.to.clone(), points: pts, backward });
     }
+    spread_ports(&mut routes, &vrects[..n], opts.horizontal);
     LayoutResult { rects, edges: routes, width: width + opts.margin, height: height + opts.margin }
+}
+
+/// Edge crossings between every pair of neighbouring layers (edges only join neighbours).
+fn crossings(layers: &[Vec<usize>], succs: &[Vec<usize>], pos: &[f64]) -> usize {
+    let mut total = 0;
+    for layer in layers {
+        let mut ends: Vec<(f64, f64)> = layer.iter().flat_map(|&u| succs[u].iter().map(move |&v| (pos[u], pos[v]))).collect();
+        ends.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for i in 0..ends.len() {
+            for j in i + 1..ends.len() {
+                if ends[i].0 < ends[j].0 && ends[j].1 < ends[i].1 {
+                    total += 1;
+                }
+            }
+        }
+    }
+    total
+}
+
+/// Crossings between the edges of `u` and those of `v` when `u` sits left of `v`.
+fn pair_crossings(u: usize, v: usize, preds: &[Vec<usize>], succs: &[Vec<usize>], pos: &[f64]) -> usize {
+    let side = |nb: &[Vec<usize>]| nb[u].iter().map(|&a| nb[v].iter().filter(|&&b| pos[b] < pos[a]).count()).sum::<usize>();
+    side(preds) + side(succs)
+}
+
+/// Swap neighbours in a layer while that removes crossings.
+fn transpose(layers: &mut [Vec<usize>], preds: &[Vec<usize>], succs: &[Vec<usize>], pos: &mut [f64]) {
+    for _ in 0..12 {
+        let mut improved = false;
+        for layer in layers.iter_mut() {
+            for i in 0..layer.len().saturating_sub(1) {
+                let (u, v) = (layer[i], layer[i + 1]);
+                if pair_crossings(u, v, preds, succs, pos) > pair_crossings(v, u, preds, succs, pos) {
+                    layer.swap(i, i + 1);
+                    pos[u] = (i + 1) as f64;
+                    pos[v] = i as f64;
+                    improved = true;
+                }
+            }
+        }
+        if !improved {
+            break;
+        }
+    }
+}
+
+/// Spread the ends of the edges that meet one side of a box along that side, ordered by where
+/// each edge comes from, so arrows no longer pile into the box centre and cross right there.
+fn spread_ports(routes: &mut [EdgeRoute], rects: &[Rect], horizontal: bool) {
+    // (route index, first end?) grouped by (node, side)
+    let mut sides: HashMap<(usize, bool), Vec<(usize, bool, f64)>> = HashMap::new();
+    let find = |p: (f64, f64)| -> Option<(usize, bool)> {
+        rects.iter().position(|r| {
+            if horizontal {
+                ((p.0 - r.x).abs() < 0.5 || (p.0 - r.right()).abs() < 0.5) && (p.1 - r.cy()).abs() < 0.5
+            } else {
+                ((p.1 - r.y).abs() < 0.5 || (p.1 - r.bottom()).abs() < 0.5) && (p.0 - r.cx()).abs() < 0.5
+            }
+        })
+        .map(|i| {
+            let r = rects[i];
+            (i, if horizontal { (p.0 - r.right()).abs() < 0.5 } else { (p.1 - r.bottom()).abs() < 0.5 })
+        })
+    };
+    for (ri, route) in routes.iter().enumerate() {
+        if route.backward || route.points.len() < 2 {
+            continue;
+        }
+        let n = route.points.len();
+        for (first, p, q) in [(true, route.points[0], route.points[1]), (false, route.points[n - 1], route.points[n - 2])] {
+            if let Some(key) = find(p) {
+                // where the edge heads: its next point, or for a direct edge the far end
+                let k = if horizontal { q.1 } else { q.0 };
+                sides.entry(key).or_default().push((ri, first, k));
+            }
+        }
+    }
+    for ((ni, _), mut ends) in sides {
+        if ends.len() < 2 {
+            continue;
+        }
+        let r = rects[ni];
+        ends.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap().then(a.0.cmp(&b.0)));
+        let len = if horizontal { r.h } else { r.w };
+        let step = (len * 0.8 / ends.len() as f64).min(18.0);
+        let start = -(step * (ends.len() - 1) as f64) / 2.0;
+        for (i, (ri, first, _)) in ends.into_iter().enumerate() {
+            let off = start + step * i as f64;
+            let pts = &mut routes[ri].points;
+            let p = if first { &mut pts[0] } else { pts.last_mut().unwrap() };
+            if horizontal {
+                p.1 = r.cy() + off;
+            } else {
+                p.0 = r.cx() + off;
+            }
+        }
+    }
 }
 
 /// A tree node for the tidy tree layout.
@@ -520,4 +663,129 @@ pub fn tree(root: &TreeNode, opts: &LayoutOptions) -> LayoutResult {
 /// Width for a text label in a node box (approximate monospace-ish metrics).
 pub fn text_width(s: &str, font_px: f64) -> f64 {
     s.lines().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * font_px * 0.6
+}
+
+/// One piece of a drawn edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Seg {
+    Line((f64, f64), (f64, f64)),
+    Quad((f64, f64), (f64, f64), (f64, f64)),
+    Cubic((f64, f64), (f64, f64), (f64, f64), (f64, f64)),
+}
+
+impl Seg {
+    pub fn at(&self, t: f64) -> (f64, f64) {
+        let u = 1.0 - t;
+        match *self {
+            Seg::Line(a, b) => (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t),
+            Seg::Quad(a, c, b) => (u * u * a.0 + 2.0 * u * t * c.0 + t * t * b.0, u * u * a.1 + 2.0 * u * t * c.1 + t * t * b.1),
+            Seg::Cubic(a, c1, c2, b) => (
+                u * u * u * a.0 + 3.0 * u * u * t * c1.0 + 3.0 * u * t * t * c2.0 + t * t * t * b.0,
+                u * u * u * a.1 + 3.0 * u * u * t * c1.1 + 3.0 * u * t * t * c2.1 + t * t * t * b.1,
+            ),
+        }
+    }
+    /// The point the curve comes from as it arrives at its end (for the arrow head).
+    fn before_end(&self) -> (f64, f64) {
+        match *self {
+            Seg::Line(a, _) => a,
+            Seg::Quad(_, c, _) => c,
+            Seg::Cubic(a, _, c2, b) => if (c2.0 - b.0).abs() + (c2.1 - b.1).abs() < 1e-6 { a } else { c2 },
+        }
+    }
+}
+
+/// How an edge route is drawn. Layered routes bend only between layers: every step is a cubic
+/// whose ends follow the layout axis (`sideways` = left to right), a straight line when aligned.
+/// `backward` routes (around the side) keep their corners; three points make one soft curve.
+pub fn edge_segments(points: &[(f64, f64)], backward: bool, sideways: bool) -> Vec<Seg> {
+    let n = points.len();
+    if n < 2 {
+        return vec![];
+    }
+    if backward && n > 2 {
+        // straight runs, each corner rounded (radius up to 8, at most half of either run)
+        let toward = |p: (f64, f64), q: (f64, f64), d: f64| {
+            let len = ((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2)).sqrt().max(1e-6);
+            (p.0 + (q.0 - p.0) * d / len, p.1 + (q.1 - p.1) * d / len)
+        };
+        let dist = |p: (f64, f64), q: (f64, f64)| ((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2)).sqrt();
+        let mut segs = Vec::new();
+        let mut cur = points[0];
+        for i in 1..n - 1 {
+            let (c, next) = (points[i], points[i + 1]);
+            let r = 8.0f64.min(dist(points[i - 1], c) / 2.0).min(dist(c, next) / 2.0);
+            let (a, b) = (toward(c, cur, r), toward(c, next, r));
+            segs.push(Seg::Line(cur, a));
+            segs.push(Seg::Quad(a, c, b));
+            cur = b;
+        }
+        segs.push(Seg::Line(cur, points[n - 1]));
+        return segs;
+    }
+    if n == 3 {
+        return vec![Seg::Quad(points[0], points[1], points[2])];
+    }
+    points
+        .windows(2)
+        .map(|w| {
+            let (a, b) = (w[0], w[1]);
+            if sideways {
+                if (a.1 - b.1).abs() < 0.5 {
+                    return Seg::Line(a, b);
+                }
+                let dir = if b.0 >= a.0 { 1.0 } else { -1.0 };
+                let d = (b.0 - a.0).abs().max(20.0) * 0.5;
+                Seg::Cubic(a, (a.0 + dir * d, a.1), (b.0 - dir * d, b.1), b)
+            } else {
+                if (a.0 - b.0).abs() < 0.5 {
+                    return Seg::Line(a, b);
+                }
+                let dir = if b.1 >= a.1 { 1.0 } else { -1.0 };
+                let d = (b.1 - a.1).abs().max(20.0) * 0.5;
+                Seg::Cubic(a, (a.0, a.1 + dir * d), (b.0, b.1 - dir * d), b)
+            }
+        })
+        .collect()
+}
+
+/// SVG path data of [`edge_segments`].
+pub fn edge_path(segs: &[Seg]) -> String {
+    let mut d = String::new();
+    for (i, s) in segs.iter().enumerate() {
+        let start = match *s {
+            Seg::Line(a, _) | Seg::Quad(a, _, _) | Seg::Cubic(a, _, _, _) => a,
+        };
+        if i == 0 {
+            d.push_str(&format!("M{:.1},{:.1}", start.0, start.1));
+        }
+        match *s {
+            Seg::Line(_, b) => d.push_str(&format!(" L{:.1},{:.1}", b.0, b.1)),
+            Seg::Quad(_, c, b) => d.push_str(&format!(" Q{:.1},{:.1} {:.1},{:.1}", c.0, c.1, b.0, b.1)),
+            Seg::Cubic(_, c1, c2, b) => d.push_str(&format!(" C{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", c1.0, c1.1, c2.0, c2.1, b.0, b.1)),
+        }
+    }
+    d
+}
+
+/// End point of the edge and the direction it arrives from (unit vector), for an arrow head.
+pub fn edge_end(segs: &[Seg]) -> Option<((f64, f64), (f64, f64))> {
+    let s = segs.last()?;
+    let end = s.at(1.0);
+    let from = s.before_end();
+    let (dx, dy) = (end.0 - from.0, end.1 - from.1);
+    let len = (dx * dx + dy * dy).sqrt();
+    (len > 1e-6).then(|| (end, (dx / len, dy / len)))
+}
+
+/// Points along the drawn edge, about every `step` pixels.
+pub fn edge_samples(segs: &[Seg], step: f64) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for s in segs {
+        let (a, b) = (s.at(0.0), s.at(1.0));
+        let k = ((((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt() / step).ceil() as usize).clamp(1, 200);
+        let skip = usize::from(!out.is_empty());
+        out.extend((skip..=k).map(|i| s.at(i as f64 / k as f64)));
+    }
+    out
 }

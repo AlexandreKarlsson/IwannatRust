@@ -3,7 +3,7 @@
 
 use crate::guide::{self, doc_sentence, join_and, label, GuideOptions};
 use crate::model::*;
-use crate::script::{resolve, step_cue, Cue};
+use crate::script::{attach_note, resolve, step_cue, Cue, Note};
 
 /// The tours, with their argument and what they show.
 pub const TOURS: &[(&str, &str)] = &[
@@ -16,11 +16,46 @@ pub const TOURS: &[(&str, &str)] = &[
     ("files_tour", "[:module]  every file, with its `//!` doc and what it defines"),
 ];
 
+/// A generated tour: its cues, and the side-panel notes they open (`| md:<title>`).
+#[derive(Debug, Clone, Default)]
+pub struct Tour {
+    pub cues: Vec<Cue>,
+    pub notes: Vec<Note>,
+}
+
+impl From<Vec<Cue>> for Tour {
+    fn from(cues: Vec<Cue>) -> Self {
+        Tour { cues, notes: vec![] }
+    }
+}
+
+impl Tour {
+    /// Add a cue; with a note, the side panel shows it from this cue on, else it closes.
+    fn push(&mut self, mut c: Cue, note: Option<Note>) {
+        attach_note(&mut self.notes, &self.cues, &mut c, note);
+        self.cues.push(c);
+    }
+
+    /// One stop about a doc: the doc page's stops ([`guide::doc_page`]) when it has headings,
+    /// tables or lists, the first saying `lead` before the page, else `lead` and `plain` alone.
+    fn doc_stops(&mut self, lead: &str, title: &str, doc: Option<&String>, plain: String, show: Option<String>, hl: Vec<String>) {
+        match guide::doc_page(title, doc) {
+            Some(stops) => {
+                for (k, st) in stops.into_iter().enumerate() {
+                    let c = if k == 0 { cue(format!("{} {}", lead, st.say), show.clone(), hl.clone()) } else { Cue { say: st.say, ..Default::default() } };
+                    self.push(c, Some(st.note));
+                }
+            }
+            None => self.push(cue(format!("{} {}", lead, plain), show, hl), None),
+        }
+    }
+}
+
 /// Stops per tour; the rest is counted in the last cue.
 const MAX_STOPS: usize = 20;
 
 /// The cues of a tour line (`name_tour` or `name_tour:<ref>`), or why it cannot be built.
-pub fn generate(p: &Project, line: &str) -> Result<Vec<Cue>, String> {
+pub fn generate(p: &Project, line: &str) -> Result<Tour, String> {
     let (name, arg) = line.split_once(':').map_or((line, None), |(n, a)| (n, Some(a)));
     let scope = match (name, arg) {
         ("flow_tour" | "entry_tour", _) | (_, None) => None,
@@ -28,11 +63,11 @@ pub fn generate(p: &Project, line: &str) -> Result<Vec<Cue>, String> {
     };
     Ok(match name {
         "architecture_tour" => architecture(p, scope),
-        "types_tour" => types(p, scope),
-        "errors_tour" => errors(p, scope),
-        "entry_tour" => entry(p),
-        "flow_tour" => flow(p, arg.ok_or("`flow_tour` needs a function: `flow_tour:crate::run`")?)?,
-        "todo_tour" => todo(p, scope),
+        "types_tour" => types(p, scope).into(),
+        "errors_tour" => errors(p, scope).into(),
+        "entry_tour" => entry(p).into(),
+        "flow_tour" => flow(p, arg.ok_or("`flow_tour` needs a function: `flow_tour:crate::run`")?)?.into(),
+        "todo_tour" => todo(p, scope).into(),
         "files_tour" => files(p, scope),
         _ => return Err(format!("unknown tour `{}` (known: {})", name, TOURS.iter().map(|t| t.0).collect::<Vec<_>>().join(", "))),
     })
@@ -81,11 +116,16 @@ fn cue(say: String, show: Option<String>, hl: Vec<String>) -> Cue {
 fn cap(mut cues: Vec<Cue>, total: usize) -> Vec<Cue> {
     if total > MAX_STOPS {
         cues.truncate(MAX_STOPS + 1);
-        if let Some(last) = cues.last_mut() {
-            last.say.push_str(&format!(" And {} more, not shown here.", total - MAX_STOPS));
-        }
     }
+    more(&mut cues, total);
     cues
+}
+
+/// Say how many of `total` stops were left out after `MAX_STOPS`.
+fn more(cues: &mut [Cue], total: usize) {
+    if let Some(last) = cues.last_mut().filter(|_| total > MAX_STOPS) {
+        last.say.push_str(&format!(" And {} more, not shown here.", total - MAX_STOPS));
+    }
 }
 
 fn is_test_item(p: &Project, it: &Item) -> bool {
@@ -95,29 +135,44 @@ fn is_test_item(p: &Project, it: &Item) -> bool {
 // ------------------------------------------------------------------ architecture
 
 /// The architecture view, then one cue per module, glowing it and reading its `//!` doc.
-fn architecture(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
+fn architecture(p: &Project, scope: Option<ModuleId>) -> Tour {
     let mods: Vec<&Module> = guide::tour_modules(p, scope);
     let g = crate::views::build(p, crate::views::Mode::Architecture, &crate::views::ViewOptions { module: scope, ..Default::default() });
-    let goal = match scope {
-        Some(m) => doc_sentence(p.module(m).doc.as_ref()),
-        None => p.modules.first().and_then(|m| m.doc.as_ref()).and_then(|d| d.split("\n\n").next()).map(|d| d.split_whitespace().collect::<Vec<_>>().join(" ")),
+    let root = match scope {
+        Some(m) => p.module(m),
+        None => &p.modules[0],
     };
-    let intro = format!(
-        "Here is the map of {}{}: every box is a module, every arrow a dependency.{} Let's visit the {} from the top down: first what starts the program, last the foundations everything else uses.",
-        p.name,
-        within(p, scope),
-        goal.map(|g| format!(" {}", g)).unwrap_or_default(),
-        plural(mods.len(), "module")
-    );
-    let mut cues = vec![cue(intro, Some("arch".into()), vec![])];
+    // the root's doc as a page: shown with the map, its sections read before the modules
+    let mut page = guide::doc_page(&root.path.trim_start_matches("crate::").replace("crate", &p.name), root.doc.as_ref()).unwrap_or_default().into_iter();
+    let first = page.next();
+    let goal = match (&first, scope) {
+        (Some(st), _) => Some(st.say.clone()).filter(|s| !s.is_empty()),
+        (None, Some(_)) => doc_sentence(root.doc.as_ref()),
+        (None, None) => root.doc.as_ref().and_then(|d| d.split("\n\n").next()).map(|d| d.split_whitespace().collect::<Vec<_>>().join(" ")),
+    };
+    let visit = format!("Let's visit the {} from the top down: first what starts the program, last the foundations everything else uses.", plural(mods.len(), "module"));
+    let map = format!("Here is the map of {}{}: every box is a module, every arrow a dependency.{}", p.name, within(p, scope), goal.map(|g| format!(" {}", g)).unwrap_or_default());
+    let mut t = Tour::default();
+    match first {
+        Some(st) => {
+            t.push(cue(map, Some("arch".into()), vec![]), Some(st.note));
+            for st in page {
+                t.push(Cue { say: st.say, ..Default::default() }, Some(st.note));
+            }
+            t.push(Cue { say: format!("Now the modules. {}", visit), ..Default::default() }, None);
+        }
+        None => t.push(cue(format!("{} {}", map, visit), Some("arch".into()), vec![]), None),
+    }
     let n = mods.len().min(MAX_STOPS);
-    for (i, m) in mods.iter().enumerate() {
+    for (i, m) in mods.iter().take(MAX_STOPS).enumerate() {
         let inside = folded_count(&g, m);
         let folded = if inside > 0 { format!(" It holds {} smaller modules, folded into its box.", inside) } else { String::new() };
-        let say = format!("{} `{}` module. {}{}", guide::tour_lead(i, n), m.path.trim_start_matches("crate::"), guide::module_sentence(p, m), folded);
-        cues.push(cue(say, None, vec![m.path.clone()]));
+        let name = m.path.trim_start_matches("crate::");
+        let lead = format!("{} `{}` module.{}", guide::tour_lead(i, n), name, folded);
+        t.doc_stops(&lead, name, m.doc.as_ref(), guide::module_sentence(p, m), None, vec![m.path.clone()]);
     }
-    cap(cues, mods.len())
+    more(&mut t.cues, mods.len());
+    t
 }
 
 /// How many modules the Architecture view folds into this box (its "+N inside" badge).
@@ -399,7 +454,7 @@ fn file_name(f: &SourceFile) -> String {
     format!("`{}`", stem)
 }
 
-fn files(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
+fn files(p: &Project, scope: Option<ModuleId>) -> Tour {
     let mut stops: Vec<(&SourceFile, Option<&Module>)> = Vec::new();
     for f in p.files.iter().filter(|f| f.rust) {
         let module = p.modules.iter().filter(|m| m.file == Some(f.id)).min_by_key(|m| m.path.len());
@@ -412,9 +467,9 @@ fn files(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
         }
     }
     let intro = format!("Let's walk through the {}{}, one by one, the way you would open them in an editor.", plural(stops.len(), "file"), within(p, scope));
-    let mut cues = vec![cue(intro, stops.first().map(|s| format!("code:{}", s.0.path)), vec![])];
+    let mut t = Tour::from(vec![cue(intro, stops.first().map(|s| format!("code:{}", s.0.path)), vec![])]);
     let n = stops.len().min(MAX_STOPS);
-    for (i, (f, m)) in stops.iter().enumerate() {
+    for (i, (f, m)) in stops.iter().take(MAX_STOPS).enumerate() {
         let doc = m.and_then(|m| doc_sentence(m.doc.as_ref())).unwrap_or_else(|| "It has no module doc yet.".into());
         let defs: Vec<ItemId> = m.map(|m| m.items.iter().copied().filter(|i| !matches!(p.item(*i).kind, ItemKind::Method | ItemKind::Impl)).collect()).unwrap_or_default();
         let defines = if defs.is_empty() { String::new() } else { format!(" It defines {}.", names(p, &defs, 5)) };
@@ -423,7 +478,9 @@ fn files(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
             _ if i + 1 == n => "And last,",
             _ => ["Next,", "Then"][i % 2],
         };
-        cues.push(cue(format!("{} the {} file. {}{}", lead, file_name(f), doc, defines), if i == 0 { None } else { Some(format!("code:{}", f.path)) }, vec![]));
+        let show = if i == 0 { None } else { Some(format!("code:{}", f.path)) };
+        t.doc_stops(&format!("{} the {} file.{}", lead, file_name(f), defines), &file_name(f), m.and_then(|m| m.doc.as_ref()), doc, show, vec![]);
     }
-    cap(cues, stops.len())
+    more(&mut t.cues, stops.len());
+    t
 }

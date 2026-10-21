@@ -4,7 +4,8 @@ A **codecast** is a short spoken tour of a Rust project. The IwannatRust player 
 its views: switching diagrams, glowing the block being talked about, underlining code. Input: the
 **brief** (`iwr brief <path>`). Output: a **script** in the markdown format below, as one `codecast.md`
 or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name.md` per part, optional
-`glossary.md`). Validate with `iwr check <script> --path <path>`, hear-check with `iwr speak <script>`.
+`glossary.md`, optional `codecast.toml` for the theme, fonts, voice and language the viewer starts
+with — see [codecast.md](codecast.md#look-and-defaults-codecasttoml)). Validate with `iwr check <script> --path <path>`, hear-check with `iwr speak <script>`.
 
 ## Format
 
@@ -46,7 +47,8 @@ is unique. `//` starts a comment line.
 ## Step 0: comment the code
 
 The player shows the code's own comments. Better comments = clearer views and less script to write.
-If you may edit the project, comment first, then write the script.
+If you may edit the project, comment first, then write the script. The full guide, with examples
+and what each comment turns into on screen: [commenting.md](commenting.md).
 
 | Comment | Put it | Player uses it as |
 |---------|--------|-------------------|
@@ -97,7 +99,7 @@ with the code.
 
 | Line | Becomes |
 |------|---------|
-| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds). Folded boxes say how many modules they hold. |
+| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds; a doc page in full, see below). Folded boxes say how many modules they hold. |
 | `types_tour[:mod]` | `@ types`, then per type (traits, errors, structs, enums): kind, fields / variants / implementors, `///` doc |
 | `errors_tour[:mod]` | `@ errors`: each error type + who returns it + `From` conversions; where `?` passes errors up; who handles them; who can panic |
 | `entry_tour` | `@ calls:main`: what `main` calls; then `@ structure`: each `pub` item with its doc |
@@ -108,10 +110,35 @@ with the code.
 `:mod` limits a tour to a module subtree (`types_tour:crate::storage`). At most 20 stops; the
 last says how many were left out. Tests are skipped.
 
+**Doc pages.** A `//!` doc with `#` headings, `| tables |` or `- lists` is read in full, not just its
+first paragraph: the side panel shows the whole doc (tables, headings) while the text before the
+first heading is read, then one cue per heading shows that section and reads it (table rows as
+"first cell: header value, …", at most 8; code blocks are only shown). The panel closes at the next
+stop without a page. Same in the built-in tour (`g`): the crate doc from the welcome on, each
+module's on its stop. Paths and `<placeholders>` are read as "gw slash data slash node".
+
 Directives above the line and `?` questions below it attach to its first cue. Write your own cue
 before it (why we look) and after it (hand-over). Use them for the
 inventory parts (map, data, errors) and write by hand what needs judgement: why, how parts connect.
 `flow_tour` is only as good as the function's `//` comments. `iwr speak` prints the generated text; `iwr check` flags unknown tours.
+
+## Voice: explain it to a curious twelve-year-old
+
+The listener is smart but new to this code. Aim for "I could explain it to a friend after".
+
+- **Plain words first, jargon second.** Say what happens ("the server writes the order down so it
+  survives a crash"), then name it ("that is the write-ahead log").
+- **One metaphor per big idea**: a queue is a line at the bakery, a mutex is the bathroom key, a
+  channel is a mail slot, a trait is a job description. Say it once, reuse it, drop it when it
+  stops fitting. Draw it if it moves (see *Diagrams*).
+- **Show, don't describe data.** Talking about an API? Show the request body. A file parser? Show
+  three lines of the file. A table? Show two rows. Use an example block (see *Examples*), real-looking
+  values (`"ann@example.com"`, not `"string"`), 3–10 lines.
+- **Follow one concrete thing.** "Let's follow Ann's order from the click to the database" beats a
+  tour of layers. Reuse the same sample across parts.
+- **Questions before answers.** "So what happens if the disk is full?" then the code that handles it.
+- **Short sentences, active voice, *we*.** "We check the token" not "The token is checked".
+- **Say why it matters**: the bug it avoids, the cost it saves. Skip what the listener can't see.
 
 ## How to write it
 
@@ -207,6 +234,30 @@ Sizes: a number, a number type (`u8` `u16` `u32` `u64`, `i…`, `f32` `f64`, `le
 an earlier field's id (its value), or `*` for whatever the sample has left. `_` is padding.
 Use it for headers, packets, file formats, register maps; skip it when the format is text.
 
+## Examples (a body sent, a file read, a row stored)
+
+Data is easier to see than to describe. A ```` ```json <title> ```` block (also `csv`, `tsv`, `yaml`,
+`toml`, `xml`, `http`, `sql`, `sh`, `text`) is an example; `| example:<title>` (or `| json:<title>`)
+shows it in the side panel next to the code or diagram, `|` hides it again. `!` with a key (json,
+yaml, toml, xml, http header) glows its line; with a column name it glows a csv column. Keep it short
+and real; show it on the cue that talks about it, close it when the subject moves on.
+
+````
+## Sending an order
+```json Order
+{
+  "user": "ann@example.com",
+  "items": [{ "sku": "BREAD-01", "qty": 2 }],
+  "pay": "card"
+}
+```
+@ code:crate::api::post_order
+| example:Order
+! crate::api::post_order/b1 items
+The shop sends this little parcel. Each item says what and how many.
+|
+````
+
 ## Example
 
 ```
@@ -241,6 +292,8 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
 - First cue of every part sets `@`; no part longer than twelve cues.
+- Data the code sends, reads or stores is shown with an example block, not described.
+- Each big idea has one metaphor; jargon comes after the plain words.
 - Every module has a `//!`, loops and key `if`s have a short `//` (if you may edit the code).
 - Inventory parts may use tours (`architecture_tour`, `types_tour`, `errors_tour`…) instead of hand-written cue lists.
 - `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.

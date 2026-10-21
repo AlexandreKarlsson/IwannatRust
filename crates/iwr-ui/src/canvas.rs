@@ -5,110 +5,30 @@ use crate::{State, Transform};
 use iwr_core::script::Resolved;
 use dioxus::html::geometry::WheelDelta;
 use dioxus::prelude::*;
+use iwr_core::layout::{self, Seg};
 use iwr_core::views::{EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
 use std::rc::Rc;
 
-/// True when a two-point edge attaches to the left/right sides of its boxes (LR layouts),
-/// so the bezier and its arrow head run horizontally instead of vertically.
-fn sideways(edge: &VEdge, g: &Graph) -> bool {
-    let on_side = |id: &str, p: (f64, f64)| {
-        g.node(id).is_some_and(|n| ((p.0 - n.x).abs() < 1.0 || (p.0 - (n.x + n.w)).abs() < 1.0) && p.1 > n.y + 1.0 && p.1 < n.y + n.h - 1.0)
-    };
-    match edge.points.as_slice() {
-        [a, b] => on_side(&edge.from, *a) || on_side(&edge.to, *b),
-        _ => false,
-    }
-}
-
-fn path_d(points: &[(f64, f64)], backward: bool, sideways: bool) -> String {
-    if points.len() < 2 {
-        return String::new();
-    }
-    if points.len() == 2 {
-        let (x1, y1) = points[0];
-        let (x2, y2) = points[1];
-        if sideways {
-            let dir = if x2 >= x1 { 1.0 } else { -1.0 };
-            let dx = (x2 - x1).abs().max(20.0) * 0.5;
-            return format!("M{:.1},{:.1} C{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x1, y1, x1 + dir * dx, y1, x2 - dir * dx, y2, x2, y2);
-        }
-        let dir = if y2 >= y1 { 1.0 } else { -1.0 };
-        let dy = (y2 - y1).abs().max(20.0) * 0.5;
-        return format!("M{:.1},{:.1} C{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x1, y1, x1, y1 + dir * dy, x2, y2 - dir * dy, x2, y2);
-    }
-    if backward {
-        // orthogonal side route: keep the corners
-        let mut d = format!("M{:.1},{:.1}", points[0].0, points[0].1);
-        for p in &points[1..] {
-            d.push_str(&format!(" L{:.1},{:.1}", p.0, p.1));
-        }
-        return d;
-    }
-    if points.len() == 3 {
-        let (x1, y1) = points[0];
-        let (cx, cy) = points[1];
-        let (x2, y2) = points[2];
-        return format!("M{:.1},{:.1} Q{:.1},{:.1} {:.1},{:.1}", x1, y1, cx, cy, x2, y2);
-    }
-    // smooth spline through the waypoints (dummy-node routing): quadratic segments via midpoints
-    let mut d = format!("M{:.1},{:.1}", points[0].0, points[0].1);
-    let n = points.len();
-    for i in 1..n - 1 {
-        let (cx, cy) = points[i];
-        let (nx, ny) = points[i + 1];
-        let (mx, my) = if i + 1 == n - 1 { (nx, ny) } else { ((cx + nx) / 2.0, (cy + ny) / 2.0) };
-        d.push_str(&format!(" Q{:.1},{:.1} {:.1},{:.1}", cx, cy, mx, my));
-    }
-    d
-}
-
-/// Arrow head polygon at the end of a path.
-fn arrow(points: &[(f64, f64)], sideways: bool) -> Option<(String, f64, f64)> {
-    if points.len() < 2 {
-        return None;
-    }
-    let (x2, y2) = points[points.len() - 1];
-    let (x1, y1) = if points.len() == 2 {
-        // bezier: the end tangent follows its last control point (vertical, or horizontal when sideways)
-        if sideways {
-            if x2 >= points[0].0 { (x2 - 10.0, y2) } else { (x2 + 10.0, y2) }
-        } else if y2 >= points[0].1 {
-            (x2, y2 - 10.0)
-        } else {
-            (x2, y2 + 10.0)
-        }
-    } else if points.len() == 3 {
-        points[1]
-    } else {
-        points[points.len() - 2]
-    };
-    let (dx, dy) = (x2 - x1, y2 - y1);
-    let len = (dx * dx + dy * dy).sqrt().max(0.001);
-    let (ux, uy) = (dx / len, dy / len);
+/// Arrow head polygon at the end of the drawn edge.
+fn arrow(segs: &[Seg]) -> Option<String> {
+    let ((x2, y2), (ux, uy)) = layout::edge_end(segs)?;
     let s = 8.0;
     let p1 = (x2 - ux * s - uy * s * 0.55, y2 - uy * s + ux * s * 0.55);
     let p2 = (x2 - ux * s + uy * s * 0.55, y2 - uy * s - ux * s * 0.55);
-    Some((format!("{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x2, y2, p1.0, p1.1, p2.0, p2.1), (x1 + x2) / 2.0, (y1 + y2) / 2.0))
+    Some(format!("{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x2, y2, p1.0, p1.1, p2.0, p2.1))
 }
 
-fn mid(points: &[(f64, f64)]) -> (f64, f64) {
-    match points.len() {
-        0 => (0.0, 0.0),
-        1 => points[0],
-        2 => ((points[0].0 + points[1].0) / 2.0, (points[0].1 + points[1].1) / 2.0),
-        3 => (0.25 * points[0].0 + 0.5 * points[1].0 + 0.25 * points[2].0, 0.25 * points[0].1 + 0.5 * points[1].1 + 0.25 * points[2].1),
-        n => {
-            let a = points[n / 2 - 1];
-            let b = points[n / 2];
-            ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0)
-        }
-    }
+/// Class of an edge's `g`, shared by the edge and its label (drawn later, above the boxes).
+fn edge_class(edge: &VEdge, highlighted: bool, near: bool, dim: bool) -> String {
+    format!("edge{}{}{}{}", if highlighted { " hi" } else { "" }, if near { " near" } else { "" }, if dim { " dim" } else { "" }, if edge.hub { " hub" } else { "" })
 }
 
 #[component]
 pub fn Canvas() -> Element {
     let mut state = use_context::<State>();
     let graph: Memo<Rc<Graph>> = use_memo(move || Rc::new(state.build_graph()));
+    // label placement depends on the graph only, not on pan/zoom or hover
+    let label_spots: Memo<Rc<Vec<Option<(f64, f64)>>>> = use_memo(move || Rc::new(graph.read().label_spots()));
     let mut dragging: Signal<Option<(f64, f64, f64, f64)>> = use_signal(|| None);
     let mut moved = use_signal(|| false);
     let mut svg_el: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
@@ -163,6 +83,18 @@ pub fn Canvas() -> Element {
     let hovered_id: Option<String> = hovered.as_ref().map(|h| h.0.clone());
     let selected_node_id: Option<String> = g.nodes.iter().find(|n| is_selected(n, selected, sel_span, mode)).map(|n| n.id.clone());
     let focus_id = hovered_id.clone().or(selected_node_id);
+    let spots = label_spots.read().clone();
+    let edge_classes: Vec<String> = g
+        .edges
+        .iter()
+        .map(|e| {
+            let highlighted = hi.contains(&e.from) && hi.contains(&e.to);
+            let near = focus_id.as_ref().is_some_and(|f| &e.from == f || &e.to == f);
+            // architecture: dependency arrows stay faint unless they touch the box in focus or a glowing one
+            let dim = mode == Mode::Architecture && e.kind == EdgeKind::Dependency && !near && !hi.contains(&e.from) && !hi.contains(&e.to);
+            edge_class(e, highlighted, near, dim)
+        })
+        .collect();
 
     rsx! {
         div { class: "canvas-wrap",
@@ -220,18 +152,8 @@ pub fn Canvas() -> Element {
                     for n in g.nodes.iter().filter(|n| n.container) {
                         Node { key: "{n.id}", node: n.clone(), selected: false, highlighted: hi.contains(&n.id), hovered: false, mode, moved }
                     }
-                    for e in g.edges.iter() {
-                        Edge {
-                            key: "{e.id}",
-                            edge: e.clone(),
-                            highlighted: hi.contains(&e.from) && hi.contains(&e.to),
-                            near: focus_id.as_ref().map(|f| &e.from == f || &e.to == f).unwrap_or(false),
-                            // architecture: dependency arrows stay faint unless they touch the box in focus or a glowing one
-                            dim: mode == Mode::Architecture && e.kind == EdgeKind::Dependency
-                                && focus_id.as_ref().is_none_or(|f| &e.from != f && &e.to != f)
-                                && !hi.contains(&e.from) && !hi.contains(&e.to),
-                            sideways: sideways(e, &g),
-                        }
+                    for (e, class) in g.edges.iter().zip(&edge_classes) {
+                        Edge { key: "{e.id}", edge: e.clone(), segs: g.segments(e), class: class.clone() }
                     }
                     for n in g.nodes.iter().filter(|n| !n.container) {
                         Node {
@@ -242,6 +164,12 @@ pub fn Canvas() -> Element {
                             hovered: hovered_id.as_deref() == Some(n.id.as_str()),
                             mode,
                             moved,
+                        }
+                    }
+                    // labels last: above the boxes, where they were placed not to cover any
+                    for ((e, class), spot) in g.edges.iter().zip(&edge_classes).zip(spots.iter()) {
+                        if let (Some(l), Some((x, y))) = (&e.label, spot) {
+                            EdgeLabel { key: "l{e.id}", label: l.clone(), kind: e.kind, x: *x, y: *y, class: class.clone() }
                         }
                     }
                 }
@@ -460,6 +388,14 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 // a stack of cards: the loop body is folded inside
                 rect { x: "5", y: "5", width: "{node.w:.1}", height: "{node.h:.1}", rx: "{rx}", fill: "var(--bg)", stroke: "{color}", "stroke-width": "1.2", "stroke-opacity": "0.7" }
             }
+            // boxes are opaque: the tint sits on the page colour so arrows behind never show through the text
+            if !container {
+                if diamond {
+                    polygon { points: "{poly}", fill: "var(--bg)" }
+                } else {
+                    rect { width: "{node.w:.1}", height: "{node.h:.1}", rx: "{rx}", fill: "var(--bg)" }
+                }
+            }
             if diamond {
                 polygon { class: "body", points: "{poly}", fill: "{color}", "fill-opacity": "{fill_op}", stroke: "{color}", "stroke-width": "1.6", "stroke-linejoin": "round" }
             } else {
@@ -468,7 +404,7 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
             if container {
                 rect { width: "{node.w:.1}", height: "24", rx: "{rx}", fill: "{color}", "fill-opacity": "0.25" }
             }
-            text { x: "{tx:.1}", y: "{title_y:.1}", "text-anchor": "{anchor}", class: if container { "cont" } else if fn_title { "fn-title" } else { "" },
+            text { x: "{tx:.1}", y: "{title_y:.1}", "text-anchor": "{anchor}", class: if container { "title cont" } else if fn_title { "title fn-title" } else { "title" },
                 if multi {
                     for (i, l) in lines.iter().enumerate() {
                         tspan { x: "{tx:.1}", dy: if i == 0 { "0" } else { "15" }, "{l}" }
@@ -530,28 +466,44 @@ fn Chip(chip: iwr_core::views::Chip, x: f64, y: f64, r: f64) -> Element {
 }
 
 #[component]
-fn Edge(edge: VEdge, highlighted: bool, near: bool, dim: bool, sideways: bool) -> Element {
+fn Edge(edge: VEdge, segs: Vec<Seg>, class: String) -> Element {
     let (color, dash, width) = theme::edge_style(edge.kind);
     // counted edges (architecture) get thicker with use, up to about twice the base width
     let width = if edge.weight > 1 { width + (edge.weight as f64).log2().min(4.0) * 0.45 } else { width };
-    let d = path_d(&edge.points, edge.backward, sideways);
-    let head = arrow(&edge.points, sideways);
-    let tail = if edge.both { arrow(&edge.points.iter().rev().copied().collect::<Vec<_>>(), sideways) } else { None };
-    let (mx, my) = mid(&edge.points);
-    let label_w = edge.label.as_ref().map(|l| l.chars().count() as f64 * 6.0 + 8.0).unwrap_or(0.0);
+    let d = layout::edge_path(&segs);
+    let head = arrow(&segs);
+    let tail = if edge.both {
+        let rev: Vec<Seg> = segs.iter().rev().map(|s| match *s {
+            Seg::Line(a, b) => Seg::Line(b, a),
+            Seg::Quad(a, c, b) => Seg::Quad(b, c, a),
+            Seg::Cubic(a, c1, c2, b) => Seg::Cubic(b, c2, c1, a),
+        }).collect();
+        arrow(&rev)
+    } else {
+        None
+    };
     rsx! {
-        g { class: format!("edge{}{}{}{}", if highlighted { " hi" } else { "" }, if near { " near" } else { "" }, if dim { " dim" } else { "" }, if edge.hub { " hub" } else { "" }),
+        g { class: "{class}",
             path { d: "{d}", fill: "none", stroke: "{color}", "stroke-width": "{width}", "stroke-dasharray": "{dash}", "stroke-linejoin": "round", "stroke-linecap": "round", opacity: "0.9" }
-            if let Some((pts, _, _)) = head {
+            if let Some(pts) = head {
                 polygon { points: "{pts}", fill: "{color}" }
             }
-            if let Some((pts, _, _)) = tail {
+            if let Some(pts) = tail {
                 polygon { points: "{pts}", fill: "{color}" }
             }
-            if let Some(l) = &edge.label {
-                rect { class: "edge-label-bg", x: "{mx - label_w / 2.0:.1}", y: "{my - 8.0:.1}", width: "{label_w:.1}", height: "15", rx: "4" }
-                text { class: "edge-label", x: "{mx:.1}", y: "{my + 3.5:.1}", "text-anchor": "middle", fill: "{color}", "{l}" }
-            }
+        }
+    }
+}
+
+/// An edge's label, drawn above the boxes at the spot `Graph::label_spots` found for it.
+#[component]
+fn EdgeLabel(label: String, kind: EdgeKind, x: f64, y: f64, class: String) -> Element {
+    let (color, _, _) = theme::edge_style(kind);
+    let w = iwr_core::views::edge_label_width(&label);
+    rsx! {
+        g { class: "{class}",
+            rect { class: "edge-label-bg", x: "{x - w / 2.0:.1}", y: "{y - 8.0:.1}", width: "{w:.1}", height: "15", rx: "4", stroke: "{color}", "stroke-opacity": "0.35" }
+            text { class: "edge-label", x: "{x:.1}", y: "{y + 3.5:.1}", "text-anchor": "middle", fill: "{color}", "{label}" }
         }
     }
 }
@@ -584,7 +536,7 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
         div { class: "tooltip", style: "left:{left:.0}px; top:{top:.0}px",
             div { class: "t", span { class: "pill", style: "background:{color}; color:#0b1020", "{kind}" } " {node.label.lines().next().unwrap_or(\"\")}" }
             if let (Some(info), true) = (&info, node.cfg_node.is_none() || node.kind == NodeKind::Entry) {
-                div { class: "sig", "{info.signature}" }
+                div { class: "sig", crate::source::RustText { text: info.signature.clone() } }
                 if let Some(d) = &info.doc {
                     div { class: "doc", "{d}" }
                 } else {
@@ -617,7 +569,7 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
                 if let Some(info) = &info {
                     if node.kind == NodeKind::Call || node.kind == NodeKind::Propagate {
                         div { class: "doc", "→ " b { "{info.title}" } ": {info.summary}" }
-                        div { class: "sig", "{info.signature}" }
+                        div { class: "sig", crate::source::RustText { text: info.signature.clone() } }
                     }
                 }
                 if node.kind == NodeKind::Propagate {

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod codecast;
 mod serve;
+mod translate;
 mod voice;
 
 /// The codecast writing guide, embedded so `iwr brief --guide` works from any directory.
@@ -57,6 +58,9 @@ enum Cmd {
         script: Option<PathBuf>,
         #[arg(long)]
         audio: Option<PathBuf>,
+        /// Also translate the codecast into these languages (offline), for the player's language menu: --lang ja,fr
+        #[arg(long, value_delimiter = ',')]
+        lang: Vec<String>,
     },
     /// Print a compact text brief of the project for writing a codecast script (LLM-friendly)
     Brief {
@@ -96,12 +100,17 @@ enum Cmd {
         /// The `codecast/` directory
         script: PathBuf,
         /// Kokoro voice (af_heart, af_bella, am_michael, bf_emma, bm_george, …)
-        #[arg(long, default_value = "af_heart")]
+        #[arg(long, default_value = voice::DEFAULT_VOICE)]
         voice: String,
         #[arg(long, default_value_t = 1.0)]
         speed: f32,
+        /// Kokoro language (en-us, en-gb), or a codecast language to translate into and record:
+        /// ja, fr, es, it, pt → NN-part.<lang>.ogg + .times (default voice of that language)
         #[arg(long, default_value = "en-us")]
         lang: String,
+        /// Project path, for the names kept as code when translating (defaults to the directory's parent)
+        #[arg(long)]
+        path: Option<PathBuf>,
         /// Silence between cues, in seconds
         #[arg(long, default_value_t = 0.4)]
         gap: f32,
@@ -111,6 +120,17 @@ enum Cmd {
         /// Re-record every part, and replace recordings not made by `iwr voice`
         #[arg(long)]
         force: bool,
+    },
+    /// Translate a codecast offline (Argos models, cached) and print it; the player translates the same way when another language is picked
+    Translate {
+        /// A script file or a `codecast/` directory
+        script: PathBuf,
+        /// Target language: ja, fr, de, es, it, pt, sv, zh, ko
+        #[arg(long)]
+        lang: String,
+        /// Project path (for generated tours and the names kept as code)
+        #[arg(long, default_value = ".")]
+        path: PathBuf,
     },
     /// Validate a codecast's refs against the project (a script file or a `codecast/` directory)
     Check {
@@ -138,7 +158,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Export { path, out, script, audio } => serve::export(path, out, script, audio),
+        Cmd::Export { path, out, script, audio, lang } => serve::export(path, out, script, audio, &lang),
         Cmd::Brief { path, only, no_body, no_overview, guide } => {
             let p = iwr_core::analyze_path(&path)?;
             if guide {
@@ -178,7 +198,8 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Voice { script, voice, speed, lang, gap, level, force } => voice::run(&script, &voice::Opts { voice, speed, lang, gap, level, force }),
+        Cmd::Voice { script, voice, speed, lang, path, gap, level, force } => voice::run(&script, &voice::Opts { voice, speed, lang, path, gap, level, force, only: vec![] }),
+        Cmd::Translate { script, lang, path } => translate::run(&script, &path, &lang),
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
             let loaded = codecast::load(&script)?;
@@ -192,8 +213,9 @@ fn main() -> Result<()> {
                     bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
                 }
             }
+            bad.extend(codecast::check_config(&script));
             for stem in &loaded.stale {
-                println!("  note: {}: text changed since its recording, TTS speaks it until `iwr voice {}`", stem, script.display());
+                println!("  note: {}: text changed since its recording, TTS speaks it until `iwr voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
             }
             let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
             for p in &s.parts {
@@ -207,9 +229,10 @@ fn main() -> Result<()> {
             let nd: usize = s.parts.iter().map(|p| p.diagrams.len()).sum();
             let nb: usize = s.parts.iter().map(|p| p.layouts.len()).sum();
             let nn: usize = s.parts.iter().map(|p| p.notes.len()).sum();
+            let ne: usize = s.parts.iter().map(|p| p.examples.len()).sum();
             let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
             println!(
-                "{}: {} part(s), {} cue(s), {} question(s){}{}{}{}{}",
+                "{}: {} part(s), {} cue(s), {} question(s){}{}{}{}{}{}",
                 s.title,
                 s.parts.len(),
                 s.cue_count(),
@@ -217,6 +240,7 @@ fn main() -> Result<()> {
                 if nd > 0 { format!(", {} diagram(s)", nd) } else { String::new() },
                 if nb > 0 { format!(", {} byte layout(s)", nb) } else { String::new() },
                 if nn > 0 { format!(", {} side note(s)", nn) } else { String::new() },
+                if ne > 0 { format!(", {} example(s)", ne) } else { String::new() },
                 if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() },
                 if s.glossary { "" } else { ", built-in glossary off" }
             );

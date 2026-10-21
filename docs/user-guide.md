@@ -80,7 +80,31 @@ the player bar. See [codecast.md](codecast.md) for the format, the brief and the
 
 ## Settings
 
-⚙ (or `,`) opens the settings page: theme (**Dark**, **Light**, **Paper**, **Midnight**, **Forest**, **Nord**, **Solar**, **Dusk**), what the analysis views include, call-tree depth, source split, voice / speech rate / reading time, full tour, panel layout, and the keyboard reference. Everything is remembered in the browser.
+⚙ (or `,`) opens the settings page. A side menu (it follows the scroll) leads to: **Appearance** —
+32 themes as small previews of the interface (filter Dark / Light) and a gallery of 31 bundled
+fonts, drawn in themselves, for the box titles and for the interface text; **Codecast** — voice,
+language, speech rate, reading time, full tour, spoken code, glossary questions; **Codecast
+design** (authors, below); **Analysis views**; **Code view**; **Layout**; **Keyboard**.
+Everything is remembered in the browser.
+
+A codecast may ship its own look and defaults (`codecast.toml`: theme, colours, fonts, voice,
+language). They are applied when you first open it, or when its author changes them; what you
+change afterwards is kept. A locked codecast greys out the theme, font, voice and language controls. Authors design that file in
+the *Codecast design* section: *Create the codecast configuration* opens the editor; pick the theme, fonts (upload a font file for the box
+titles), colours, voice and language, see them at once, then *save codecast.toml* (with `iwr
+serve`) or download it.
+
+## Generate the voice
+
+With `iwr serve` and a `codecast/` directory, **generate** in the top bar (its badge counts the
+parts without an up-to-date English recording) opens a page that records the codecast with Kokoro,
+like `iwr voice`: pick the language (other languages are translated from the English parts), a
+voice (▶ plays a sample), the speed, the pause between cues and the compression, then the parts
+(by default the ones missing or changed since their recording). A progress bar follows every cue
+with the time left; *Cancel* keeps the parts already written. The recording runs in the server, so
+you can leave the page (the top-bar button shows a ring meanwhile); when it ends the player loads
+the new recordings. The first run installs Kokoro (~90 MB) under `~/.cache/iwr/kokoro`.
+`?page=generate` (or `?page=settings`) in the URL opens the page directly.
 
 ## Live reload
 

@@ -231,6 +231,67 @@ impl Graph {
     pub fn node(&self, id: &str) -> Option<&VNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
+
+    /// True when the edge leaves the left/right side of its box (left-to-right layouts), so its
+    /// curves run horizontally.
+    pub fn sideways(&self, e: &VEdge) -> bool {
+        let Some(&p) = e.points.first() else { return false };
+        self.node(&e.from).is_some_and(|n| ((p.0 - n.x).abs() < 1.0 || (p.0 - (n.x + n.w)).abs() < 1.0) && p.1 > n.y + 1.0 && p.1 < n.y + n.h - 1.0)
+    }
+
+    /// The drawn shape of an edge.
+    pub fn segments(&self, e: &VEdge) -> Vec<layout::Seg> {
+        layout::edge_segments(&e.points, e.backward, self.sideways(e))
+    }
+
+    /// Where to put each edge's label (centre), indexed like `edges`: on its own curve, as near
+    /// the middle as it can be without covering a box, a group title or another label. Hub
+    /// edges (hidden most of the time) go last so they never push the visible labels away.
+    pub fn label_spots(&self) -> Vec<Option<(f64, f64)>> {
+        type R = (f64, f64, f64, f64);
+        let hit = |a: R, b: R| a.0 < b.0 + b.2 && a.0 + a.2 > b.0 && a.1 < b.1 + b.3 && a.1 + a.3 > b.1;
+        let overlap = |a: R, b: R| ((a.0 + a.2).min(b.0 + b.2) - a.0.max(b.0)).max(0.0) * ((a.1 + a.3).min(b.1 + b.3) - a.1.max(b.1)).max(0.0);
+        let mut taken: Vec<R> = self.nodes.iter().map(|n| (n.x - 2.0, n.y - 2.0, n.w + 4.0, if n.container { 26.0 } else { n.h + 4.0 })).collect();
+        let mut order: Vec<usize> = (0..self.edges.len()).filter(|&i| self.edges[i].label.is_some()).collect();
+        order.sort_by_key(|&i| self.edges[i].hub);
+        let mut out = vec![None; self.edges.len()];
+        for i in order {
+            let e = &self.edges[i];
+            let w = edge_label_width(e.label.as_deref().unwrap_or(""));
+            let pts = layout::edge_samples(&self.segments(e), 4.0);
+            if pts.is_empty() {
+                continue;
+            }
+            // candidates from the middle outwards, never on the first/last stretch (arrow heads)
+            let m = pts.len() / 2;
+            let margin = (pts.len() / 8).max(1);
+            let mut best: Option<(f64, (f64, f64))> = None;
+            for k in 0..pts.len() {
+                let Some(j) = (if k % 2 == 0 { Some(m + k / 2) } else { m.checked_sub(k / 2 + 1) }) else { continue };
+                if j < margin || j + margin >= pts.len() {
+                    continue;
+                }
+                let p = pts[j];
+                let r = (p.0 - w / 2.0, p.1 - 8.0, w, 15.0);
+                let cost: f64 = taken.iter().filter(|t| hit(r, **t)).map(|t| overlap(r, *t)).sum();
+                if best.is_none_or(|(c, _)| cost < c) {
+                    best = Some((cost, p));
+                }
+                if cost == 0.0 {
+                    break;
+                }
+            }
+            let p = best.map(|b| b.1).unwrap_or(pts[m]);
+            taken.push((p.0 - w / 2.0, p.1 - 8.0, w, 15.0));
+            out[i] = Some(p);
+        }
+        out
+    }
+}
+
+/// Width of an edge label's background (10 px text).
+pub fn edge_label_width(label: &str) -> f64 {
+    label.chars().count() as f64 * 6.0 + 8.0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

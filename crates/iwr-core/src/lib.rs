@@ -9,6 +9,7 @@
 //! (positions) → [`guide`] (step-by-step walkthrough).
 
 pub mod brief;
+pub mod config;
 pub mod bytes;
 pub mod diagram;
 pub mod model;
@@ -16,7 +17,10 @@ pub mod guide;
 pub mod script;
 pub mod tours;
 pub mod glossary;
+pub mod highlight;
+pub mod i18n;
 pub mod speech;
+pub mod voice;
 pub mod layout;
 pub mod views;
 

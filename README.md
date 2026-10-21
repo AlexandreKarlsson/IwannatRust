@@ -61,9 +61,9 @@ error to main."*
 **Seven analysis views**, as icons in the top bar (hover one for its name). Types & traits above,
 in the Nord theme.
 
-<img src="images/shot-settings.png" alt="Settings page with the eight themes" width="100%">
+<img src="images/shot-settings.png" alt="Settings page with the theme gallery" width="100%">
 
-**Eight themes** and every setting on one page (<kbd>,</kbd>): what the graphs include, call-tree
+**32 themes, 31 fonts** and every setting on one page (<kbd>,</kbd>): what the graphs include, call-tree
 depth, voice and speech rate, reading time, full tour, layout. Everything is remembered.
 
 ## The tour (codecast)
@@ -114,6 +114,8 @@ tour pauses, answers, and carries on. **Diagrams**: when the code has no picture
 part draws its own with a ```` ```mermaid ```` block (GitHub renders it too): `@ diagram` shows it,
 `!` glows its nodes, `> copy storage` moves one into a group, `> +copy` reveals one. The demo's
 ownership part opens with run, a storage box and a scheduler, and a task copy that changes hands.
+**Your own look**: a `codecast.toml` beside the script sets the theme, colours, fonts (the titles in
+the boxes first), voice and language the viewer starts with, or locks them.
 Format, refs and player: [docs/codecast.md](docs/codecast.md) · writing guide:
 [docs/writing-codecasts.md](docs/writing-codecasts.md).
 
@@ -164,7 +166,7 @@ drop it in an `<iframe>` next to your docs. See [docs/embedding.md](docs/embeddi
 
 ## Documentation
 
-[docs/](docs/README.md): [user guide](docs/user-guide.md) · [CLI](docs/cli.md) ·
+[docs/](docs/README.md): [user guide](docs/user-guide.md) · [commenting your code](docs/commenting.md) · [CLI](docs/cli.md) ·
 [codecast format](docs/codecast.md) · [writing a tour](docs/writing-codecasts.md) ·
 [architecture](docs/architecture.md) · [model](docs/model.md) · [development](docs/development.md)
 

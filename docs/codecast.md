@@ -37,11 +37,75 @@ codecast/
   01-welcome.mp3      recording of that part, picked up by name (mp3/ogg/wav/m4a/webm)
   02-the-data.md
   glossary.md         optional: the project's own glossary (see Questions); never a part
+  codecast.toml       optional: the look and defaults (see Look and defaults)
+  fonts/              optional: font files codecast.toml names
 ```
 
 A part file may start with its own `# heading`; after the title in `index.md`, further `#` lines are
 ignored. `iwr check codecast/` validates the whole directory;
 [examples/demo/codecast/](../examples/demo/codecast/) is one.
+
+## Look and defaults: `codecast.toml`
+
+The author decides what the viewer gets: a `codecast.toml` next to the script (in the `codecast/`
+directory, or beside `codecast.md`). Every key is optional.
+
+```toml
+theme = "forest"          # one of the 32 built-in themes (list below)
+lang = "en"               # language the codecast plays in (en, ja, fr, de, es, it, …)
+voice = "tts"             # tts (browser voice), audio (the recording), read (silent, on a timer)
+tts_voice = "Samantha"    # browser voice whose name contains this, when the browser has one
+rate = 1.1                # speech rate, 0.5..2
+tour = true               # play every part in a row
+glossary = false          # "What is a…?" questions from the built-in Rust glossary
+lock = false              # true: the viewer cannot change theme, fonts, language and voice
+
+[fonts]                   # a bundled font's id, a font file (ttf, otf, woff, woff2) relative to this file, or an installed font's name
+title = "lost-tumbler"                 # titles in the graph boxes, headings, the plan page, the side panel, the player
+text = "montserrat"                    # the rest of the interface
+code = "fonts/FiraCode-Regular.ttf"    # code
+
+[colors]                  # theme variables to override, on top of any theme
+accent = "#ff7a00"        # also: bg, panel, panel2, panel3, border, text, muted, hi, hl-bg, sel-bg, code, grid
+```
+
+**Defaults, not chains.** A value is applied the first time a browser opens the codecast, and
+again whenever the author changes it; a setting the viewer changes afterwards is kept. With
+`lock = true`, theme, fonts, language and voice are applied on every load and their controls are greyed
+out. A recording still plays by default unless `voice` says `tts` or `read`. `?lang=` in the URL
+picks the language unless the codecast locks a `lang`.
+
+**Themes.** `dark`, `light`, `paper`, `midnight`, `forest`, `nord`, `solar`, `dusk`, `dracula`,
+`monokai`, `gruvbox`, `gruvbox-light`, `catppuccin`, `latte`, `tokyo`, `onedark`, `github`,
+`github-dark`, `rosepine`, `dawn`, `everforest`, `kanagawa`, `ayu`, `synthwave`, `ocean`, `sakura`,
+`mint`, `desert`, `coffee`, `matrix`, `cyber`, `contrast`. Settings → Appearance shows each one.
+
+**Fonts.** 31 fonts are bundled with the UI (`crates/iwr-ui/assets/fonts/`, woff2): pick one by
+its id, nothing to ship. Settings → Appearance shows them all, drawn in themselves.
+
+| Kind | Ids |
+|------|-----|
+| Display (titles) | `akieir`, `anak-bocil`, `apoca`, `asal-usul`, `brimful`, `catways`, `cozy-autumns`, `digitalt`, `lost-tumbler`, `north-kids`, `outline-style`, `pasti`, `quango`, `rubintek`, `slow-play`, `super-shiny`, `thesead`, `zerove`, `library-3am`, `aicon` |
+| Handwritten | `rahull`, `hey-august`, `mocaroni` |
+| Text (whole interface) | `montserrat`, `josefin-sans`, `zt-otez`, `glametrix`, `timeburner`, `ovaline`, `steiner`, `cambai` |
+
+None is monospace: `code` takes an installed font's name or a file. A font of your own goes in
+`codecast/fonts/…` (check its licence allows redistribution); `iwr serve` serves it, `iwr export`
+copies it to `codecast/` in the site. Box sizes are computed for a regular sans-serif: a very wide
+display font can run past its box. An installed font's name only works on machines that have it.
+
+**From the Settings page.** In *Codecast design*, the *Create the codecast configuration* button (*Edit…* once a file exists; the ⓘ next to it explains the file) opens an editor that builds the file without writing TOML:
+the theme and the fonts picked from the same galleries as Appearance (plus *your own font
+file…* to copy one into `codecast/fonts/`), language, voice, browser voice (from the browser's
+list), rate, tour, glossary, lock, and, folded under *Custom colours*, a colour picker per theme variable. Every change previews at once. Under `iwr serve`, *save
+codecast.toml* writes it next to the script (rewriting the file: hand-written comments are
+lost); in a static site, *download codecast.toml* hands you the file to put there. Saving and
+uploading need a codecast next to the project, and only the page served by `iwr serve` on a
+loopback address may do it.
+
+**Checks.** `iwr check` (and `serve` / `export` at start) report unknown keys, unknown themes,
+languages and voices, a rate out of range, colours that are not colours, unknown colour names, and
+font files that are missing or outside the codecast directory.
 
 ## Script format
 
@@ -95,7 +159,7 @@ cues generated from the project. They stay in sync with the code: rename a modul
 
 | Line | Cues |
 |------|---------|
-| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds). Folded boxes say how many modules they hold. |
+| `architecture_tour[:mod]` | `@ arch`, intro (project + crate root `//!`), then per box in reading order (top down = entry point first, foundations last; then left to right): `!` it + its `//!` first paragraph (or what it holds; a doc page in full, see below). Folded boxes say how many modules they hold. |
 | `types_tour[:mod]` | `@ types`, then per type (traits, errors, structs, enums): kind, fields / variants / implementors, `///` doc |
 | `errors_tour[:mod]` | `@ errors`: each error type + who returns it + `From` conversions; where `?` passes errors up; who handles them; who can panic |
 | `entry_tour` | `@ calls:main`: what `main` calls; then `@ structure`: each `pub` item with its doc |
@@ -105,6 +169,13 @@ cues generated from the project. They stay in sync with the code: rename a modul
 
 `:mod` limits a tour to a module subtree (`types_tour:crate::storage`). At most 20 stops; the
 last says how many were left out. Tests are skipped.
+
+**Doc pages.** A `//!` doc with `#` headings, `| tables |` or `- lists` is read in full, not just its
+first paragraph: the side panel shows the whole doc (tables, headings) while the text before the
+first heading is read, then one cue per heading shows that section and reads it (table rows as
+"first cell: header value, …", at most 8; code blocks are only shown). The panel closes at the next
+stop without a page. Same in the built-in tour (`g`): the crate doc from the welcome on, each
+module's on its stop. Paths and `<placeholders>` are read as "gw slash data slash node".
 
 `@` / `!` / `=` / `|` lines written just above the tour line, and `?` questions just below it,
 go to its first cue. Write your own cues around it to introduce and hand over. `iwr check` reports
@@ -191,9 +262,10 @@ place, in the Code view and the plan page it docks on the right; on a narrow win
 | `\| bytes` · `\| bytes:2` · `\| bytes:Frame` | a ```` ```bytes Frame ```` block of the part: a byte layout |
 | `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown (lists, numbered steps, tables, `###` headings) |
 | `\| diagram:2` | a ```` ```mermaid ```` block of the part, drawn small and still |
+| `\| example:Body` · `\| json:Body` · `\| csv` | a ```` ```json Body ```` block (also `csv` `tsv` `yaml` `toml` `xml` `http` `sql` `sh` `text`): sample data, csv as a table |
 | `\|` | closes the panel |
 
-`!` refs may name the panel's byte fields or diagram nodes next to code refs: `! crate::read/b2 len`
+`!` refs may name the panel's byte fields, diagram nodes, example keys (`"user":`, `user:`, `<user`) or csv columns next to code refs: `! crate::read/b2 len`
 glows block `b2` in the code and field `len` in the strip. An answer may carry its own `|` line.
 
 **Byte layouts.** One field per line, `id size [format] description`:
@@ -261,6 +333,37 @@ iwr speak codecast/            # the whole codecast as it will be spoken, to rev
 ```
 
 `iwr check` prints a note for a code token whose spoken form still looks like code.
+
+## Languages
+
+A codecast is written once, in English, and played in another language by picking it in the
+player bar (or Settings, or `?lang=ja` in the URL). Nothing is translated on disk: when a language
+is picked, the player sends every text a viewer reads or hears (cues, generated tours, questions
+and answers, part names, `plan:` lines, side notes, glossary questions) to be translated, and plays
+the result. Directives, refs, diagrams and code stay as written.
+
+- **Offline model.** `iwr serve` translates with an [Argos Translate](https://github.com/argosopentech/argos-translate)
+  model (CTranslate2, CPU), set up on first use under `~/.cache/iwr/translate` (Python venv,
+  ~250 MB per language). Translations are cached there: a codecast is translated once, then only
+  edited text. `iwr translate codecast/ --lang ja` does the same from the command line and prints
+  the result, to read it (or warm the cache) before playing.
+- **Static site.** `iwr export --lang ja,fr` writes `translations/<lang>.json`; without it the
+  player says so and plays in English.
+- **Code survives.** Code-looking words (`parse_file`, `crate::run`) and project names with a
+  capital, `_` or digit (`Project`) are wrapped in backticks before translation, which the model
+  copies through; plain lowercase names (`run`, `files`) are prose unless the script backticks them.
+- **Voice.** The browser speaks it with a voice of that language (Chrome has Japanese), or a
+  recording: `iwr voice codecast/ --lang ja` translates each part the same way and records it with
+  Kokoro (`jf_alpha` by default; Japanese phonemes by misaki, installed on first use; code and
+  other Latin words read as English) into `NN-part.ja.ogg` + `NN-part.ja.times`, meant to be
+  committed next to the English ones. The loader turns them into `audio.ja:` / `times.ja:` lines;
+  the player plays them in Japanese, TTS speaks the parts without one. The times hash the English
+  cues: edit the English text and the Japanese recording goes stale (`iwr check` says so) until
+  recorded again. Kokoro also speaks `fr`, `es`, `it`, `pt`.
+- Glossary questions are still found from the English text, then shown translated. The player's
+  own buttons stay English.
+
+Machine translation is approximate; write short sentences, one idea each, and put code in backticks.
 
 ## Refs
 

@@ -14,6 +14,8 @@
 //! = src/main.rs:49:18-44      underline code       (this cue only)
 //! [9.4]                       start time in seconds (audio mode)
 //! times: 0 4.2 9.8            start times of the part's cues in order (written by `iwr voice`); `[t]` wins
+//! audio.ja: 01-welcome.ja.ogg recording of this part in another language (`iwr voice --lang ja`),
+//! times.ja: 0 3.1 8.7         with its cue times; played when the codecast is played in that language
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
 //! ? What is a crate?          a question the listener can click (pauses the codecast)
 //!   The answer, indented.     answer lines; may hold their own `@` `!` `=` directives
@@ -35,6 +37,8 @@
 //! ```` ```bytes Header ```` block (a byte layout, see [`crate::bytes`]), `| md:Steps` a
 //! ```` ```md Steps ```` block (a list, a table, notes), `| diagram:2` a mermaid block. Sticky
 //! inside a part like `>` lines; `|` alone closes it. `!` refs may name its fields or nodes.
+//! A ```` ```json Request body ```` block (also `csv`, `yaml`, `toml`, `xml`, `http`, `sql`, `sh`,
+//! `text`) is an **example**: `| example:Request body` shows it, `!` glows its keys or columns.
 
 use crate::diagram::{Diagram, Op};
 use crate::model::*;
@@ -87,6 +91,31 @@ pub struct Part {
     /// ```` ```md ```` blocks of the part, in order (`| md`, `| md:2`, `| md:<title>`)
     #[serde(default)]
     pub notes: Vec<Note>,
+    /// example blocks of the part (```` ```json Body ````, ```` ```csv ````…), in order (`| example:Body`)
+    #[serde(default)]
+    pub examples: Vec<Example>,
+    /// recordings of this part in other languages (`audio.ja:` + `times.ja:` lines)
+    #[serde(default)]
+    pub voices: Vec<Voiced>,
+}
+
+/// A part recorded in another language than the script's: `audio.ja: 01-welcome.ja.ogg` and
+/// `times.ja: 0 3.1 …` (the cues of the translated part, in order).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Voiced {
+    pub lang: String,
+    pub audio: String,
+    pub times: Vec<f64>,
+}
+
+impl Part {
+    fn voiced(&mut self, lang: &str) -> &mut Voiced {
+        if let Some(i) = self.voices.iter().position(|v| v.lang == lang) {
+            return &mut self.voices[i];
+        }
+        self.voices.push(Voiced { lang: lang.to_string(), ..Default::default() });
+        self.voices.last_mut().unwrap()
+    }
 }
 
 /// A ```` ```md Title ```` block: markdown shown in the side panel.
@@ -94,6 +123,64 @@ pub struct Part {
 pub struct Note {
     pub title: Option<String>,
     pub text: String,
+}
+
+/// A ```` ```json Title ```` (csv, yaml…) block: sample data shown in the side panel, a request
+/// body sent, a file read, a row stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Example {
+    pub lang: String,
+    pub title: Option<String>,
+    pub text: String,
+}
+
+/// Fence words read as examples.
+const EXAMPLE_LANGS: [&str; 13] = ["json", "csv", "tsv", "yaml", "yml", "toml", "xml", "http", "sql", "sh", "text", "txt", "example"];
+
+impl Example {
+    /// `csv`/`tsv`: rows of cells, the first one the header.
+    pub fn table(&self) -> Option<Vec<Vec<String>>> {
+        let sep = match self.lang.as_str() {
+            "csv" => ',',
+            "tsv" => '\t',
+            _ => return None,
+        };
+        Some(self.text.lines().filter(|l| !l.trim().is_empty()).map(|l| l.split(sep).map(|c| c.trim().trim_matches('"').to_string()).collect()).collect())
+    }
+
+    /// What `!` may glow: the columns of a table, the keys of the other formats
+    /// (`"key":`, `key:`, `key =`, `<key`).
+    pub fn ids(&self) -> Vec<String> {
+        if let Some(t) = self.table() {
+            return t.into_iter().next().unwrap_or_default();
+        }
+        let mut ids: Vec<String> = Vec::new();
+        for l in self.text.lines() {
+            if let Some(k) = line_key(l) {
+                if !ids.iter().any(|i| i == k) {
+                    ids.push(k.to_string());
+                }
+            }
+        }
+        ids
+    }
+}
+
+/// The key a line of json, yaml, toml, xml or http headers names, if any.
+pub fn line_key(l: &str) -> Option<&str> {
+    let t = l.trim_start().trim_start_matches("- ");
+    let word = |s: &str| s.char_indices().find(|(_, c)| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))).map(|(i, _)| i).unwrap_or(s.len());
+    let k = if let Some(r) = t.strip_prefix('"') {
+        let e = r.find('"')?;
+        r[e + 1..].trim_start().starts_with(':').then(|| &r[..e])?
+    } else if let Some(r) = t.strip_prefix('<') {
+        &r[..word(r)]
+    } else {
+        let n = word(t);
+        let rest = t[n..].trim_start();
+        (rest.starts_with(':') || rest.starts_with('=')).then(|| &t[..n])?
+    };
+    Some(k).filter(|k| !k.is_empty())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -135,12 +222,23 @@ pub fn expand_tours(p: &Project, s: &mut Script) {
             continue;
         }
         let mut cues = Vec::new();
-        for c in std::mem::take(&mut part.cues) {
+        // a tour that ends on one of its notes: the next written cue closes the panel
+        let mut close = false;
+        for mut c in std::mem::take(&mut part.cues) {
             let Some(line) = c.tour.as_deref() else {
+                if std::mem::take(&mut close) && c.side.is_none() {
+                    c.side = Some(String::new());
+                }
                 cues.push(c);
                 continue;
             };
-            let mut gen = crate::tours::generate(p, line).unwrap_or_default();
+            let crate::tours::Tour { cues: mut gen, notes } = crate::tours::generate(p, line).unwrap_or_default();
+            for n in notes {
+                if !part.notes.contains(&n) {
+                    part.notes.push(n);
+                }
+            }
+            close = gen.iter().rev().find_map(|g| g.side.as_deref()).is_some_and(|s| !s.is_empty());
             if let Some(first) = gen.first_mut() {
                 first.show = c.show.or(first.show.take());
                 first.hl = c.hl.or(first.hl.take());
@@ -244,6 +342,7 @@ pub fn parse(text: &str) -> Script {
                 "mermaid" => Some(Fence::Mermaid),
                 "bytes" => Some(Fence::Bytes),
                 "md" | "markdown" => Some(Fence::Md),
+                w if EXAMPLE_LANGS.contains(&w) => Some(Fence::Example(w.to_string())),
                 _ => None,
             };
             if let Some(k) = kind {
@@ -284,6 +383,17 @@ pub fn parse(text: &str) -> Script {
         }
         if let Some(rest) = t.strip_prefix("times:") {
             times = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            continue;
+        }
+        // `audio.ja:` / `times.ja:`: the part in another language
+        if let Some((key, rest)) = t.split_once(':').filter(|(k, _)| in_part && (k.starts_with("audio.") || k.starts_with("times.")) && !k.contains(' ')) {
+            let (what, lang) = key.split_once('.').unwrap_or_default();
+            let v = part.voiced(lang);
+            if what == "audio" {
+                v.audio = rest.trim().to_string();
+            } else {
+                v.times = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            }
             continue;
         }
         if let Some(rest) = t.strip_prefix("plan:") {
@@ -371,11 +481,12 @@ fn apply_times(part: &mut Part, times: &mut Vec<f64>) {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Fence {
     Mermaid,
     Bytes,
     Md,
+    Example(String),
 }
 
 fn close_fence(f: Option<(Fence, Option<String>, Vec<String>)>, part: &mut Part) {
@@ -384,12 +495,17 @@ fn close_fence(f: Option<(Fence, Option<String>, Vec<String>)>, part: &mut Part)
         Fence::Mermaid => part.diagrams.push(crate::diagram::parse(&lines.join("\n"))),
         Fence::Bytes => part.layouts.push(crate::bytes::parse(&lines.join("\n"), title.as_deref())),
         Fence::Md => {
-            // drop the common indentation, keep nested list indents
-            let ind = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
-            let text = lines.iter().map(|l| l.get(ind..).unwrap_or("").to_string()).collect::<Vec<_>>().join("\n");
+            let text = dedent(&lines);
             part.notes.push(Note { title, text });
         }
+        Fence::Example(lang) => part.examples.push(Example { lang, title, text: dedent(&lines) }),
     }
+}
+
+/// Drop the common indentation, keep nested indents.
+fn dedent(lines: &[String]) -> String {
+    let ind = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+    lines.iter().map(|l| l.get(ind..).unwrap_or("").to_string()).collect::<Vec<_>>().join("\n")
 }
 
 pub fn to_text(s: &Script) -> String {
@@ -411,6 +527,9 @@ pub fn to_text(s: &Script) -> String {
         if let Some(a) = &p.audio {
             out.push_str(&format!("audio: {}\n", a));
         }
+        for v in &p.voices {
+            out.push_str(&format!("audio.{}: {}\ntimes.{}: {}\n", v.lang, v.audio, v.lang, v.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")));
+        }
         if let Some(pl) = &p.summary {
             out.push_str(&format!("plan: {}\n", pl));
         }
@@ -422,6 +541,9 @@ pub fn to_text(s: &Script) -> String {
         }
         for n in &p.notes {
             out.push_str(&format!("```md{}\n{}\n```\n", n.title.as_ref().map(|t| format!(" {}", t)).unwrap_or_default(), n.text));
+        }
+        for e in &p.examples {
+            out.push_str(&format!("```{}{}\n{}\n```\n", e.lang, e.title.as_ref().map(|t| format!(" {}", t)).unwrap_or_default(), e.text));
         }
         for c in &p.cues {
             if let Some(v) = &c.show {
@@ -509,6 +631,8 @@ pub struct PartFile {
     pub audio: Option<String>,
     /// cue start times of that recording (sibling `01-welcome.times`, written by `iwr voice`)
     pub times: Vec<f64>,
+    /// recordings in other languages (`01-welcome.ja.ogg` + `01-welcome.ja.times`)
+    pub voices: Vec<Voiced>,
 }
 
 /// Part name from a file stem: `01-how_it-runs` → `How it runs`.
@@ -619,6 +743,9 @@ pub fn assemble(index: &str, parts: &[PartFile]) -> String {
                 }
             }
         }
+        for (i, v) in pf.voices.iter().enumerate() {
+            body.insert(1 + i, format!("audio.{}: {}\ntimes.{}: {}", v.lang, v.audio, v.lang, v.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")));
+        }
         if let Some(d) = descs.get(&stem) {
             if !body.iter().any(|l| l.trim_start().starts_with("plan:")) {
                 body.insert(1, format!("plan: {}", d));
@@ -698,6 +825,7 @@ pub enum Side {
     Bytes(crate::bytes::Layout),
     Note(Note),
     Diagram(Diagram),
+    Example(Example),
 }
 
 impl Side {
@@ -706,6 +834,7 @@ impl Side {
         match self {
             Side::Bytes(l) => l.ids().into_iter().map(String::from).collect(),
             Side::Diagram(d) => d.ids().into_iter().map(String::from).collect(),
+            Side::Example(e) => e.ids(),
             Side::Note(_) => vec![],
         }
     }
@@ -729,7 +858,13 @@ pub fn find_side(part: &Part, side: &str) -> Result<Option<Side>, String> {
         "bytes" => find_by(&part.layouts, r, |l| l.title.as_deref()).map(|l| Some(Side::Bytes(l.clone()))).ok_or_else(|| missing("byte layout", "```bytes")),
         "md" | "markdown" | "note" | "list" => find_by(&part.notes, r, |n| n.title.as_deref()).map(|n| Some(Side::Note(n.clone()))).ok_or_else(|| missing("```md block", "```md")),
         "diagram" | "sketch" => find_by(&part.diagrams, r, |d| d.title.as_deref()).map(|d| Some(Side::Diagram(d.clone()))).ok_or_else(|| missing("diagram", "```mermaid")),
-        _ => Err(format!("unknown side panel `| {}` (bytes, md, diagram)", side)),
+        "example" | "ex" | "data" => find_by(&part.examples, r, |e| e.title.as_deref()).map(|e| Some(Side::Example(e.clone()))).ok_or_else(|| missing("example", "```json (csv, yaml…)")),
+        // `| json:Body`: the examples of that format
+        k if EXAMPLE_LANGS.contains(&k) => {
+            let of: Vec<Example> = part.examples.iter().filter(|e| e.lang == k).cloned().collect();
+            find_by(&of, r, |e| e.title.as_deref()).map(|e| Some(Side::Example(e.clone()))).ok_or_else(|| missing(&format!("{} example", k), &format!("```{}", k)))
+        }
+        _ => Err(format!("unknown side panel `| {}` (bytes, md, diagram, example)", side)),
     }
 }
 
@@ -1038,12 +1173,29 @@ pub fn from_guide(p: &Project, steps: &[crate::guide::GuideStep]) -> Script {
             }
             part.name = st.part.clone();
         }
-        part.cues.push(step_cue(p, st, &mut last_show));
+        let mut cue = step_cue(p, st, &mut last_show);
+        attach_note(&mut part.notes, &part.cues, &mut cue, st.note.clone());
+        part.cues.push(cue);
     }
     if !part.cues.is_empty() {
         s.parts.push(part);
     }
     s
+}
+
+/// Show `note` in the side panel from `cue` on (added to `notes`, opened by title); without a
+/// note, close the panel a note of the previous cues left open.
+pub(crate) fn attach_note(notes: &mut Vec<Note>, before: &[Cue], cue: &mut Cue, note: Option<Note>) {
+    match note {
+        Some(n) => {
+            cue.side = Some(format!("md:{}", n.title.clone().unwrap_or_default()));
+            if !notes.contains(&n) {
+                notes.push(n);
+            }
+        }
+        None if cue.side.is_none() && before.iter().rev().find_map(|c| c.side.as_deref()).is_some_and(|s| s.starts_with("md:")) => cue.side = Some(String::new()),
+        None => {}
+    }
 }
 
 /// One guide step as a cue: its view (only when it changes), its glow, its text.

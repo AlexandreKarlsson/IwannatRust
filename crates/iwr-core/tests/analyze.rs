@@ -316,9 +316,9 @@ fn script_plan_page() {
     use iwr_core::script::{self, PartFile};
     let p = project();
     let parts = vec![
-        PartFile { stem: "01-welcome".into(), text: "## Welcome\n@ plan\nhi\n".into(), audio: None, times: vec![] },
-        PartFile { stem: "02-data".into(), text: "## Data\nplan: the types, by hand\n@ types\ndata\n".into(), audio: None, times: vec![] },
-        PartFile { stem: "03-end".into(), text: "## End\nbye\n".into(), audio: None, times: vec![] },
+        PartFile { stem: "01-welcome".into(), text: "## Welcome\n@ plan\nhi\n".into(), audio: None, times: vec![], voices: vec![] },
+        PartFile { stem: "02-data".into(), text: "## Data\nplan: the types, by hand\n@ types\ndata\n".into(), audio: None, times: vec![], voices: vec![] },
+        PartFile { stem: "03-end".into(), text: "## End\nbye\n".into(), audio: None, times: vec![], voices: vec![] },
     ];
     let index = "# T\nplan: a short tour\n\n- [Welcome](01-welcome.md) — where we go\n- `02-data.md`: overridden by the file\n- 03-end.md\n";
     assert_eq!(script::index_parts(index, &["01-welcome".into(), "02-data".into(), "03-end".into()]).len(), 3);
@@ -346,9 +346,9 @@ fn script_directory_assembly_and_part_audio() {
     assert_eq!(script::part_name_from_stem("welcome"), "Welcome");
     // directory: index lists the order; unlisted files follow by name; sibling audio is picked up
     let parts = vec![
-        PartFile { stem: "01-welcome".into(), text: "# Part file title\n## Welcome\n@ arch\nhi\n".into(), audio: Some("01-welcome.mp3".into()), times: vec![] },
-        PartFile { stem: "02-data".into(), text: "@ types\ndata\n".into(), audio: None, times: vec![] },
-        PartFile { stem: "03-end".into(), text: "## The end\naudio: custom.ogg\nbye\n".into(), audio: Some("03-end.mp3".into()), times: vec![] },
+        PartFile { stem: "01-welcome".into(), text: "# Part file title\n## Welcome\n@ arch\nhi\n".into(), audio: Some("01-welcome.mp3".into()), times: vec![], voices: vec![] },
+        PartFile { stem: "02-data".into(), text: "@ types\ndata\n".into(), audio: None, times: vec![], voices: vec![] },
+        PartFile { stem: "03-end".into(), text: "## The end\naudio: custom.ogg\nbye\n".into(), audio: Some("03-end.mp3".into()), times: vec![], voices: vec![] },
     ];
     let index = "# Tour\n\n- [The end](03-end.md)\n- 01-welcome.md\n";
     let text = script::assemble(index, &parts);
@@ -363,7 +363,7 @@ fn script_directory_assembly_and_part_audio() {
     // the part list does not become cues
     assert!(!text.contains("03-end.md"));
     // `iwr voice` times: given to the cues in order, a cue's own `[t]` wins
-    let parts = vec![PartFile { stem: "01-a".into(), text: "## A\none\n[9] two\nthree\n".into(), audio: Some("01-a.mp3".into()), times: vec![0.0, 2.5, 5.25] }];
+    let parts = vec![PartFile { stem: "01-a".into(), text: "## A\none\n[9] two\nthree\n".into(), audio: Some("01-a.mp3".into()), times: vec![0.0, 2.5, 5.25], voices: vec![] }];
     let s = script::parse(&script::assemble("# T\n", &parts));
     assert_eq!(s.parts[0].cues.iter().map(|c| c.t).collect::<Vec<_>>(), [Some(0.0), Some(9.0), Some(5.25)]);
 }
@@ -451,6 +451,11 @@ fn speech_says_code_as_words() {
     // pronounce overrides win
     let own = vec![("Dioxus".to_string(), "dee ox us".to_string())];
     assert_eq!(speech::say_code("Dioxus", &own), "dee ox us");
+    assert_eq!(speech::say_code("gw/data/battery/<node>", &own), "gw slash data slash battery slash node");
+    assert_eq!(speech::say_code("/dev/gw-device/rebutton-pad-<n>", &own), "dev slash gw device slash rebutton pad n");
+    assert_eq!(speech::say_code("024d_other002_<serial_number>", &own), "024d other002 serial number");
+    assert_eq!(speech::say_code("a/b", &own), "a over b");
+    assert_eq!(speech::say_code("Vec<T>", &own), speech::say_code("Vec<T>", &vec![]));
     assert_eq!(speech::parse_pronounce("# T\npronounce: Dioxus = dee ox us\npronounce: bad\n"), own);
     // spelled acronyms, plural included; a later entry beats the built-in one.
     // TCP and UDP are spelled by the built-in list (speech::BUILTIN_SPELL), CoAP needs the line.
@@ -513,6 +518,24 @@ fn script_side_panel() {
     assert_eq!(bad.len(), 2, "{:?}", bad);
     assert!(bad[0].contains("unresolved ref `magic`"), "{}", bad[0]);
     assert!(bad[1].contains("no byte layout `Nope`"), "{}", bad[1]);
+}
+
+#[test]
+fn script_examples() {
+    use iwr_core::script::{self, Side};
+    let p = project();
+    let text = "## Upload\n```json Request body\n{\n  \"user\": \"ann\",\n  \"tags\": [\"a\"]\n}\n```\n```csv\nid,email\n1,ann@x.io\n```\n@ code:crate::main\n| example:Request body\n! user\nThe client sends this.\n| csv\n! email\nOne row per user.\n| json:Nope\nBad.\n";
+    let s = script::parse(text);
+    let part = &s.parts[0];
+    assert_eq!(part.examples.len(), 2);
+    assert_eq!(part.examples[0].ids(), ["user", "tags"]);
+    assert_eq!(part.examples[1].table().unwrap()[1], ["1", "ann@x.io"]);
+    assert!(matches!(script::side_at(part, 0), Some(Side::Example(e)) if e.lang == "json"));
+    assert!(matches!(script::side_at(part, 1), Some(Side::Example(e)) if e.lang == "csv"));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    let bad = script::check(&p, &s);
+    assert_eq!(bad.len(), 1, "{:?}", bad);
+    assert!(bad[0].contains("no json example `Nope`"), "{}", bad[0]);
 }
 
 #[test]
@@ -599,7 +622,7 @@ fn script_architecture_tour() {
 over two lines.")), None);
     // rough edges: a TODO, unsafe, an unwrap
     let r = iwr_core::analyze_source("fn f(v: Option<u32>) -> u32 {\n    // TODO: retry later\n    let x = unsafe { g() };\n    v.unwrap() + x\n}\nunsafe fn g() -> u32 { 1 }\nfn main() { f(None); }\n");
-    let rough = iwr_core::tours::generate(&r, "todo_tour").unwrap();
+    let rough = iwr_core::tours::generate(&r, "todo_tour").unwrap().cues;
     let says: Vec<&str> = rough.iter().map(|c| c.say.as_str()).collect();
     assert!(says[0].contains("1 note") && says[0].contains("2 unsafe blocks") && says[0].contains("1 place"), "{says:?}");
     assert!(says.iter().any(|s| *s == "In `f`, a TODO: retry later"), "{says:?}");
@@ -629,7 +652,7 @@ fn every_tour_builds_and_checks_on_the_demo() {
     let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo");
     let p = iwr_core::analyze_path(&demo).unwrap();
     for line in ["architecture_tour", "types_tour", "errors_tour", "entry_tour", "flow_tour:crate::run", "todo_tour", "files_tour", "types_tour:crate::storage", "errors_tour:crate::parser"] {
-        let cues = iwr_core::tours::generate(&p, line).unwrap_or_else(|e| panic!("{line}: {e}"));
+        let cues = iwr_core::tours::generate(&p, line).unwrap_or_else(|e| panic!("{line}: {e}")).cues;
         assert!(cues.len() >= if line == "todo_tour" { 1 } else { 2 }, "{line}: {} cues", cues.len());
         assert!(cues[0].show.is_some(), "{line}: first cue sets no view");
         assert!(cues.iter().all(|c| !c.say.trim().is_empty()), "{line}: empty cue");
@@ -830,4 +853,62 @@ fn types_view_labels_by_doc() {
     // too long for a label, or no doc: the name stays
     assert!(g.nodes.iter().any(|n| n.label == "Store" && n.caption.is_empty()));
     assert!(g.nodes.iter().any(|n| n.label == "Plain" && n.caption.is_empty()));
+}
+
+#[test]
+fn doc_pages_are_shown_and_read_section_by_section() {
+    let src = "//! z-rebutton-handler — HTTP bridge for Seeed ReButton WiFi button
+//!
+//! Receives POST /api/v1/wirelessbutton from the ReButton hardware.
+//!
+//! ## Button value mapping  (zcc_node_util.cpp::ToDeviceValue)
+//!
+//! | button_input_type   | call_button value |
+//! |---------------------|-------------------|
+//! | INPUT_DOUBLE_CLICK  | 240 (ENTER)       |
+//! | INPUT_NONE          | (skipped)         |
+//!
+//! ## MQTT topics published
+//! | Topic                      | QoS | Retain |
+//! |----------------------------|-----|--------|
+//! | gw/data/battery/<node>     | 0   | false  |
+//!
+//! ## Rebutton pad
+//! The USB cradle is served here too (`pad.rs`).
+
+mod net {
+    //! Talks to the network.
+    pub fn send() {}
+}
+fn main() { net::send(); }
+";
+    let p = iwr_core::analyze_source(src);
+    let stops = iwr_core::guide::doc_page("t", p.modules[0].doc.as_ref()).unwrap();
+    assert_eq!(stops.len(), 4);
+    assert!(stops[0].say.contains("HTTP bridge") && stops[0].say.contains("Receives POST"), "{}", stops[0].say);
+    assert!(stops[0].note.text.contains("## MQTT topics published"));
+    assert_eq!(stops[1].note.title.as_deref(), Some("t · Button value mapping  (zcc_node_util.cpp::ToDeviceValue)"));
+    assert!(stops[1].note.text.starts_with("## Button value mapping") && stops[1].note.text.contains("\n| button_input_type"));
+    assert!(stops[1].say.contains("INPUT_DOUBLE_CLICK: 240 (ENTER).") && stops[1].say.contains("INPUT_NONE: (skipped)."), "{}", stops[1].say);
+    assert!(stops[2].say.contains("gw/data/battery/<node>: QoS 0, Retain false."), "{}", stops[2].say);
+    assert_eq!(stops[3].say, "Rebutton pad. The USB cradle is served here too (`pad.rs`).");
+    assert!(iwr_core::guide::doc_page("t", p.modules[1].doc.as_ref()).is_none());
+
+    // the generated tour opens each page in the side panel and closes it after
+    let mut s = iwr_core::script::parse("## Map\narchitecture_tour\nBye.\n");
+    iwr_core::script::expand_tours(&p, &mut s);
+    let part = &s.parts[0];
+    assert_eq!(part.notes.len(), 4);
+    let sides: Vec<Option<&str>> = part.cues.iter().map(|c| c.side.as_deref()).collect();
+    assert!(sides[0].unwrap().starts_with("md:"), "{sides:?}");
+    assert!(iwr_core::script::side_at(part, 1).is_some());
+    let after = part.cues.iter().position(|c| c.say.starts_with("Now the modules")).unwrap();
+    assert_eq!(sides[after], Some(""));
+    assert!(iwr_core::script::check(&p, &s).is_empty(), "{:?}", iwr_core::script::check(&p, &s));
+
+    // the built-in tour too
+    let steps = iwr_core::guide::build(&p, None, &Default::default());
+    let g = iwr_core::script::from_guide(&p, &steps);
+    assert_eq!(g.parts[0].notes.len(), 4);
+    assert!(iwr_core::script::check(&p, &g).is_empty(), "{:?}", iwr_core::script::check(&p, &g));
 }

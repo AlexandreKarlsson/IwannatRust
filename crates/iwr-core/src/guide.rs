@@ -31,6 +31,9 @@ pub struct GuideStep {
     /// Call stack at this step (outermost first).
     pub stack: Vec<ItemId>,
     pub kind: StepKind,
+    /// Markdown for the side panel while this step is shown (a doc page, see [`doc_page`]).
+    #[serde(default)]
+    pub note: Option<crate::script::Note>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +86,113 @@ pub(crate) fn doc_sentence(doc: Option<&String>) -> Option<String> {
         s.push('.');
     }
     Some(s)
+}
+
+/// One stop of a doc page: the markdown the side panel shows and what is said meanwhile.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocStop {
+    pub note: crate::script::Note,
+    pub say: String,
+}
+
+/// A doc comment written as a page (`#` headings, tables or lists) read in full: the first stop
+/// shows the whole page and reads what comes before the first heading, then one stop per
+/// heading shows and reads its section. `None` for a plain doc, which [`doc_sentence`] reads.
+pub fn doc_page(title: &str, doc: Option<&String>) -> Option<Vec<DocStop>> {
+    let doc = doc?;
+    let mut fence = false;
+    let mut rich = false;
+    // (heading, body lines); the first has no heading
+    let mut sections: Vec<(Option<String>, Vec<&str>)> = vec![(None, vec![])];
+    for line in doc.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            fence = !fence;
+        }
+        let heading = if fence { None } else { md_heading(t) };
+        match heading {
+            Some(h) => sections.push((Some(h.to_string()), vec![])),
+            None => sections.last_mut().unwrap().1.push(line),
+        }
+        rich |= !fence && (heading.is_some() || t.starts_with('|') || t.starts_with("- ") || t.starts_with("* "));
+    }
+    if !rich {
+        return None;
+    }
+    let mut stops = vec![DocStop { note: crate::script::Note { title: Some(title.to_string()), text: doc.clone() }, say: spoken_md(&sections[0].1.join("\n")) }];
+    for (h, body) in sections.iter().skip(1) {
+        let h = h.clone().unwrap_or_default();
+        let text = body.join("\n").trim().to_string();
+        let say = format!("{}. {}", h.trim_end_matches(['.', ':']), spoken_md(&text)).trim().to_string();
+        // the heading again in the body: the panel's title line cuts long ones
+        stops.push(DocStop { note: crate::script::Note { title: Some(format!("{} · {}", title, h)), text: format!("## {}\n\n{}", h, text) }, say });
+    }
+    Some(stops)
+}
+
+fn md_heading(t: &str) -> Option<&str> {
+    let h = t.trim_start_matches('#');
+    (h.len() < t.len() && t.len() - h.len() <= 6 && h.starts_with(' ')).then(|| h.trim()).filter(|h| !h.is_empty())
+}
+
+/// Markdown as sentences to say: paragraphs and list items as they are, each table row as
+/// "first cell: header value, …" (at most 8 rows), code blocks left to the screen.
+pub fn spoken_md(md: &str) -> String {
+    const MAX_ROWS: usize = 8;
+    let mut out: Vec<String> = Vec::new();
+    let mut para: Vec<&str> = Vec::new();
+    let mut head: Option<Vec<String>> = None;
+    let mut rows = 0;
+    let mut fence = false;
+    let sentence = |s: &str| {
+        let s = s.trim();
+        if s.ends_with(['.', '!', '?', ':']) { s.to_string() } else { format!("{}.", s) }
+    };
+    let cells = |t: &str| t.trim_matches('|').split('|').map(|c| c.trim().to_string()).collect::<Vec<_>>();
+    for line in md.lines().chain(std::iter::once("")) {
+        let t = line.trim();
+        if t.starts_with("```") {
+            fence = !fence;
+            continue;
+        }
+        if fence {
+            continue;
+        }
+        let row = t.starts_with('|');
+        let item = t.strip_prefix("- ").or_else(|| t.strip_prefix("* "));
+        if (t.is_empty() || row || item.is_some()) && !para.is_empty() {
+            out.push(sentence(&para.join(" ")));
+            para.clear();
+        }
+        if !row {
+            if rows > MAX_ROWS {
+                out.push(format!("And {} more rows.", rows - MAX_ROWS));
+            }
+            head = None;
+            rows = 0;
+        }
+        if row {
+            if t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) {
+                continue;
+            }
+            let c = cells(t);
+            let Some(h) = &head else {
+                head = Some(c);
+                continue;
+            };
+            rows += 1;
+            if rows > MAX_ROWS {
+                continue;
+            }
+            let rest: Vec<String> = c.iter().enumerate().skip(1).filter(|(_, v)| !v.is_empty()).map(|(i, v)| if c.len() == 2 { v.clone() } else { format!("{} {}", h.get(i).map(String::as_str).unwrap_or(""), v).trim().to_string() }).collect();
+            out.push(if rest.is_empty() { sentence(&c[0]) } else { sentence(&format!("{}: {}", c[0], rest.join(", "))) });
+        } else if let Some(i) = item {
+            out.push(sentence(i));
+        } else if !t.is_empty() {
+            para.push(t);
+        }
+    }
+    out.join(" ")
 }
 
 /// What a module is for: the first paragraph of its `//!` doc, else what it holds.
@@ -212,7 +322,16 @@ impl<'a> Gen<'a> {
 
     fn overview(&mut self, part: &str, title: &str, text: String, mode: Mode, refs: Vec<String>, focus: Option<ItemId>) {
         let span = focus.map(|f| self.p.item(f).span);
-        self.push(GuideStep { title: title.to_string(), text, mode, part: part.to_string(), focus_item: focus, focus_cfg: None, highlight_items: focus.into_iter().collect(), refs, span, stack: vec![], kind: StepKind::Overview });
+        self.push(GuideStep { title: title.to_string(), text, mode, part: part.to_string(), focus_item: focus, focus_cfg: None, highlight_items: focus.into_iter().collect(), refs, span, stack: vec![], kind: StepKind::Overview, note: None });
+    }
+
+    /// An architecture step showing `note` in the side panel.
+    fn overview_note(&mut self, part: &str, title: &str, text: String, refs: Vec<String>, note: crate::script::Note) {
+        let n = self.steps.len();
+        self.overview(part, title, text, Mode::Architecture, refs, None);
+        if let Some(added) = self.steps.get_mut(n) {
+            added.note = Some(note);
+        }
     }
 
     /// Queue a callee for a later part; returns how to refer to it in the current sentence.
@@ -316,6 +435,7 @@ impl<'a> Gen<'a> {
             span: Some(it.span),
             stack: vec![id],
             kind: StepKind::Enter,
+            note: None,
         });
         let Some(cfg) = f.cfg.as_ref() else { return };
 
@@ -379,6 +499,7 @@ impl<'a> Gen<'a> {
             span: Some(Span { line_start: it.span.line_end, line_end: it.span.line_end, ..it.span }),
             stack: vec![id],
             kind: StepKind::Leave,
+            note: None,
         });
     }
 
@@ -510,7 +631,7 @@ impl<'a> Gen<'a> {
             }
             None => (title, text),
         };
-        self.push(GuideStep { title, text: text.trim_end().to_string(), mode: Mode::ControlFlow, part: part.to_string(), focus_item: Some(fn_id), focus_cfg: Some(n), highlight_items: vec![fn_id], refs: vec![], span: Some(node.span), stack: vec![fn_id], kind });
+        self.push(GuideStep { title, text: text.trim_end().to_string(), mode: Mode::ControlFlow, part: part.to_string(), focus_item: Some(fn_id), focus_cfg: Some(n), highlight_items: vec![fn_id], refs: vec![], span: Some(node.span), stack: vec![fn_id], kind, note: None });
     }
 }
 
@@ -536,7 +657,15 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
     let mods: Vec<&Module> = tour_modules(p, None).into_iter().filter(|m| !m.items.is_empty() || m.doc.is_some()).collect();
 
     // ---- welcome + architecture
-    let goal = p.modules.first().and_then(|m| doc_sentence(m.doc.as_ref())).map(|d| format!(" {}", d)).unwrap_or_default();
+    // the crate doc as a page: shown from the welcome on, its sections read before the map
+    let mut page = doc_page(&p.name, p.modules.first().and_then(|m| m.doc.as_ref())).unwrap_or_default().into_iter();
+    let first = page.next();
+    let goal = match &first {
+        Some(st) => Some(st.say.clone()).filter(|s| !s.is_empty()),
+        None => p.modules.first().and_then(|m| doc_sentence(m.doc.as_ref())),
+    }
+    .map(|d| format!(" {}", d))
+    .unwrap_or_default();
     let size = format!(
         "It is {} source file{} and {} module{}, with {} function{} and {} type{}.",
         p.files.iter().filter(|f| f.rust).count(),
@@ -548,18 +677,33 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
         n_ty,
         if n_ty == 1 { "" } else { "s" }
     );
-    g.overview(
-        "Welcome",
-        &format!("Welcome to {}", p.name),
-        format!("Welcome to **{}**.{} {}\n\nLet's start with the big picture. This is the architecture: every box is a module, and the arrows show which module depends on which.", p.name, goal, size),
-        Mode::Architecture,
-        vec![],
-        None,
-    );
+    let big_picture = "Let's start with the big picture. This is the architecture: every box is a module, and the arrows show which module depends on which.";
+    match first {
+        Some(st) => {
+            g.overview_note("Welcome", &format!("Welcome to {}", p.name), format!("Welcome to **{}**.{} {}", p.name, goal, size), vec![], st.note);
+            for st in page {
+                g.overview_note("Welcome", &format!("About {}", p.name), st.say, vec![], st.note);
+            }
+            g.overview("Welcome", "The architecture", big_picture.into(), Mode::Architecture, vec![], None);
+        }
+        None => g.overview("Welcome", &format!("Welcome to {}", p.name), format!("Welcome to **{}**.{} {}\n\n{}", p.name, goal, size, big_picture), Mode::Architecture, vec![], None),
+    }
     let shown = mods.iter().take(opts.max_overview_items).count();
     for (i, m) in mods.iter().take(opts.max_overview_items).enumerate() {
-        let what = module_sentence(p, m).replace("It has no module doc yet. ", "");
-        g.overview("Welcome", &format!("Module {}", module_display(&m.path)), format!("{} `{}` module. {}", tour_lead(i, shown), module_display(&m.path), what), Mode::Architecture, vec![m.path.clone()], None);
+        let title = format!("Module {}", module_display(&m.path));
+        let lead = format!("{} `{}` module.", tour_lead(i, shown), module_display(&m.path));
+        match doc_page(&module_display(&m.path), m.doc.as_ref()) {
+            Some(stops) => {
+                for (k, st) in stops.into_iter().enumerate() {
+                    let text = if k == 0 { format!("{} {}", lead, st.say) } else { st.say };
+                    g.overview_note("Welcome", &title, text, vec![m.path.clone()], st.note);
+                }
+            }
+            None => {
+                let what = module_sentence(p, m).replace("It has no module doc yet. ", "");
+                g.overview("Welcome", &title, format!("{} {}", lead, what), Mode::Architecture, vec![m.path.clone()], None);
+            }
+        }
     }
 
     // ---- data types

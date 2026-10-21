@@ -13,7 +13,7 @@ macro_rules! icons {
     };
 }
 
-icons!["code", "calls", "flow", "arch", "branches", "structure", "types", "errors", "diagram", "plan", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home", "logo", "favicon"];
+icons!["code", "calls", "flow", "arch", "branches", "structure", "types", "errors", "diagram", "plan", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home", "voice", "logo", "favicon"];
 
 fn table() -> &'static HashMap<&'static str, String> {
     static T: OnceLock<HashMap<&'static str, String>> = OnceLock::new();

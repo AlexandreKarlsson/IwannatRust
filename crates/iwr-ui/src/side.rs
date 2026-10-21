@@ -1,6 +1,7 @@
 //! Side panel: what a codecast's `|` lines show next to the view — a byte layout (```` ```bytes ````),
-//! markdown (```` ```md ````: a list, a table, notes) or a small diagram (```` ```mermaid ````).
-//! `!` refs glow byte fields and diagram nodes by id.
+//! markdown (```` ```md ````: a list, a table, notes), a small diagram (```` ```mermaid ````) or an
+//! example (```` ```json ````, ```` ```csv ````…). `!` refs glow byte fields, diagram nodes, example
+//! keys and columns by id.
 
 use crate::md::Markdown;
 use crate::State;
@@ -21,6 +22,7 @@ pub fn SidePanel() -> Element {
         Side::Bytes(l) => ("bytes", l.title.clone()),
         Side::Note(n) => ("notes", n.title.clone()),
         Side::Diagram(d) => ("diagram", d.title.clone()),
+        Side::Example(e) => (e.lang.as_str(), e.title.clone()),
     };
     rsx! {
         div { class: "side", style: "width:{dw}px",
@@ -35,6 +37,7 @@ pub fn SidePanel() -> Element {
                     Side::Bytes(l) => rsx! { BytesCard { layout: l.clone() } },
                     Side::Note(n) => rsx! { div { class: "side-note", Markdown { text: n.text.clone() } } },
                     Side::Diagram(d) => rsx! { MiniDiagram { diagram: d.clone() } },
+                    Side::Example(e) => rsx! { ExampleCard { example: e.clone() } },
                 }
             }
         }
@@ -161,6 +164,40 @@ fn BytesCard(layout: Layout) -> Element {
             }
             if !l.errors.is_empty() {
                 div { class: "errs", for e in l.errors.iter() { div { "⚠ {e}" } } }
+            }
+        }
+    }
+}
+
+/// Sample data: a csv as a table, anything else as text; `!` glows columns or the lines of keys.
+#[component]
+fn ExampleCard(example: iwr_core::script::Example) -> Element {
+    let state = use_context::<State>();
+    let hl = state.hl_ids.read().clone();
+    if let Some(rows) = example.table() {
+        let head = rows.first().cloned().unwrap_or_default();
+        let lit: Vec<bool> = head.iter().map(|h| hl.contains(h)).collect();
+        let any = lit.iter().any(|x| *x);
+        let cls = move |i: usize| if lit.get(i).copied().unwrap_or(false) { "on" } else if any { "dim" } else { "" };
+        return rsx! {
+            table { class: "example-table",
+                thead { tr { for (i, h) in head.iter().enumerate() { th { key: "{i}", class: cls(i), "{h}" } } } }
+                tbody {
+                    for (r, row) in rows.iter().enumerate().skip(1) {
+                        tr { key: "{r}", for (i, c) in row.iter().enumerate() { td { key: "{i}", class: cls(i), "{c}" } } }
+                    }
+                }
+            }
+        };
+    }
+    let any = example.text.lines().any(|l| iwr_core::script::line_key(l).is_some_and(|k| hl.iter().any(|h| h == k)));
+    rsx! {
+        pre { class: "example",
+            for (i, l) in example.text.lines().enumerate() {
+                {
+                    let on = iwr_core::script::line_key(l).is_some_and(|k| hl.iter().any(|h| h == k));
+                    rsx! { div { key: "{i}", class: if on { "on" } else if any { "dim" } else { "" }, "{l}" } }
+                }
             }
         }
     }

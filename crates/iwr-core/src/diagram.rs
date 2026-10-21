@@ -844,25 +844,198 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
         let (w, h) = ctx.size.get(id)?;
         Some(Rect { x: *x, y: *y, w: *w, h: *h })
     };
+    let (mut right, mut bottom) = (0.0f64, 0.0f64);
+    let mut busy: HashSet<(i32, i32)> = HashSet::new();
     for (ei, e) in d.edges.iter().enumerate() {
         let (Some(ra), Some(rb)) = (rect(&e.from), rect(&e.to)) else { continue };
+        // routed around boxes: drawn as straight runs with rounded corners
+        let mut backward = false;
         let points = match ctx.routes.get(&ei) {
             Some((grp, pts)) => {
                 let (ox, oy) = origin.get(grp).copied().unwrap_or((MARGIN, MARGIN));
                 pts.iter().map(|p| (p.0 + ox, p.1 + oy)).collect()
             }
             None => {
-                let a = border(ra, (rb.cx(), rb.cy()));
-                let b = border(rb, (ra.cx(), ra.cy()));
-                vec![a, ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0), b]
+                let ancestors = |id: &str| -> Vec<&str> {
+                    let mut v = vec![];
+                    let mut cur = ctx.parent.get(id).copied().flatten();
+                    while let Some(p) = cur {
+                        v.push(p);
+                        cur = ctx.parent.get(p).copied().flatten();
+                    }
+                    v
+                };
+                let (ua, ub) = (ancestors(&e.from), ancestors(&e.to));
+                // what the arrow must go around: boxes, the groups it is not inside, every group title
+                let mut blocks: Vec<Rect> = Vec::new();
+                for n in &nodes {
+                    let Some(r) = rect(&n.id) else { continue };
+                    if n.id == e.from || n.id == e.to {
+                        continue;
+                    }
+                    if !n.container || !(ua.contains(&n.id.as_str()) || ub.contains(&n.id.as_str())) {
+                        blocks.push(Rect { x: r.x - GRID, y: r.y - GRID, w: r.w + 2.0 * GRID, h: r.h + 2.0 * GRID });
+                    } else {
+                        blocks.push(Rect { x: r.x, y: r.y, w: r.w, h: TITLE - 4.0 });
+                    }
+                }
+                match route_around(ra, rb, &blocks, &mut busy) {
+                    Some(pts) => {
+                        backward = true;
+                        pts
+                    }
+                    None => {
+                        let a = border(ra, (rb.cx(), rb.cy()));
+                        let b = border(rb, (ra.cx(), ra.cy()));
+                        vec![a, ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0), b]
+                    }
+                }
             }
         };
-        g.edges.push(VEdge { id: format!("e{}", ei), from: e.from.clone(), to: e.to.clone(), kind: edge_kind(e), label: e.label.clone(), points, backward: false, ..Default::default() });
+        for p in &points {
+            right = right.max(p.0);
+            bottom = bottom.max(p.1);
+        }
+        g.edges.push(VEdge { id: format!("e{}", ei), from: e.from.clone(), to: e.to.clone(), kind: edge_kind(e), label: e.label.clone(), points, backward, ..Default::default() });
     }
     g.nodes = nodes;
-    g.width = w + 2.0 * MARGIN;
-    g.height = h + 2.0 * MARGIN;
+    g.width = (w + 2.0 * MARGIN).max(right + MARGIN);
+    g.height = (h + 2.0 * MARGIN).max(bottom + MARGIN);
     g
+}
+
+/// Grid step of [`route_around`].
+const GRID: f64 = 8.0;
+
+/// An arrow between boxes the layered layout did not route (from a group, into another group):
+/// the cheapest path on a grid that goes around `blocks`, leaves `a` and enters `b` square to a
+/// side, turns as little as it can and keeps off the cells earlier arrows took (`busy`). Returns
+/// its corners (border of `a` … border of `b`), or `None` when it is walled in.
+fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)>) -> Option<Vec<(f64, f64)>> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    const DIRS: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
+    let all = blocks.iter().chain([&a, &b]);
+    let (x0, y0) = all.clone().fold((f64::INFINITY, f64::INFINITY), |(x, y), r| (x.min(r.x), y.min(r.y)));
+    let (x1, y1) = all.fold((f64::NEG_INFINITY, f64::NEG_INFINITY), |(x, y), r| (x.max(r.right()), y.max(r.bottom())));
+    let (x0, y0) = (x0 - 4.0 * GRID, y0 - 4.0 * GRID);
+    let (nx, ny) = (((x1 - x0) / GRID) as i32 + 5, ((y1 - y0) / GRID) as i32 + 5);
+    let at = |c: (i32, i32)| (x0 + c.0 as f64 * GRID, y0 + c.1 as f64 * GRID);
+    let inside = |r: &Rect, p: (f64, f64)| p.0 > r.x && p.0 < r.right() && p.1 > r.y && p.1 < r.bottom();
+    let free = |c: (i32, i32)| {
+        let p = at(c);
+        c.0 >= 0 && c.1 >= 0 && c.0 < nx && c.1 < ny && !inside(&a, p) && !inside(&b, p) && !blocks.iter().any(|r| inside(r, p))
+    };
+    // port cells: just outside a side of the box, away from its corners, with the direction
+    // pointing away from the box
+    let ports = |r: Rect| -> Vec<((i32, i32), usize)> {
+        let mut v = Vec::new();
+        let cell = |p: (f64, f64)| (((p.0 - x0) / GRID).round() as i32, ((p.1 - y0) / GRID).round() as i32);
+        let xs = ((r.x + GRID) / GRID).ceil() as i32..=((r.right() - GRID) / GRID).floor() as i32;
+        let ys = ((r.y + GRID) / GRID).ceil() as i32..=((r.bottom() - GRID) / GRID).floor() as i32;
+        for k in xs {
+            let x = k as f64 * GRID;
+            v.push((cell((x, r.bottom() + GRID)), 1));
+            v.push((cell((x, r.y - GRID)), 3));
+        }
+        for k in ys {
+            let y = k as f64 * GRID;
+            v.push((cell((r.right() + GRID, y)), 0));
+            v.push((cell((r.x - GRID, y)), 2));
+        }
+        v.into_iter().filter(|(c, _)| free(*c)).collect()
+    };
+    let starts = ports(a);
+    let goals: HashMap<(i32, i32), usize> = ports(b).into_iter().collect();
+    if starts.is_empty() || goals.is_empty() {
+        return None;
+    }
+    const TURN: u32 = 6;
+    const BUSY: u32 = 3;
+    let mut dist: HashMap<((i32, i32), usize), u32> = HashMap::new();
+    let mut prev: HashMap<((i32, i32), usize), ((i32, i32), usize)> = HashMap::new();
+    let mut heap = BinaryHeap::new();
+    for &(c, d) in &starts {
+        dist.insert((c, d), 0);
+        heap.push(Reverse((0u32, c, d)));
+    }
+    let mut end = None;
+    while let Some(Reverse((cost, c, d))) = heap.pop() {
+        if dist.get(&(c, d)).is_some_and(|&x| x < cost) {
+            continue;
+        }
+        // arrive square: the last step points into the box
+        if goals.get(&c).is_some_and(|&gd| (gd + 2) % 4 == d) {
+            end = Some((c, d));
+            break;
+        }
+        for (nd, (dx, dy)) in DIRS.iter().enumerate() {
+            if (nd + 2) % 4 == d {
+                continue;
+            }
+            let n = (c.0 + dx, c.1 + dy);
+            if !free(n) {
+                continue;
+            }
+            let step = 1 + if nd != d { TURN } else { 0 } + if busy.contains(&n) { BUSY } else { 0 };
+            let nc = cost + step;
+            if dist.get(&(n, nd)).is_none_or(|&x| nc < x) {
+                dist.insert((n, nd), nc);
+                prev.insert((n, nd), (c, d));
+                heap.push(Reverse((nc, n, nd)));
+            }
+        }
+        // a goal cell reached sideways may still turn into the box
+        if let Some(&gd) = goals.get(&c) {
+            let into = (gd + 2) % 4;
+            let nc = cost + TURN;
+            if into != d && dist.get(&(c, into)).is_none_or(|&x| nc < x) {
+                dist.insert((c, into), nc);
+                prev.insert((c, into), (c, d));
+                heap.push(Reverse((nc, c, into)));
+            }
+        }
+    }
+    let mut state = end?;
+    let mut cells = vec![state.0];
+    while let Some(&p) = prev.get(&state) {
+        if p.0 != state.0 {
+            cells.push(p.0);
+        }
+        state = p;
+    }
+    cells.reverse();
+    busy.extend(cells.iter().copied());
+    // ends on the box borders, square to the side the path leaves / enters by
+    let onto = |r: Rect, p: (f64, f64)| -> (f64, f64) {
+        if p.1 >= r.bottom() {
+            (p.0, r.bottom())
+        } else if p.1 <= r.y {
+            (p.0, r.y)
+        } else if p.0 >= r.right() {
+            (r.right(), p.1)
+        } else {
+            (r.x, p.1)
+        }
+    };
+    let first = at(cells[0]);
+    let last = at(*cells.last().unwrap());
+    let mut pts = vec![onto(a, first)];
+    let mut all: Vec<(f64, f64)> = cells.iter().map(|&c| at(c)).collect();
+    all.push(onto(b, last));
+    for p in all {
+        let n = pts.len();
+        // keep corners only: drop a point in line with the two before it
+        if n >= 2 {
+            let (p0, p1) = (pts[n - 2], pts[n - 1]);
+            if ((p0.0 - p1.0).abs() < 0.1 && (p1.0 - p.0).abs() < 0.1) || ((p0.1 - p1.1).abs() < 0.1 && (p1.1 - p.1).abs() < 0.1) {
+                pts[n - 1] = p;
+                continue;
+            }
+        }
+        pts.push(p);
+    }
+    Some(pts)
 }
 
 /// Where the segment from the centre of `r` towards `to` leaves the rectangle.
@@ -930,6 +1103,24 @@ mod tests {
         assert!(g.edges.iter().all(|e| e.points.len() >= 2));
         assert_eq!(g.nodes[0].id, "stop", "containers first");
         assert!(g.width > bus.x + bus.w && g.height > 0.0);
+    }
+
+    #[test]
+    fn cross_group_arrows_go_around_boxes() {
+        // a1 (in A) → c1 (in C): the straight line would cross group B and its box
+        let d = parse("graph TD\nsubgraph A\n a1\nend\nsubgraph B\n b1[A wide box in the middle of the way]\nend\nsubgraph C\n c1\nend\nA --> B --> C\na1 --> c1\n");
+        let g = graph(&d, &[]);
+        let e = g.edges.iter().find(|e| e.from == "a1").unwrap();
+        assert!(e.backward && e.points.len() >= 3, "routed: {:?}", e.points);
+        let samples = layout::edge_samples(&g.segments(e), 2.0);
+        for id in ["b1", "B"] {
+            let n = g.node(id).unwrap();
+            assert!(!samples.iter().any(|p| p.0 > n.x && p.0 < n.x + n.w && p.1 > n.y && p.1 < n.y + n.h), "{id} crossed: {:?}", e.points);
+        }
+        let (a, c) = (g.node("a1").unwrap(), g.node("c1").unwrap());
+        let (s, t) = (e.points[0], *e.points.last().unwrap());
+        assert!((s.1 - (a.y + a.h)).abs() < 0.5 || (s.0 - a.x).abs() < 0.5 || (s.0 - (a.x + a.w)).abs() < 0.5 || (s.1 - a.y).abs() < 0.5, "starts on a1");
+        assert!((t.1 - c.y).abs() < 0.5 || (t.0 - c.x).abs() < 0.5 || (t.0 - (c.x + c.w)).abs() < 0.5 || (t.1 - (c.y + c.h)).abs() < 0.5, "ends on c1");
     }
 
     fn inside(g: &Graph, n: &str, grp: &str) -> bool {

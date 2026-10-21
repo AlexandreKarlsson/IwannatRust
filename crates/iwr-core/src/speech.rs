@@ -162,6 +162,9 @@ pub fn say_code(code: &str, pron: &Pronounce) -> String {
     if let Some((_, say)) = pron.iter().rev().find(|(w, _)| w == code) {
         return say.clone();
     }
+    if let Some(said) = say_path(code) {
+        return said;
+    }
     let mut p = Parser { s: code.chars().collect(), i: 0, pron, out: Vec::new() };
     p.expr(0);
     let mut s = p.out.join(" ");
@@ -169,6 +172,19 @@ pub fn say_code(code: &str, pron: &Pronounce) -> String {
         s = s.replace("  ", " ");
     }
     s.replace(" ,", ",").trim().trim_matches(',').trim().to_string()
+}
+
+/// A path or a name with `<placeholders>`, not an expression: `/dev/gw-<n>` → "dev slash gw n",
+/// `gw/data/<node>` → "gw slash data slash node", `id_<serial>` → "id serial".
+fn say_path(code: &str) -> Option<String> {
+    let placeholder = code.match_indices('<').any(|(i, _)| i == 0 || matches!(code.as_bytes()[i - 1], b'/' | b'_' | b'-' | b'.'));
+    // one inner slash stays a division (`a/b` → "a over b")
+    let path = code.starts_with('/') || code.matches('/').count() >= 2;
+    if !(path || placeholder) || !code.chars().all(|c| c.is_alphanumeric() || "_-./<>".contains(c)) || code.chars().all(|c| c == '/') {
+        return None;
+    }
+    let seg = |s: &str| s.replace(['<', '>'], "").replace(['_', '-'], " ").replace('.', " dot ").split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(code.split('/').map(seg).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" slash "))
 }
 
 struct Parser<'a> {
