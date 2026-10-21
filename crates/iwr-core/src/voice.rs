@@ -3,7 +3,6 @@
 //! a generation request, the progress of a running job).
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// The voice `iwr voice` uses unless told otherwise.
 pub const DEFAULT_VOICE: &str = "af_heart";
@@ -70,15 +69,20 @@ pub fn voice_label(id: &str) -> (String, bool) {
     (name, id.as_bytes().get(1) == Some(&b'f'))
 }
 
-/// One recording of a part, in one language.
+/// One recording of a part, in one language, by one voice.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Recording {
+    /// codecast language: `en`, `ja`
+    pub lang: String,
     /// `recorded` (plays), `stale` (the text changed since: TTS speaks the part), `own` (a
     /// recording `iwr voice` did not make: kept unless replacing is asked for)
     pub state: String,
-    /// the Kokoro voice it was made with
+    /// the Kokoro voice it was made with (none: a hand-made recording)
     #[serde(default)]
     pub voice: Option<String>,
+    /// the audio file, relative to the codecast directory
+    #[serde(default)]
+    pub file: String,
     #[serde(default)]
     pub speed: Option<f32>,
     /// seconds
@@ -98,9 +102,26 @@ pub struct PartStatus {
     /// why it cannot be recorded, if so
     #[serde(default)]
     pub skip: Option<String>,
-    /// codecast language (`en`, `ja`) → its recording
+    /// its recordings, every language and voice
     #[serde(default)]
-    pub recordings: BTreeMap<String, Recording>,
+    pub recordings: Vec<Recording>,
+}
+
+impl PartStatus {
+    /// Its recording in `lang` by `voice` (`""`: a hand-made one).
+    pub fn recording(&self, lang: &str, voice: &str) -> Option<&Recording> {
+        self.recordings.iter().find(|r| r.lang == lang && r.voice.as_deref().unwrap_or("") == voice)
+    }
+
+    /// Does it have an up-to-date recording in `lang`, by any voice?
+    pub fn recorded_in(&self, lang: &str) -> bool {
+        self.recordings.iter().any(|r| r.lang == lang && r.state != "stale")
+    }
+}
+
+/// Is this a Kokoro voice id (`am_adam`), as opposed to a language code in a file name?
+pub fn is_voice_id(s: &str) -> bool {
+    VOICES.contains(&s) || (s.len() > 3 && s.as_bytes().get(2) == Some(&b'_') && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
 }
 
 /// What the Generate page shows: the parts, and whether Kokoro is set up yet.
@@ -113,6 +134,47 @@ pub struct VoiceStatus {
     pub parts: Vec<PartStatus>,
     /// Kokoro (venv + model) installed: the first generation downloads it otherwise
     pub ready: bool,
+    /// recordings whose text changed since, by language and voice
+    #[serde(default)]
+    pub stale: Vec<StaleGroup>,
+    /// files `iwr voice` made for parts that are gone (renamed or deleted part files)
+    #[serde(default)]
+    pub orphans: Vec<String>,
+}
+
+/// The out-of-date recordings of one voice in one language, and how they were made, to make
+/// them again the same way.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct StaleGroup {
+    /// codecast language: `en`, `ja`
+    pub lang: String,
+    pub voice: String,
+    /// as `iwr voice` was told: `en-us`, `en-gb`, `ja`
+    pub arg: String,
+    pub speed: f32,
+    pub gap: f32,
+    pub level: f32,
+    /// the part stems
+    pub parts: Vec<String>,
+    /// their audio and times files
+    pub files: Vec<String>,
+}
+
+impl StaleGroup {
+    /// `en/am_adam`: how the page names the group in a request.
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.lang, self.voice)
+    }
+}
+
+/// Bring out-of-date recordings up to date (`POST /api/voice/refresh`: record them again with
+/// the same voice and delivery) or drop them (`POST /api/voice/clean`). Old files of parts that
+/// are gone are deleted either way.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct CleanRequest {
+    /// [`StaleGroup::key`]s; empty = every group
+    #[serde(default)]
+    pub groups: Vec<String>,
 }
 
 /// A generation the page asks for (`POST /api/voice`).

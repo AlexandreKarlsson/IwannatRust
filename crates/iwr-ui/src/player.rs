@@ -31,7 +31,7 @@ impl State {
         let s = Rc::new(s);
         self.script_src.set(Some(s.clone()));
         self.glossary_tr.set(None);
-        self.script.set(Some(s));
+        self.script.set(Some(Rc::new(self.with_voice(&s, "en"))));
         self.part_idx.set(0);
         self.cue_idx.set(0);
         self.playing.set(false);
@@ -46,6 +46,41 @@ impl State {
         if self.lang.peek().as_str() != "en" {
             self.translate();
         }
+    }
+
+    /// The recorded voice that plays in `lang`: the listener's pick when it recorded this
+    /// language, else the voice that recorded the most parts (`""`: none named).
+    pub fn recording_voice(&self, s: &Script, lang: &str) -> String {
+        let voices = iwr_core::i18n::recorded_voices(s, lang);
+        let pick = self.rec_voice.peek().clone();
+        if voices.iter().any(|(v, _)| *v == pick) {
+            return pick;
+        }
+        voices.into_iter().map(|(v, _)| v).next().unwrap_or_default()
+    }
+
+    /// A script whose parts play the recordings of the chosen voice in `lang`.
+    fn with_voice(&self, s: &Script, lang: &str) -> Script {
+        let mut s = s.clone();
+        let voice = self.recording_voice(&s, lang);
+        iwr_core::i18n::use_voices(&mut s, lang, &voice);
+        s
+    }
+
+    /// Play the recordings of another voice (switches to recording mode), from the same cue.
+    pub fn set_rec_voice(&mut self, voice: &str) {
+        self.rec_voice.set(voice.to_string());
+        self.save_settings();
+        self.tts_gen += 1;
+        self.playing.set(false);
+        let lang = self.lang.peek().clone();
+        // English starts again from the script as written; a translation keeps its text
+        let base = if lang == "en" { self.script_src.peek().clone() } else { self.script.peek().clone() };
+        if let Some(base) = base {
+            self.script.set(Some(Rc::new(self.with_voice(&base, &lang))));
+        }
+        self.voice.set(Voice::Audio);
+        self.apply_cue();
     }
 
     /// Play the codecast in another language (`en`: as written).
@@ -66,7 +101,7 @@ impl State {
             self.glossary_tr.set(None);
             let src = self.script_src.peek().clone();
             if let Some(src) = src {
-                self.script.set(Some(src));
+                self.script.set(Some(Rc::new(self.with_voice(&src, "en"))));
                 if self.has_recording() {
                     self.voice.set(Voice::Audio);
                 }
@@ -77,7 +112,7 @@ impl State {
             let src = self.script_src.peek().clone();
             if let Some(src) = src {
                 let mut s = (*src).clone();
-                iwr_core::i18n::use_voices(&mut s, "");
+                iwr_core::i18n::use_voices(&mut s, "", "");
                 self.script.set(Some(Rc::new(s)));
                 self.translate();
             }
@@ -117,7 +152,8 @@ impl State {
                     let mut g = (*glossary).clone();
                     iwr_core::i18n::apply(&mut s, &mut g, &names, &|t| map.get(t).cloned());
                     // parts recorded in this language (`iwr voice --lang`) play their recording
-                    iwr_core::i18n::use_voices(&mut s, &lang);
+                    let voice = state.recording_voice(&s, &lang);
+                    iwr_core::i18n::use_voices(&mut s, &lang, &voice);
                     state.glossary_tr.set(Some(Rc::new(g)));
                     state.script.set(Some(Rc::new(s)));
                     state.lang_info.set(String::new());
@@ -824,6 +860,7 @@ pub fn PlayerBar() -> Element {
                         }
                     }
                 }
+                VoicePicker {}
                 if !lang_info.is_empty() {
                     div { class: "status", style: if lang_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" }, "🌐 {lang_info}" }
                 }
@@ -965,6 +1002,80 @@ pub fn PlanPage() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A voice's round avatar: its initial on a colour of its own (`♪` for a recording not by a Kokoro voice).
+#[component]
+fn Avatar(id: String, #[props(default = 26)] size: u32) -> Element {
+    let (name, _) = iwr_core::voice::voice_label(&id);
+    let letter = if id.is_empty() { "♪".to_string() } else { name.chars().next().map(String::from).unwrap_or_default() };
+    let h = crate::generate::hue(&id);
+    rsx! { span { class: "vavatar", style: "--h:{h}; width:{size}px; height:{size}px; font-size:{size * 45 / 100}px", "{letter}" } }
+}
+
+/// The recorded voice that plays, as a chip; a click lists every voice that recorded this
+/// codecast in the current language, with how many parts each covers.
+#[component]
+fn VoicePicker() -> Element {
+    let mut state = use_context::<State>();
+    let mut open = use_signal(|| false);
+    let Some(s) = state.script.read().clone() else { return rsx! {} };
+    let lang = state.lang.read().clone();
+    let _ = state.rec_voice.read();
+    let voices = iwr_core::i18n::recorded_voices(&s, &lang);
+    // one recording with no voice named: nothing to pick
+    if voices.is_empty() || (voices.len() == 1 && voices[0].0.is_empty()) {
+        return rsx! {};
+    }
+    let cur = state.recording_voice(&s, &lang);
+    let audio_on = *state.voice.read() == Voice::Audio;
+    let n = s.parts.len();
+    let label = |id: &str| if id.is_empty() { "Original".to_string() } else { iwr_core::voice::voice_label(id).0 };
+    let cur_name = label(&cur);
+    rsx! {
+        div { class: "vpick",
+            button { class: if audio_on { "vchip on" } else { "vchip" }, title: "Pick the recorded voice ({voices.len()} recorded)",
+                onclick: move |_| { let v = *open.read(); open.set(!v); },
+                Avatar { id: cur.clone() }
+                span { class: "vlabel",
+                    small { if audio_on { "recorded voice" } else { "recording off" } }
+                    b { "{cur_name}" }
+                }
+                span { class: "caret", if *open.read() { "▴" } else { "▾" } }
+            }
+            if *open.read() {
+                div { class: "vpop-shade", onclick: move |_| open.set(false) }
+                div { class: "vpop",
+                    div { class: "vpop-head", span { "Recorded voices" } em { "{voices.len()}" } }
+                    for (id, count) in voices.iter().cloned() {
+                        { let sel = audio_on && id == cur;
+                          let name = label(&id);
+                          let (_, female) = iwr_core::voice::voice_label(&id);
+                          let about = if id.is_empty() { "the codecast's own recording".to_string() } else { format!("{} {}", if female { "♀" } else { "♂" }, crate::generate::accent(&id)) };
+                          let featured = iwr_core::voice::FEATURED.contains(&id.as_str());
+                          let pct = count * 100 / n.max(1);
+                          rsx! {
+                            button { class: if sel { "vopt sel" } else { "vopt" },
+                                onclick: move |_| { state.set_rec_voice(&id); open.set(false); },
+                                Avatar { id: id.clone(), size: 34 }
+                                span { class: "vtext",
+                                    b { "{name}" if featured { span { class: "star", "★" } } }
+                                    span { "{about}" }
+                                    span { class: "vcover", i { style: "width:{pct}%" } }
+                                }
+                                span { class: "vcount", "{count}/{n}" small { "parts" } }
+                                span { class: "vcheck", if sel { "✓" } }
+                            }
+                        } }
+                    }
+                    div { class: "vpop-foot",
+                        button { class: if *state.voice.read() == Voice::Tts { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Tts); state.save_settings(); open.set(false); }, "🔊 browser voice" }
+                        button { class: if *state.voice.read() == Voice::Read { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Read); state.save_settings(); open.set(false); }, "📖 read" }
                     }
                 }
             }

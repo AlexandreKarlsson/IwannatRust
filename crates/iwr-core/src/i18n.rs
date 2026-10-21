@@ -89,15 +89,46 @@ fn added(text: &str, names: &HashSet<String>) -> Vec<String> {
 /// Play the recordings made in `lang` (`audio.ja:` lines): each part that has one gets it as its
 /// recording, with its cue times; the others (and the whole-script recording, in English) none, so
 /// TTS speaks them.
-pub fn use_voices(s: &mut Script, lang: &str) {
-    s.audio = None;
+pub fn use_voices(s: &mut Script, lang: &str, voice: &str) {
+    if lang != "en" {
+        s.audio = None;
+    }
     for part in &mut s.parts {
-        let v = part.voices.iter().find(|v| v.lang == lang && !v.audio.is_empty()).cloned();
-        part.audio = v.as_ref().map(|v| v.audio.clone());
-        for (i, c) in part.cues.iter_mut().enumerate() {
-            c.t = v.as_ref().and_then(|v| v.times.get(i).copied());
+        let mine = part.voices.iter().filter(|v| v.lang == lang && !v.audio.is_empty());
+        let v = mine.clone().find(|v| v.voice == voice).or_else(|| {
+            // that voice did not record this part: the part's own English recording, else another voice
+            if lang == "en" && part.audio.is_some() { None } else { mine.clone().next() }
+        });
+        match v {
+            Some(v) => {
+                part.audio = Some(v.audio.clone());
+                for (i, c) in part.cues.iter_mut().enumerate() {
+                    c.t = v.times.get(i).copied();
+                }
+            }
+            None if lang == "en" => {}
+            None => {
+                part.audio = None;
+                for c in &mut part.cues {
+                    c.t = None;
+                }
+            }
         }
     }
+}
+
+/// The voices a script has recordings by in `lang` (`""` for one whose line does not say), with
+/// the number of parts each recorded, most parts first.
+pub fn recorded_voices(s: &Script, lang: &str) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = Vec::new();
+    for v in s.parts.iter().flat_map(|p| &p.voices).filter(|v| v.lang == lang && !v.audio.is_empty()) {
+        match out.iter_mut().find(|(n, _)| *n == v.voice) {
+            Some(e) => e.1 += 1,
+            None => out.push((v.voice.clone(), 1)),
+        }
+    }
+    out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    out
 }
 
 /// Every translatable text of a script and a glossary, through `f` (markdown cut into pieces).
@@ -267,9 +298,27 @@ mod tests {
         assert_eq!(s.parts[0].voices[0].times, [0.0, 2.5]);
         // the text form keeps them
         assert_eq!(crate::script::parse(&crate::script::to_text(&s)).parts[0].voices, s.parts[0].voices);
-        use_voices(&mut s, "ja");
+        use_voices(&mut s, "ja", "");
         assert_eq!((s.audio.as_deref(), s.parts[0].audio.as_deref(), s.parts[1].audio.as_deref()), (None, Some("01-a.ja.ogg"), None));
         assert_eq!(s.parts[0].cues.iter().map(|c| c.t).collect::<Vec<_>>(), [Some(0.0), Some(2.5)]);
+    }
+
+    #[test]
+    fn the_listener_picks_a_voice() {
+        let text = "# T\n## A\naudio: 01-a.ogg\ntimes: 0 1\naudio.en.am_adam: 01-a.am_adam.ogg\ntimes.en.am_adam: 0 3\naudio.en.af_heart: 01-a.af_heart.ogg\ntimes.en.af_heart: 0 2\none\ntwo\n## B\naudio.en.af_heart: 02-b.af_heart.ogg\ntimes.en.af_heart: 0\nthree\n";
+        let s = crate::script::parse(text);
+        assert_eq!(crate::script::parse(&crate::script::to_text(&s)).parts[0].voices, s.parts[0].voices);
+        assert_eq!(recorded_voices(&s, "en"), [("af_heart".to_string(), 2), ("am_adam".to_string(), 1)]);
+        let mut adam = s.clone();
+        use_voices(&mut adam, "en", "am_adam");
+        assert_eq!(adam.parts[0].audio.as_deref(), Some("01-a.am_adam.ogg"));
+        assert_eq!(adam.parts[0].cues[1].t, Some(3.0));
+        // Adam did not record part B: another voice plays it
+        assert_eq!(adam.parts[1].audio.as_deref(), Some("02-b.af_heart.ogg"));
+        // no voice asked: the part's own recording
+        let mut own = s.clone();
+        use_voices(&mut own, "en", "");
+        assert_eq!(own.parts[0].audio.as_deref(), Some("01-a.ogg"));
     }
 
     #[test]

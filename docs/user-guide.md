@@ -32,7 +32,7 @@ The file as nested colored blocks. Nothing is expanded at start.
 | View | Root | What to look at |
 |------|------|-----------------|
 | Call tree | selected fn (default `main`) | Edge color = how the call happens: plain, in loop (thick cyan), conditional (yellow), recursion (orange dashed), `?` (rose dashed), unwrap (red dotted). `depth` control. ⊕ expands. |
-| Control flow | selected fn | Statement-level graph. Green/red = true/false, orange = match arm, cyan = loop body / next iteration, rose dashed = error exit, red = return. Entry pill top (function name, big), exit pill bottom. A `//` comment of ≤ 60 chars on the line above a statement replaces its code as the label (code on hover). Loops start folded into one stacked node (⊕ unfolds); its exit edges say which `if` / comment leads out. Colours: new variable, state change, I/O, call, return / return Err, program stops (`process::exit`). Logging hidden unless commented. |
+| Control flow | selected fn | Statement-level graph. Green/red = true/false, orange = match arm, cyan = loop body / next iteration, rose dashed = error exit, red = return. Entry pill top (function name, big), exit pill bottom. A `//` comment of ≤ 60 chars on the line above a statement replaces its code as the label (code on hover). Loops start folded into one stacked node (⊕ unfolds); its exit edges say which `if` / comment leads out. Consecutive `let`s / assignments merge into one short box: *define width, height, area +2* / *update count, items* (code on hover). ⊕ on a call unfolds the callee's flow in place, in a frame between the call and what follows (up to 3 levels, no recursion); double-click still opens the callee on its own. Colours: new variable, state change, I/O, call, return / return Err, program stops (`process::exit`). Logging hidden unless commented. |
 | Architecture | scope module | One box per module, labelled by its short `//!` line (file underneath). Layered by dependency: users above, what they use below. One faint arrow per module pair (thicker = more uses, two heads = mutual), full strength when an end is hovered / selected / glowing. Hubs (used by ≥ 4 modules, views of ≥ 6) get a coloured initials chip; their users carry the chip instead of an arrow; hovering a chip shows the hub's arrows. A module tree with no arrow inside (generated code) folds into its top box, "+N inside"; an empty workspace root is hidden. ⊕ shows items. `external` toggle adds crates. |
 | Branch tree | selected fn | Every path as a tree; loops end in `↻ back to` leaves. ⊕ on a call inlines the callee. |
 | Structure | scope module | Files/modules as columns of blocks; impls/traits expand to methods. |
@@ -105,6 +105,13 @@ with the time left; *Cancel* keeps the parts already written. The recording runs
 you can leave the page (the top-bar button shows a ring meanwhile); when it ends the player loads
 the new recordings. The first run installs Kokoro (~90 MB) under `~/.cache/iwr/kokoro`.
 `?page=generate` (or `?page=settings`) in the URL opens the page directly.
+
+Every voice keeps its own recordings, so you can record the codecast with several. The player then
+shows a **recorded voice** chip: click it to see every voice with how many parts it recorded, and
+pick one (remembered). When the text of a part changes, its recordings go out of date (the part is
+spoken by the browser voice meanwhile): the top-bar badge turns orange (↻) and the Generate page
+lists them by voice, with *Regenerate* (same voice and settings) or *Delete*, one voice or all.
+Recordings of parts whose file was renamed or deleted are removed along the way.
 
 ## Live reload
 

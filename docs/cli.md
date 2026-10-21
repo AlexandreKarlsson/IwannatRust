@@ -8,7 +8,7 @@ iwr summary [PATH]                         text dump: modules, items, calls, rel
 iwr brief   [PATH] [--fn P] [--no-body] [--no-overview]   compact text brief for writing a codecast (see codecast.md)
 iwr guide   [PATH] [--fn P]                built-in walkthrough as a codecast script (text) on stdout
 iwr speak   SCRIPT                         print a codecast as it will be spoken (code said as words), to review the TTS text
-iwr voice   DIR [--voice V] [--speed X] [--lang L] [--path P] [--gap S] [--level Q] [--force]   record a codecast/ directory with Kokoro TTS: NN-part.ogg (Opus) + NN-part.times per part file (unchanged parts and cues are skipped); --lang ja|fr|es|it|pt translates each part first and writes NN-part.<lang>.ogg + .times
+iwr voice   DIR [--voice V] [--speed X] [--lang L] [--path P] [--gap S] [--level Q] [--force]   record a codecast/ directory with Kokoro TTS: NN-part.<voice>.ogg (Opus) + .times per part and voice (each voice keeps its own files; the player picks one) file (unchanged parts and cues are skipped); --lang ja|fr|es|it|pt translates each part first and writes NN-part.<lang>.ogg + .times
 iwr translate SCRIPT --lang L [--path PATH]   translate a codecast offline (Argos model, cached in ~/.cache/iwr/translate) and print it: what the player shows in that language
 iwr check   SCRIPT [--path PATH]           validate a script's refs (file or codecast/ directory) its glossary.md and codecast.toml; exit 1 if any is unresolved, a question has no answer, or a recording is missing (notes parts whose recording is stale: TTS speaks them)
 ```
@@ -33,6 +33,8 @@ HTTP API of `serve`:
 | `POST /api/voice` | JSON `VoiceRequest` (voice, speed, lang, gap, level, force, parts) → starts `iwr voice` in the background (202; 409 if one runs); same-origin loopback only |
 | `GET /api/voice/job` | `VoiceJob` JSON: the running (or last) recording's stage, parts with cues done, elapsed time, error, log |
 | `POST /api/voice/cancel` | stops the running recording (finished parts are kept); same-origin loopback only |
+| `POST /api/voice/refresh` | JSON `{groups: ["en/am_adam", …]}` (empty: all) → records the out-of-date recordings again with the voice and delivery they were made with, then deletes the files of parts that are gone (a job, like `POST /api/voice`); same-origin loopback only |
+| `POST /api/voice/clean` | same JSON → deletes those out-of-date recordings and the files of parts that are gone; answers how many files went; same-origin loopback only |
 | `POST /api/voice/preview` | JSON `{voice, speed, lang}` → an Ogg Opus sample of that voice (cached); same-origin loopback only |
 | anything else | embedded UI (SPA fallback to `index.html`) |
 

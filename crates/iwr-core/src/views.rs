@@ -705,6 +705,95 @@ fn call_tree(p: &Project, opts: &ViewOptions) -> Graph {
 
 // ---------------------------------------------------------------- control flow
 
+/// Names a statement line binds or changes: `let (a, mut b): T = …` → a, b; `self.n += 1` → n;
+/// `v.push(x)` → v.
+pub fn target_names(line: &str) -> Vec<String> {
+    let line = line.trim();
+    if let Some(rest) = line.strip_prefix("let ") {
+        // the pattern ends at the type (`:` but not `::`) or at ` =`
+        let b = rest.as_bytes();
+        let mut end = rest.find(" =").unwrap_or(rest.len());
+        for i in 0..end {
+            if b[i] == b':' && b.get(i + 1) != Some(&b':') && (i == 0 || b[i - 1] != b':') {
+                end = i;
+                break;
+            }
+        }
+        let mut names = vec![];
+        for w in rest[..end].split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+            // `mut` / `ref`, `_`, and `Some` / `Point` (types and variants) bind nothing
+            let binds = w.chars().next().is_some_and(|c| c.is_lowercase() || c == '_') && !matches!(w, "mut" | "ref" | "_");
+            if binds && !names.iter().any(|n| n == w) {
+                names.push(w.to_string());
+            }
+        }
+        return names;
+    }
+    // assignment: what is left of a top-level `=` / `+=` / `<<=` …
+    let b = line.as_bytes();
+    let mut depth = 0i32;
+    let mut call = None;
+    for i in 0..b.len() {
+        match b[i] {
+            b'(' | b'[' | b'{' => {
+                if depth == 0 && b[i] == b'(' && call.is_none() {
+                    call = Some(i);
+                }
+                depth += 1;
+            }
+            b')' | b']' | b'}' => depth -= 1,
+            b'=' if depth == 0 => {
+                let next = b.get(i + 1).copied();
+                let prev = if i > 0 { b[i - 1] } else { b' ' };
+                let shift = (prev == b'<' || prev == b'>') && i > 1 && b[i - 2] == prev;
+                if next != Some(b'=') && next != Some(b'>') && prev != b'=' && prev != b'!' && (!matches!(prev, b'<' | b'>') || shift) {
+                    let target = line[..i].trim_end_matches(['+', '-', '*', '/', '%', '|', '&', '^', '<', '>']).trim();
+                    return vec![tidy_target(target)];
+                }
+            }
+            _ => {}
+        }
+    }
+    // a mutating method: the receiver, `self.items.push(x)` → items
+    match call.and_then(|c| line[..c].rfind('.')) {
+        Some(dot) => vec![tidy_target(&line[..dot])],
+        None => vec![],
+    }
+}
+
+fn tidy_target(t: &str) -> String {
+    let t = t.trim().trim_start_matches('*');
+    t.strip_prefix("self.").unwrap_or(t).to_string()
+}
+
+/// Short title of a group of merged `let` / assignment statements: "define a, b, c", "update x, y".
+/// `None` for a single statement (its code is short enough) or other kinds of node.
+pub fn group_title(n: &CfgNode) -> Option<String> {
+    let verb = match n.kind {
+        CfgNodeKind::Let => "define",
+        CfgNodeKind::Assign => "update",
+        _ => return None,
+    };
+    if n.label.lines().count() < 2 {
+        return None;
+    }
+    let mut names: Vec<String> = vec![];
+    for l in n.label.lines() {
+        for t in target_names(l) {
+            if !names.contains(&t) {
+                names.push(t);
+            }
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    const SHOWN: usize = 3;
+    let more = if names.len() > SHOWN { format!(" +{}", names.len() - SHOWN) } else { String::new() };
+    names.truncate(SHOWN);
+    Some(crate::shorten(&format!("{} {}{}", verb, names.join(", "), more), 40))
+}
+
 fn cfg_kind(k: CfgNodeKind) -> NodeKind {
     match k {
         CfgNodeKind::Entry => NodeKind::Entry,
@@ -760,7 +849,21 @@ fn cfg_vnode(p: &Project, fn_item: ItemId, n: &CfgNode, id: String, depth: usize
             note.clone()
         }
         _ if n.kind == CfgNodeKind::Entry => p.item(fn_item).name.clone(),
-        _ => n.label.clone(),
+        // a group of `let`s / assignments: "define a, b, c", the code moves to the details
+        _ => match group_title(n) {
+            Some(title) => {
+                const SHOWN: usize = 3;
+                let lines: Vec<&str> = n.label.lines().collect();
+                let mut code: Vec<String> = lines.iter().take(SHOWN).map(|l| l.to_string()).collect();
+                if lines.len() > SHOWN {
+                    code.push(format!("… {} more", lines.len() - SHOWN));
+                }
+                let code = code.join("\n");
+                sublabel = if sublabel.is_empty() { code } else { format!("{}\n{}", code, sublabel) };
+                title
+            }
+            None => n.label.clone(),
+        },
     };
     let sublabel = sublabel.lines().map(|l| crate::shorten(l, 44)).collect::<Vec<_>>().join("\n");
     let (w, h) = if n.kind == CfgNodeKind::Entry {
@@ -808,30 +911,36 @@ fn cfg_visible(cfg: &Cfg, collapsed: &HashSet<usize>, n: usize) -> usize {
     rep
 }
 
-fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
-    let mut g = Graph::default();
-    let Some(root) = opts.root.or_else(|| default_root(p)) else {
-        g.note = Some("Select a function.".into());
-        return g;
-    };
-    let it = p.item(root);
-    let Some(cfg) = it.fn_info().and_then(|f| f.cfg.as_ref()) else {
-        g.note = Some(format!("{} has no body to show.", it.name));
-        return g;
-    };
+/// How many callees deep the control flow unfolds calls in place.
+pub const INLINE_MAX: usize = 3;
+
+/// The function a control-flow node id belongs to: the callee of its innermost unfolded call
+/// (`c4/f12/c3` → 12), `None` for the root function's own steps.
+pub fn cfg_owner(id: &str) -> Option<ItemId> {
+    id.rsplit('/').find_map(|seg| seg.strip_prefix('f')?.parse().ok())
+}
+
+/// Add the flow of `fn_item` to `g`, node ids prefixed with `pre`. Loops start folded; a call the
+/// user unfolds gets its callee's flow spliced in after it (between the call and what follows),
+/// with ids `<call id>/f<callee>/…`. `frames` collects (prefix, callee) of each unfolded call.
+#[allow(clippy::too_many_arguments)]
+fn cfg_into(p: &Project, opts: &ViewOptions, g: &mut Graph, fn_item: ItemId, cfg: &Cfg, pre: &str, depth: usize, stack: &mut Vec<ItemId>, frames: &mut Vec<(String, ItemId)>) {
+    let cid = |i: usize| format!("{}c{}", pre, i);
     // loops start folded into one node; the user unfolds them one by one
     let collapsed: HashSet<usize> = cfg
         .nodes
         .iter()
-        .filter(|n| n.kind == CfgNodeKind::Loop && !opts.expanded.contains(&format!("c{}", n.id)))
+        .filter(|n| n.kind == CfgNodeKind::Loop && !opts.expanded.contains(&cid(n.id)))
         .map(|n| n.id)
         .collect();
     let rep: Vec<usize> = (0..cfg.nodes.len()).map(|i| cfg_visible(cfg, &collapsed, i)).collect();
+    // unfolded calls: cfg node → prefix of the callee's nodes
+    let mut unfolded: std::collections::BTreeMap<usize, String> = Default::default();
     for n in &cfg.nodes {
         if rep[n.id] != n.id {
             continue;
         }
-        let mut v = cfg_vnode(p, root, n, format!("c{}", n.id), 0);
+        let mut v = cfg_vnode(p, fn_item, n, cid(n.id), depth);
         if n.kind == CfgNodeKind::Loop {
             let inside: Vec<&CfgNode> = cfg.nodes.iter().filter(|m| m.id != n.id && rep[m.id] == n.id).collect();
             v.expandable = true;
@@ -866,10 +975,34 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
                 v.sublabel = sub.join("\n");
                 v.badges = vec![format!("⟳ {}", inside.len())];
             }
+        } else {
+            // a call can unfold in place: the first callee with a body that is not already open
+            // above (recursion), and only from a step that does not branch
+            let branches = cfg.succ(n.id).any(|e| matches!(e.kind, CfgEdgeKind::True | CfgEdgeKind::False | CfgEdgeKind::Arm | CfgEdgeKind::LoopBody));
+            let callee = n.calls.iter().copied().find(|c| p.item(*c).fn_info().is_some_and(|f| f.cfg.is_some()) && !stack.contains(c));
+            v.expandable = callee.is_some() && !branches && depth < INLINE_MAX && n.kind != CfgNodeKind::Entry;
+            v.expanded = v.expandable && opts.expanded.contains(&v.id);
+            if let (true, Some(callee)) = (v.expanded, callee) {
+                let inner = format!("{}/f{}/", v.id, callee);
+                let ccfg = p.item(callee).fn_info().and_then(|f| f.cfg.as_ref()).expect("checked above");
+                g.nodes.push(v);
+                stack.push(callee);
+                cfg_into(p, opts, g, callee, ccfg, &inner, depth + 1, stack, frames);
+                stack.pop();
+                frames.push((inner.clone(), callee));
+                unfolded.insert(n.id, inner);
+                continue;
+            }
         }
         g.nodes.push(v);
     }
     let mut seen: HashSet<(usize, usize, CfgEdgeKind, Option<String>)> = HashSet::new();
+    let push = |g: &mut Graph, from: String, to: String, kind: EdgeKind, label: Option<String>| {
+        g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from, to, kind, label, points: vec![], backward: false, ..Default::default() });
+    };
+    for (&n, inner) in &unfolded {
+        push(g, cid(n), format!("{}c0", inner), EdgeKind::Call, None);
+    }
     for e in &cfg.edges {
         let (from, to) = (rep[e.from], rep[e.to]);
         // edges inside a folded loop disappear with it
@@ -879,14 +1012,34 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
         if !seen.insert((from, to, e.kind, e.label.clone())) {
             continue;
         }
-        g.edges.push(VEdge { id: format!("e{}", g.edges.len()), from: format!("c{}", from), to: format!("c{}", to), kind: cfg_edge_kind(e.kind), label: e.label.clone(), points: vec![], backward: false, ..Default::default() });
+        // after an unfolded call, the flow goes on from the callee's end (its errors stay on the call)
+        let src = match unfolded.get(&from) {
+            Some(inner) if e.kind != CfgEdgeKind::Error => format!("{}c1", inner),
+            _ => cid(from),
+        };
+        push(g, src, cid(to), cfg_edge_kind(e.kind), e.label.clone());
     }
+}
+
+fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
+    let mut g = Graph::default();
+    let Some(root) = opts.root.or_else(|| default_root(p)) else {
+        g.note = Some("Select a function.".into());
+        return g;
+    };
+    let it = p.item(root);
+    let Some(cfg) = it.fn_info().and_then(|f| f.cfg.as_ref()) else {
+        g.note = Some(format!("{} has no body to show.", it.name));
+        return g;
+    };
+    let mut frames = vec![];
+    cfg_into(p, opts, &mut g, root, cfg, "", 0, &mut vec![root], &mut frames);
     // the program stops (`process::exit`, a panic): end right there in a stub, so the arrow never
     // travels down to the function's end past the boxes of the paths that go on
     let stops: Vec<usize> = (0..g.edges.len())
         .filter(|&i| {
             let e = &g.edges[i];
-            e.to == "c1" && e.kind == EdgeKind::Error && g.node(&e.from).is_some_and(|n| matches!(n.kind, NodeKind::Halt | NodeKind::Panic))
+            (e.to == "c1" || e.to.ends_with("/c1")) && e.kind == EdgeKind::Error && g.node(&e.from).is_some_and(|n| matches!(n.kind, NodeKind::Halt | NodeKind::Panic))
         })
         .collect();
     for i in stops {
@@ -900,6 +1053,36 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
     // exit node should be last: give every node an edge weight toward exit by ranking only real edges;
     // loop-back / continue edges are reversed for ranking so the layout flows downward.
     layered_layout(&mut g, &|e| matches!(e.kind, EdgeKind::LoopBack | EdgeKind::Continue), &LayoutOptions { layer_gap: 44.0, node_gap: 26.0, max_per_layer: 6, ..Default::default() });
+    // a frame around each unfolded callee, drawn behind its steps
+    for (prefix, callee) in frames.into_iter().rev() {
+        let inside: Vec<&VNode> = g.nodes.iter().filter(|n| n.id.starts_with(&prefix) && !n.container).collect();
+        let Some(x0) = inside.iter().map(|n| n.x).reduce(f64::min) else { continue };
+        let y0 = inside.iter().map(|n| n.y).fold(f64::MAX, f64::min);
+        let x1 = inside.iter().map(|n| n.x + n.w).fold(f64::MIN, f64::max);
+        let y1 = inside.iter().map(|n| n.y + n.h).fold(f64::MIN, f64::max);
+        const PAD: f64 = 10.0;
+        g.nodes.push(VNode {
+            id: format!("{}frame", prefix),
+            label: String::new(),
+            sublabel: String::new(),
+            kind: NodeKind::Call,
+            item: Some(callee),
+            cfg_node: None,
+            span: Some(p.item(callee).span),
+            x: x0 - PAD,
+            y: y0 - PAD,
+            w: x1 - x0 + 2.0 * PAD,
+            h: y1 - y0 + 2.0 * PAD,
+            expandable: false,
+            expanded: false,
+            badges: vec![],
+            depth: 0,
+            parent: None,
+            container: true,
+            caption: String::new(),
+            chips: vec![],
+        });
+    }
     // push the exit node to the very bottom
     if let Some(max_y) = g.nodes.iter().filter(|n| n.id != "c1").map(|n| n.y + n.h).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))) {
         if let Some(exit) = g.nodes.iter_mut().find(|n| n.id == "c1") {

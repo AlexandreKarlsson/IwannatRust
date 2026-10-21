@@ -912,3 +912,47 @@ fn main() { net::send(); }
     assert_eq!(g.parts[0].notes.len(), 4);
     assert!(iwr_core::script::check(&p, &g).is_empty(), "{:?}", iwr_core::script::check(&p, &g));
 }
+
+#[test]
+fn cfg_groups_of_lets_get_a_short_title() {
+    assert_eq!(views::target_names("let (a, mut b): (u8, u8) = (1, 2)"), vec!["a", "b"]);
+    assert_eq!(views::target_names("let Some(x) = opt else { return }"), vec!["x"]);
+    assert_eq!(views::target_names("self.count += 1"), vec!["count"]);
+    assert_eq!(views::target_names("x <<= 2"), vec!["x"]);
+    assert_eq!(views::target_names("self.items.push(v)"), vec!["items"]);
+    let src = "fn main() {\n    let width = 3;\n    let height = 4;\n    let mut area = width * height;\n    let depth = 2;\n    let name = \"box\";\n    println!(\"{} {} {}\", area, depth, name);\n}\n";
+    let p = iwr_core::analyze_source(src);
+    let g = views::build(&p, Mode::ControlFlow, &ViewOptions { root: p.main, ..Default::default() });
+    let lets = g.nodes.iter().find(|n| n.kind == views::NodeKind::Let).unwrap();
+    assert_eq!(lets.label, "define width, height, area +2");
+    assert!(lets.sublabel.starts_with("let width = 3"), "{}", lets.sublabel);
+    assert!(lets.sublabel.contains("… 2 more"), "{}", lets.sublabel);
+}
+
+#[test]
+fn cfg_unfolds_a_callee_in_place() {
+    let src = "fn helper(x: u32) -> u32 {\n    if x > 2 { return 1; }\n    x + 1\n}\nfn main() {\n    let y = helper(3);\n    println!(\"{}\", y);\n}\n";
+    let p = iwr_core::analyze_source(src);
+    let helper = p.items.iter().find(|i| i.name == "helper").unwrap().id;
+    let mut opts = ViewOptions { root: p.main, ..Default::default() };
+    let g = views::build(&p, Mode::ControlFlow, &opts);
+    let call = g.nodes.iter().find(|n| n.kind == views::NodeKind::Call).unwrap();
+    assert!(call.expandable && !call.expanded);
+    let after: Vec<String> = g.edges.iter().filter(|e| e.from == call.id).map(|e| e.to.clone()).collect();
+    opts.expanded.insert(call.id.clone());
+    let g2 = views::build(&p, Mode::ControlFlow, &opts);
+    let inner = format!("{}/f{}/", call.id, helper);
+    // call → callee's entry; callee's end → what came after the call
+    assert!(g2.edges.iter().any(|e| e.from == call.id && e.to == format!("{}c0", inner) && e.kind == views::EdgeKind::Call));
+    for to in &after {
+        assert!(g2.edges.iter().any(|e| e.from == format!("{}c1", inner) && &e.to == to));
+    }
+    assert_eq!(g2.node(&format!("{}c0", inner)).unwrap().label, "helper");
+    assert!(g2.nodes.iter().any(|n| n.kind == views::NodeKind::If && n.id.starts_with(&inner)));
+    let frame = g2.node(&format!("{}frame", inner)).unwrap();
+    assert!(frame.container);
+    assert_eq!(views::cfg_owner(&format!("{}c2", inner)), Some(helper));
+    assert_eq!(views::cfg_owner("c2"), None);
+    // every edge ends on a node
+    assert!(g2.edges.iter().all(|e| g2.node(&e.from).is_some() && g2.node(&e.to).is_some()));
+}

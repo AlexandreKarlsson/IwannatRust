@@ -117,7 +117,7 @@ enum Cmd {
         /// Opus compression level, 0..1 (0.95 ≈ 18 kbps; lower = bigger, cleaner)
         #[arg(long, default_value_t = 0.95)]
         level: f32,
-        /// Re-record every part, and replace recordings not made by `iwr voice`
+        /// Re-record parts that are up to date (each voice has its own files: recording another voice keeps this one)
         #[arg(long)]
         force: bool,
     },

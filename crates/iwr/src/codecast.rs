@@ -99,20 +99,26 @@ pub fn load(path: &Path) -> Result<Loaded> {
             let times = read_times(&path.join(format!("{}.times", pf.stem)));
             if !times.is_empty() && pf.audio.is_some() {
                 if hashes.iter().eq(times.iter().map(|(_, h)| h)) {
-                    pf.times = times.into_iter().map(|(t, _)| t).collect();
+                    pf.times = times.iter().map(|(t, _)| *t).collect();
+                    // made by `iwr voice` before recordings were named by voice: listed under its voice
+                    let made_by = std::fs::read_to_string(path.join(format!("{}.times", pf.stem))).ok().and_then(|t| header_voice(&t));
+                    if let (Some(voice), Some(audio)) = (made_by, pf.audio.clone()) {
+                        pf.voices.push(script::Voiced { lang: "en".into(), voice, audio, times: pf.times.clone() });
+                    }
                 } else {
                     pf.audio = None;
                     stale.push(pf.stem.clone());
                 }
             }
-            // `01-welcome.ja.ogg` + `.ja.times`: the part in Japanese, current while the English
-            // text it was translated from is (the hashes are of the English cues)
-            for lang in iwr_core::i18n::LANGS.iter().filter(|l| l.code != "en") {
-                let stem = format!("{}.{}", pf.stem, lang.code);
+            // `01-welcome.am_adam.ogg` (one voice), `01-welcome.ja.ogg` / `01-welcome.ja.jf_alpha.ogg`
+            // (Japanese) + their `.times`: each current while the English text it was made from is
+            // (the hashes are of the English cues)
+            for (lang, voice) in variants(&entries, &pf.stem) {
+                let stem = variant_stem(&pf.stem, &lang, &voice);
                 let Some(audio) = AUDIO_EXTS.iter().map(|e| format!("{}.{}", stem, e)).find(|n| path.join(n).is_file()) else { continue };
                 let times = read_times(&path.join(format!("{}.times", stem)));
                 if !times.is_empty() && hashes.iter().eq(times.iter().map(|(_, h)| h)) {
-                    pf.voices.push(script::Voiced { lang: lang.code.into(), audio, times: times.into_iter().map(|(t, _)| t).collect() });
+                    pf.voices.push(script::Voiced { lang, voice, audio, times: times.into_iter().map(|(t, _)| t).collect() });
                 } else {
                     stale.push(stem);
                 }
@@ -125,9 +131,66 @@ pub fn load(path: &Path) -> Result<Loaded> {
     }
 }
 
-/// ` --lang ja` for a stale stem `01-welcome.ja`, nothing for an English one.
+/// The file stem of a part's recording in `lang` by `voice`: `01-welcome.am_adam`,
+/// `01-welcome.ja.jf_alpha`; without a voice, the older names `01-welcome`, `01-welcome.ja`.
+pub fn variant_stem(stem: &str, lang: &str, voice: &str) -> String {
+    let mut s = stem.to_string();
+    for w in [if lang == "en" { "" } else { lang }, voice] {
+        if !w.is_empty() {
+            s.push('.');
+            s.push_str(w);
+        }
+    }
+    s
+}
+
+/// (language, voice) of a recording's file stem, for the part `stem`: `01-welcome.am_adam` →
+/// (`en`, `am_adam`), `01-welcome.ja` → (`ja`, ``), `01-welcome.ja.jf_alpha` → (`ja`, `jf_alpha`).
+pub fn parse_variant(file_stem: &str, stem: &str) -> Option<(String, String)> {
+    let rest = file_stem.strip_prefix(stem)?.strip_prefix('.')?;
+    let is_lang = |l: &str| l != "en" && iwr_core::i18n::lang(l).is_some();
+    match rest.split_once('.') {
+        None if is_lang(rest) => Some((rest.into(), String::new())),
+        None if iwr_core::voice::is_voice_id(rest) => Some(("en".into(), rest.into())),
+        Some((l, v)) if is_lang(l) && iwr_core::voice::is_voice_id(v) => Some((l.into(), v.into())),
+        _ => None,
+    }
+}
+
+/// The recordings of part `stem` other than its own `01-welcome.ogg`, from a directory listing:
+/// (language, voice), each once, in name order.
+pub fn variants(entries: &[PathBuf], stem: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = entries
+        .iter()
+        .filter(|f| f.extension().and_then(|e| e.to_str()).is_some_and(|e| e == "times" || AUDIO_EXTS.contains(&e)))
+        .filter_map(|f| parse_variant(f.file_stem()?.to_str()?, stem))
+        .collect();
+    out.dedup();
+    out
+}
+
+/// The voice a `.times` file written by `iwr voice` was recorded with (its header line).
+pub fn header_voice(times: &str) -> Option<String> {
+    let words: Vec<&str> = times.lines().next()?.strip_prefix("# iwr voice: ")?.split_whitespace().collect();
+    words.iter().position(|w| *w == "kokoro").and_then(|i| words.get(i + 1)).map(|s| s.to_string())
+}
+
+/// How to record a stale stem again: ` --voice am_adam`, ` --lang ja`, ` --lang ja --voice jf_alpha`.
 pub fn lang_arg(stem: &str) -> String {
-    stem.rsplit_once('.').map(|(_, l)| format!(" --lang {}", l)).unwrap_or_default()
+    let part = stem.split('.').next().unwrap_or(stem);
+    match parse_variant(stem, part) {
+        Some((l, v)) => {
+            let mut a = String::new();
+            if l != "en" {
+                a.push_str(&format!(" --lang {}", l));
+            }
+            if !v.is_empty() {
+                a.push_str(&format!(" --voice {}", v));
+            }
+            a
+        }
+        None => String::new(),
+    }
 }
 
 /// A `.times` file written by `iwr voice`: one `start-seconds text-hash` line per cue, `#` comments.

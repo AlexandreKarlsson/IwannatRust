@@ -316,7 +316,9 @@ impl<'a> Builder<'a> {
                 let same_paragraph = p.note.is_none() || span.line_start <= p.span.line_end + 1;
                 if k == CfgEdgeKind::Next && p.kind == kind && p.depth == self.depth && same_paragraph {
                     let n = &mut self.cfg.nodes[prev];
-                    if n.label.lines().count() < 4 {
+                    // a group of definitions / changes shows as one short title, so it can hold more lines
+                    let cap = if matches!(kind, CfgNodeKind::Let | CfgNodeKind::Assign) { 8 } else { 4 };
+                    if n.label.lines().count() < cap {
                         n.label.push('\n');
                         n.label.push_str(&shorten(label, 40));
                         n.detail.push('\n');

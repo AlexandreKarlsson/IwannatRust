@@ -355,8 +355,8 @@ the result. Directives, refs, diagrams and code stay as written.
 - **Voice.** The browser speaks it with a voice of that language (Chrome has Japanese), or a
   recording: `iwr voice codecast/ --lang ja` translates each part the same way and records it with
   Kokoro (`jf_alpha` by default; Japanese phonemes by misaki, installed on first use; code and
-  other Latin words read as English) into `NN-part.ja.ogg` + `NN-part.ja.times`, meant to be
-  committed next to the English ones. The loader turns them into `audio.ja:` / `times.ja:` lines;
+  other Latin words read as English) into `NN-part.ja.jf_alpha.ogg` + `.times`, meant to be
+  committed next to the English ones. The loader turns them into `audio.ja.jf_alpha:` / `times.ja.jf_alpha:` lines;
   the player plays them in Japanese, TTS speaks the parts without one. The times hash the English
   cues: edit the English text and the Japanese recording goes stale (`iwr check` says so) until
   recorded again. Kokoro also speaks `fr`, `es`, `it`, `pt`.
@@ -416,7 +416,13 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 
 **Generated recording (the default way to voice a codecast).** `iwr voice codecast/` speaks every
 cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS, CPU, ~4× real time)
-and writes `NN-part.ogg` + `NN-part.times` next to each part file. Commit both: Opus at ~18 kbps
+and writes `NN-part.<voice>.ogg` + `NN-part.<voice>.times` (`01-welcome.am_adam.ogg`) next to each
+part file. **Every voice keeps its own files**: record the codecast with two voices and the player
+offers both (the *recorded voice* chip under its mode menu lists them with how many parts each
+covers; the pick is remembered; a part the picked voice did not record plays another voice's
+recording). The loader turns them into `audio.en.am_adam:` / `times.en.am_adam:` lines. Older
+recordings named `NN-part.ogg` (one per language) are renamed to their voice's name the next time
+`iwr voice` runs. Commit both: Opus at ~18 kbps
 (`--level 0.95`) is ~2.5 MB for 18 minutes, the browser plays it as is, and viewers need no model.
 The `.times` file holds each cue's start time and a hash of its spoken text; the loader turns it
 into the part's `times:` line (cue start times in order, a cue's own `[t]` wins), so the `.md` files
@@ -425,8 +431,11 @@ the loader leaves its recording out and the player speaks that part with browser
 back to the recordings; `serve` and `iwr check` name such parts. Clips are cached per cue: after an
 edit only changed cues are synthesized again.
 First run sets up a Python venv (`kokoro-onnx`) and downloads the int8 model (~120 MB) under
-`~/.cache/iwr/kokoro` (`IWR_KOKORO` overrides). Parts with a generated tour line, or a recording
-not made by `iwr voice`, are skipped (`--force` replaces the latter). Answers to questions are still
+`~/.cache/iwr/kokoro` (`IWR_KOKORO` overrides). Parts with a generated tour line are skipped; a
+hand-made `NN-part.mp3` stays and plays when no voice is picked. `--force` re-records parts that
+are up to date. When the text of a part changes, the Generate page lists its out-of-date recordings
+by voice and offers to record them again (same voice, speed, pause and compression) or delete them,
+and deletes the recordings of parts whose file is gone. Answers to questions are still
 spoken by browser TTS. Options: `--voice af_heart` (Kokoro voice name), `--speed`, `--lang en-us`, `--gap 0.4`.
 
 Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing

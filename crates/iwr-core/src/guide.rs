@@ -547,6 +547,11 @@ impl<'a> Gen<'a> {
                 format!("{} a change of state: `{}`. Something that already exists is modified here.", conn, short),
                 StepKind::Statement,
             ),
+            CfgNodeKind::Let if crate::views::group_title(node).is_some() => (
+                crate::views::group_title(node).unwrap_or_default(),
+                format!("{} a few definitions: `{}`. Straight-line code, nothing branches here.", conn, short),
+                StepKind::Statement,
+            ),
             CfgNodeKind::Block | CfgNodeKind::Let | CfgNodeKind::Log => (
                 "Plain statements".to_string(),
                 format!("{} {}: `{}`. Straight-line code, nothing branches here.", conn, if node.detail.matches(';').count() > 1 { "a few plain statements" } else { "a plain statement" }, short),

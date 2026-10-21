@@ -22,7 +22,7 @@ pub fn TopBar() -> Element {
     // a page hides the views: no view tab is active
     let page_open = settings_open || generate_open;
     let live = *state.live.read();
-    let (to_record, recording) = crate::generate::badge(&state);
+    let (to_record, recording, stale) = crate::generate::badge(&state);
     let tour_on = *state.tour.read() && has_guide && *state.playing.read();
     rsx! {
         div { class: "topbar",
@@ -58,12 +58,14 @@ pub fn TopBar() -> Element {
                 onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } } }
             IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.close_pages(); state.start_tour() } }
             if live {
-                button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { "Generating the voice… (open to follow it)".to_string() } else if to_record > 0 { format!("Generate the voice: {to_record} part(s) without an up-to-date recording") } else { "Generate the voice: record the codecast with Kokoro (voice, language, speed)".to_string() }, "aria-label": "Generate the voice",
+                button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { "Generating the voice… (open to follow it)".to_string() } else if stale > 0 { format!("Generate the voice: the text changed since {stale} recording(s) — regenerate or delete them") } else if to_record > 0 { format!("Generate the voice: {to_record} part(s) without an up-to-date recording") } else { "Generate the voice: record the codecast with Kokoro (voice, language, speed)".to_string() }, "aria-label": "Generate the voice",
                     onclick: move |_| { state.close_pages(); state.generate_open.set(!generate_open); },
                     img { class: "ico", src: icons::uri("voice"), width: "16", height: "16", alt: "", draggable: false }
                     span { "generate" }
                     if let Some(pct) = recording {
                         span { class: "gen-ring", style: "--p:{pct}" }
+                    } else if stale > 0 {
+                        span { class: "gen-dot warn", "↻{stale}" }
                     } else if to_record > 0 {
                         span { class: "gen-dot", "{to_record}" }
                     }

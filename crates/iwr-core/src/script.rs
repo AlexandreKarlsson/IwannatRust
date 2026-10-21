@@ -16,6 +16,8 @@
 //! times: 0 4.2 9.8            start times of the part's cues in order (written by `iwr voice`); `[t]` wins
 //! audio.ja: 01-welcome.ja.ogg recording of this part in another language (`iwr voice --lang ja`),
 //! times.ja: 0 3.1 8.7         with its cue times; played when the codecast is played in that language
+//! audio.en.am_adam: …         a recording by one Kokoro voice (`iwr voice` writes one per voice):
+//! times.en.am_adam: …         the listener picks the voice in the player
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
 //! ? What is a crate?          a question the listener can click (pauses the codecast)
 //!   The answer, indented.     answer lines; may hold their own `@` `!` `=` directives
@@ -94,26 +96,44 @@ pub struct Part {
     /// example blocks of the part (```` ```json Body ````, ```` ```csv ````…), in order (`| example:Body`)
     #[serde(default)]
     pub examples: Vec<Example>,
-    /// recordings of this part in other languages (`audio.ja:` + `times.ja:` lines)
+    /// recordings of this part in other languages or by other voices (`audio.ja:` + `times.ja:`,
+    /// `audio.en.am_adam:` + `times.en.am_adam:` lines)
     #[serde(default)]
     pub voices: Vec<Voiced>,
 }
 
-/// A part recorded in another language than the script's: `audio.ja: 01-welcome.ja.ogg` and
-/// `times.ja: 0 3.1 …` (the cues of the translated part, in order).
+/// A recording of a part in a language, by a voice: `audio.ja: 01-welcome.ja.ogg` and
+/// `times.ja: 0 3.1 …` (the cues of the translated part, in order), or `audio.en.am_adam:` for
+/// one Kokoro voice among several.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Voiced {
     pub lang: String,
+    /// the Kokoro voice (`am_adam`), `""` when the line does not say
+    #[serde(default)]
+    pub voice: String,
     pub audio: String,
     pub times: Vec<f64>,
 }
 
+impl Voiced {
+    /// `ja`, or `en.am_adam`: what follows `audio.` / `times.`
+    pub fn key(&self) -> String {
+        if self.voice.is_empty() { self.lang.clone() } else { format!("{}.{}", self.lang, self.voice) }
+    }
+
+    /// The `audio.KEY:` and `times.KEY:` lines.
+    pub fn lines(&self) -> String {
+        format!("audio.{k}: {}\ntimes.{k}: {}", self.audio, self.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" "), k = self.key())
+    }
+}
+
 impl Part {
-    fn voiced(&mut self, lang: &str) -> &mut Voiced {
-        if let Some(i) = self.voices.iter().position(|v| v.lang == lang) {
+    fn voiced(&mut self, key: &str) -> &mut Voiced {
+        let (lang, voice) = key.split_once('.').unwrap_or((key, ""));
+        if let Some(i) = self.voices.iter().position(|v| v.lang == lang && v.voice == voice) {
             return &mut self.voices[i];
         }
-        self.voices.push(Voiced { lang: lang.to_string(), ..Default::default() });
+        self.voices.push(Voiced { lang: lang.to_string(), voice: voice.to_string(), ..Default::default() });
         self.voices.last_mut().unwrap()
     }
 }
@@ -385,10 +405,10 @@ pub fn parse(text: &str) -> Script {
             times = rest.split_whitespace().filter_map(|v| v.parse().ok()).collect();
             continue;
         }
-        // `audio.ja:` / `times.ja:`: the part in another language
+        // `audio.ja:` / `times.ja:`: the part in another language; `audio.en.am_adam:` by one voice
         if let Some((key, rest)) = t.split_once(':').filter(|(k, _)| in_part && (k.starts_with("audio.") || k.starts_with("times.")) && !k.contains(' ')) {
-            let (what, lang) = key.split_once('.').unwrap_or_default();
-            let v = part.voiced(lang);
+            let (what, key) = key.split_once('.').unwrap_or_default();
+            let v = part.voiced(key);
             if what == "audio" {
                 v.audio = rest.trim().to_string();
             } else {
@@ -528,7 +548,8 @@ pub fn to_text(s: &Script) -> String {
             out.push_str(&format!("audio: {}\n", a));
         }
         for v in &p.voices {
-            out.push_str(&format!("audio.{}: {}\ntimes.{}: {}\n", v.lang, v.audio, v.lang, v.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")));
+            out.push_str(&v.lines());
+            out.push('\n');
         }
         if let Some(pl) = &p.summary {
             out.push_str(&format!("plan: {}\n", pl));
@@ -631,7 +652,8 @@ pub struct PartFile {
     pub audio: Option<String>,
     /// cue start times of that recording (sibling `01-welcome.times`, written by `iwr voice`)
     pub times: Vec<f64>,
-    /// recordings in other languages (`01-welcome.ja.ogg` + `01-welcome.ja.times`)
+    /// recordings in other languages or by other voices (`01-welcome.ja.ogg` + `01-welcome.ja.times`,
+    /// `01-welcome.am_adam.ogg` + `.times`)
     pub voices: Vec<Voiced>,
 }
 
@@ -744,7 +766,7 @@ pub fn assemble(index: &str, parts: &[PartFile]) -> String {
             }
         }
         for (i, v) in pf.voices.iter().enumerate() {
-            body.insert(1 + i, format!("audio.{}: {}\ntimes.{}: {}", v.lang, v.audio, v.lang, v.times.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" ")));
+            body.insert(1 + i, v.lines());
         }
         if let Some(d) = descs.get(&stem) {
             if !body.iter().any(|l| l.trim_start().starts_with("plan:")) {

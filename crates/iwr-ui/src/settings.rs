@@ -47,6 +47,9 @@ pub struct Saved {
     /// font of the interface text
     #[serde(default)]
     pub text_font: String,
+    /// the recorded voice to play, when a codecast has several
+    #[serde(default)]
+    pub rec_voice: String,
 }
 
 async fn fetch_config(url: &str) -> Option<Config> {
@@ -86,6 +89,7 @@ impl State {
             lang: self.lang.read().clone(),
             title_font: self.font_title.read().clone(),
             text_font: self.font_text.read().clone(),
+            rec_voice: self.rec_voice.read().clone(),
         };
         if let Ok(json) = serde_json::to_string(&s) {
             document::eval(&format!("localStorage.setItem('iwr-settings', {});", serde_json::to_string(&json).unwrap_or_default()));
@@ -110,6 +114,7 @@ impl State {
         }
         self.font_title.set(s.title_font);
         self.font_text.set(s.text_font);
+        self.rec_voice.set(s.rec_voice);
     }
 
     /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `iwr serve`, `codecast.json`

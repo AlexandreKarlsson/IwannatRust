@@ -8,6 +8,18 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Several recorded voices per codecast: `iwr voice` writes `NN-part.<voice>.ogg` + `.times`, so
+  recording another voice keeps the first (older `NN-part.ogg` files are renamed to their voice on
+  the next run). The player shows a *recorded voice* chip with a picker (avatar, accent, parts
+  covered), remembered per browser. Script lines `audio.en.am_adam:` / `times.en.am_adam:`.
+- Out-of-date recordings: when a part's text changes, the Generate page lists the stale
+  recordings by voice and offers *Regenerate* (same voice, speed, pause, compression) or *Delete*,
+  per voice or all, and removes recordings of parts that are gone; the top-bar badge turns orange.
+  API: `POST /api/voice/refresh`, `POST /api/voice/clean`.
+- Control flow: ⊕ on a call unfolds the callee's flow in place, framed, spliced between the call
+  and what follows (up to 3 levels deep, never recursive). Clicking a step inside selects the
+  callee's source.
+
 - Generate page (top bar → *generate*, with `iwr serve`): record the codecast's voice with Kokoro
   from the browser. Pick the language, a voice from a gallery (▶ plays a sample), speed, pause
   between cues and compression, and the parts (missing or changed ones by default); a live
@@ -80,6 +92,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   spelled out by default, plurals included; a script's `spell:` or `pronounce:` line still wins.
 
 ### Changed
+
+- Control flow: a group of `let`s reads *define a, b, c +2*, a group of assignments *update x, y*;
+  the code moves to the hover details, so a group can hold up to 8 statements. The guide's step
+  title follows.
 
 - Architecture view hides test modules (`#[cfg(test)] mod tests`, files under `tests/`) unless
   Settings → *tests* is on; the built-in tour skips them too.

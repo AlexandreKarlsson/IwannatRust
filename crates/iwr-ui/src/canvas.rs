@@ -328,9 +328,9 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 if *moved.read() { return; }
                 if let Some(item) = n.item {
                     let mut sel_item = item;
-                    // for cfg nodes select the enclosing function (root) but keep the statement span
+                    // for cfg nodes select the enclosing function (root, or the unfolded callee) but keep the statement span
                     if n.cfg_node.is_some() {
-                        if let Some(r) = *state.root.read() { sel_item = r; }
+                        if let Some(r) = iwr_core::views::cfg_owner(&n.id).or(*state.root.read()) { sel_item = r; }
                     }
                     let mode_now = *state.mode.read();
                     if n.cfg_node.is_some() {
@@ -589,7 +589,8 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
                 div { for b in node.badges.iter() { span { class: "pill", "{b}" } } }
             }
             div { class: "doc", style: "margin-top:4px; font-size:10px",
-                if node.expandable { "click ⊕ to expand · " }
+                if node.expandable && node.cfg_node.is_some() && node.kind != NodeKind::Loop { if node.expanded { "click ⊖ to fold the callee · " } else { "click ⊕ to unfold the callee here · " } }
+                else if node.expandable { "click ⊕ to expand · " }
                 "click: show source · double-click: "
                 if node.cfg_node.is_some() { "open callee" } else if node.badges.iter().any(|b| b.ends_with(" inside")) { "open the modules inside" } else { "expand / open in control flow" }
             }

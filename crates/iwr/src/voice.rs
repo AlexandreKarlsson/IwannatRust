@@ -46,7 +46,7 @@ pub struct Opts {
     pub gap: f32,
     /// Opus compression level, 0..1 (libsndfile; 0.95 ≈ 18 kbps)
     pub level: f32,
-    /// re-record parts that look up to date, and replace recordings `iwr voice` did not make
+    /// re-record parts that look up to date
     pub force: bool,
     /// record only these part stems, each one even when up to date (empty: every part that needs it)
     pub only: Vec<String>,
@@ -88,7 +88,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
     }
     let project = o.path.clone().or_else(|| dir.canonicalize().ok()?.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
     // a codecast language: translate each part, record it with a voice of that language
-    let target = iwr_core::i18n::lang(&o.lang).map(|l| l.code).filter(|c| *c != "en");
+    let target: Option<&str> = iwr_core::i18n::lang(&o.lang).map(|l| l.code).filter(|c| *c != "en");
     let o = &match target {
         Some(code) => {
             let l = v::voice_lang(code).filter(|l| l.code != "en").with_context(|| format!("Kokoro has no {} voice (it speaks ja, fr, es, it, pt)", code))?;
@@ -105,6 +105,8 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
     let mut todo = Vec::new();
     for f in part_files(dir)? {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+        // every part, recorded now or not: the player lists recordings by voice
+        migrate(dir, &stem, target.unwrap_or("en"), report)?;
         let asked = o.only.contains(&stem);
         if !o.only.is_empty() && !asked {
             continue;
@@ -117,20 +119,13 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         }
         // the hashes are of the English cues: a translation goes stale with its source
         let hashes: Vec<String> = english.iter().map(|s| codecast::text_hash(s)).collect();
-        let stem = match target {
-            Some(code) => format!("{}.{}", stem, code),
-            None => stem,
-        };
+        let code = target.unwrap_or("en");
+        // one recording per voice: `01-welcome.am_adam.ogg`, `01-welcome.ja.jf_alpha.ogg`
+        let stem = codecast::variant_stem(&stem, code, &o.voice);
         let times_path = dir.join(format!("{}.times", stem));
         let own = std::fs::read_to_string(&times_path).ok();
         let out = dir.join(format!("{}.ogg", stem));
-        // recordings with the part's stem: made by `iwr voice` when a `.times` file is there
-        let audio: Vec<PathBuf> = codecast::AUDIO_EXTS.iter().map(|e| dir.join(format!("{}.{}", stem, e))).filter(|f| f.is_file()).collect();
-        if let (Some(f), None, false) = (audio.first(), &own, o.force) {
-            report(Event::Log(format!("skip {}: has its own recording {} (--force replaces it)", stem, f.display())));
-            continue;
-        }
-        let up_to_date = own.as_deref().is_some_and(|t| t.lines().next() == Some(header(o).as_str())) && codecast::read_times(&times_path).iter().map(|(_, h)| h).eq(hashes.iter()) && audio == [out.clone()];
+        let up_to_date = own.as_deref().is_some_and(|t| t.lines().next() == Some(header(o).as_str())) && codecast::read_times(&times_path).iter().map(|(_, h)| h).eq(hashes.iter()) && out.is_file();
         if up_to_date && !o.force && !asked {
             continue;
         }
@@ -144,7 +139,9 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
             }
             None => english,
         };
-        todo.push((stem, spoken, hashes, audio.into_iter().filter(|f| *f != out).collect::<Vec<_>>()));
+        // the same voice's recording in another format goes once this one is made
+        let other: Vec<PathBuf> = codecast::AUDIO_EXTS.iter().map(|e| dir.join(format!("{}.{}", stem, e))).filter(|f| f.is_file() && *f != out).collect();
+        todo.push((stem, spoken, hashes, other));
     }
     if todo.is_empty() {
         report(Event::Log("all parts up to date".into()));
@@ -172,6 +169,24 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         std::fs::write(dir.join(format!("{}.times", stem)), text)?;
         Ok(std::fs::metadata(dir.join(format!("{}.ogg", stem))).map(|m| m.len() / 1024).unwrap_or(0))
     })
+}
+
+/// Give a recording `iwr voice` made under the older one-per-language name (`01-welcome.ogg`,
+/// `01-welcome.ja.ogg`) its voice's name (`01-welcome.am_adam.ogg`), so that recording another
+/// voice keeps it. Hand-made recordings (no `.times`) stay as they are.
+fn migrate(dir: &Path, stem: &str, lang: &str, report: &mut dyn FnMut(Event)) -> Result<()> {
+    let old = codecast::variant_stem(stem, lang, "");
+    let Ok(times) = std::fs::read_to_string(dir.join(format!("{}.times", old))) else { return Ok(()) };
+    let Some(voice) = codecast::header_voice(&times) else { return Ok(()) };
+    let new = codecast::variant_stem(stem, lang, &voice);
+    let Some(ext) = codecast::AUDIO_EXTS.iter().find(|e| dir.join(format!("{}.{}", old, e)).is_file()) else { return Ok(()) };
+    if dir.join(format!("{}.times", new)).is_file() {
+        return Ok(());
+    }
+    std::fs::rename(dir.join(format!("{}.{}", old, ext)), dir.join(format!("{}.{}", new, ext)))?;
+    std::fs::rename(dir.join(format!("{}.times", old)), dir.join(format!("{}.times", new)))?;
+    report(Event::Log(format!("renamed {}.{} to {}.{} (one file per voice)", old, ext, new, ext)));
+    Ok(())
 }
 
 /// The `.md` part files of a codecast directory, in order (not `index.md`, `glossary.md`).
@@ -321,6 +336,8 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
     st.dir = Some(dir.display().to_string());
     let Ok(loaded) = codecast::load(dir) else { return st };
     let pron = codecast::pronounce(&iwr_core::script::parse(&loaded.text), loaded.glossary.as_deref());
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).map(|d| d.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
+    entries.sort();
     for f in part_files(dir).unwrap_or_default() {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
         let text = std::fs::read_to_string(&f).unwrap_or_default();
@@ -328,15 +345,16 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
         let hashes: Vec<String> = spoken.iter().map(|s| codecast::text_hash(s)).collect();
         let name = iwr_core::script::parse(&text).parts.first().map(|p| p.name.clone()).unwrap_or_default();
         let mut p = PartStatus { stem: stem.clone(), name, cues: spoken.len(), skip: skip.map(str::to_string), ..Default::default() };
-        let mut codes: Vec<&str> = v::VOICE_LANGS.iter().map(|l| l.code).collect();
-        codes.dedup();
-        for code in codes {
-            let stem = if code == "en" { stem.clone() } else { format!("{}.{}", stem, code) };
-            let Some(audio) = codecast::AUDIO_EXTS.iter().map(|e| dir.join(format!("{}.{}", stem, e))).find(|f| f.is_file()) else { continue };
-            let kb = std::fs::metadata(&audio).map(|m| m.len() / 1024).unwrap_or(0);
-            let times_path = dir.join(format!("{}.times", stem));
+        // the part's own `01-welcome.ogg`, then one file per language and voice
+        let mut variants = vec![("en".to_string(), String::new())];
+        variants.extend(codecast::variants(&entries, &stem));
+        for (lang, voice) in variants {
+            let vstem = codecast::variant_stem(&stem, &lang, &voice);
+            let Some(audio) = codecast::AUDIO_EXTS.iter().map(|e| format!("{}.{}", vstem, e)).find(|f| dir.join(f).is_file()) else { continue };
+            let kb = std::fs::metadata(dir.join(&audio)).map(|m| m.len() / 1024).unwrap_or(0);
+            let times_path = dir.join(format!("{}.times", vstem));
             let Ok(times_text) = std::fs::read_to_string(&times_path) else {
-                p.recordings.insert(code.into(), Recording { state: "own".into(), kb, ..Default::default() });
+                p.recordings.push(Recording { lang, state: "own".into(), file: audio, kb, ..Default::default() });
                 continue;
             };
             // `# iwr voice: kokoro VOICE speed SPEED …`, `# duration SECONDS`
@@ -344,11 +362,61 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
             let after = |k: &str| words.iter().position(|w| *w == k).and_then(|i| words.get(i + 1)).map(|s| s.to_string());
             let duration = times_text.lines().find_map(|l| l.strip_prefix("# duration ")).and_then(|d| d.trim().parse().ok());
             let fresh = codecast::read_times(&times_path).iter().map(|(_, h)| h).eq(hashes.iter());
-            p.recordings.insert(code.into(), Recording { state: if fresh { "recorded" } else { "stale" }.into(), voice: after("kokoro"), speed: after("speed").and_then(|s| s.parse().ok()), duration, kb });
+            let voice = Some(voice).filter(|v| !v.is_empty()).or_else(|| after("kokoro"));
+            if !fresh {
+                if let Some(vc) = &voice {
+                    let arg = if lang == "en" { after("lang").unwrap_or_else(|| "en-us".into()) } else { lang.clone() };
+                    let num = |k: &str, d: f32| after(k).and_then(|s| s.parse().ok()).unwrap_or(d);
+                    let g = match st.stale.iter_mut().position(|g| g.lang == lang && g.voice == *vc) {
+                        Some(i) => &mut st.stale[i],
+                        None => {
+                            st.stale.push(v::StaleGroup { lang: lang.clone(), voice: vc.clone(), arg, speed: num("speed", 1.0), gap: num("gap", 0.4), level: num("opus", 0.95), ..Default::default() });
+                            st.stale.last_mut().unwrap()
+                        }
+                    };
+                    g.parts.push(stem.clone());
+                    g.files.push(audio.clone());
+                    g.files.push(format!("{}.times", vstem));
+                }
+            }
+            p.recordings.push(Recording { lang, state: if fresh { "recorded" } else { "stale" }.into(), voice, file: audio, speed: after("speed").and_then(|s| s.parse().ok()), duration, kb });
         }
         st.parts.push(p);
     }
+    st.orphans = orphans(dir, &entries, &st.parts.iter().map(|p| p.stem.clone()).collect::<Vec<_>>());
     st
+}
+
+/// Files `iwr voice` made (a `.times` with its header, and the recording beside it) for part
+/// stems that no part file has any more.
+fn orphans(dir: &Path, entries: &[PathBuf], stems: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for f in entries.iter().filter(|f| f.extension().and_then(|e| e.to_str()) == Some("times")) {
+        let Some(fstem) = f.file_stem().and_then(|s| s.to_str()) else { continue };
+        let owned = stems.iter().any(|s| fstem == s || codecast::parse_variant(fstem, s).is_some());
+        if owned || std::fs::read_to_string(f).ok().and_then(|t| codecast::header_voice(&t)).is_none() {
+            continue;
+        }
+        out.push(format!("{}.times", fstem));
+        out.extend(codecast::AUDIO_EXTS.iter().map(|e| format!("{}.{}", fstem, e)).filter(|n| dir.join(n).is_file()));
+    }
+    out
+}
+
+/// Delete files of the codecast directory by name (names from [`status`] only).
+pub fn delete(dir: &Path, names: &[String]) -> Result<usize> {
+    let mut n = 0;
+    for name in names {
+        if name.contains('/') || name.contains("..") {
+            continue;
+        }
+        let f = dir.join(name);
+        if f.is_file() {
+            std::fs::remove_file(&f).with_context(|| format!("removing {}", f.display()))?;
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// A short sample of a voice (Ogg Opus bytes), cached under the Kokoro directory.

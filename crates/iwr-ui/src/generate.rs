@@ -27,11 +27,16 @@ async fn fetch_job() -> Option<VoiceJob> {
 }
 
 async fn start(req: &VoiceRequest) -> Result<(), String> {
-    let r = gloo_net::http::Request::post("/api/voice").json(req).map_err(|e| e.to_string())?.send().await.map_err(|e| e.to_string())?;
+    post("/api/voice", req).await.map(|_| ())
+}
+
+/// POST JSON, answer the body (or the server's complaint).
+async fn post<T: serde::Serialize>(url: &str, body: &T) -> Result<String, String> {
+    let r = gloo_net::http::Request::post(url).json(body).map_err(|e| e.to_string())?.send().await.map_err(|e| e.to_string())?;
+    let t = r.text().await.unwrap_or_default();
     if r.ok() {
-        Ok(())
+        Ok(t)
     } else {
-        let t = r.text().await.unwrap_or_default();
         Err(if t.is_empty() { r.status().to_string() } else { t })
     }
 }
@@ -94,16 +99,20 @@ pub async fn watch(mut state: State) {
     }
 }
 
-/// Parts that need a recording in a language: none yet, or their text changed since.
-fn needs(p: &PartStatus, code: &str) -> bool {
-    p.skip.is_none() && p.recordings.get(code).is_none_or(|r| r.state == "stale")
+/// Parts that need a recording in a language by a voice: none yet (and no hand-made one), or
+/// their text changed since.
+fn needs(p: &PartStatus, code: &str, voice: &str) -> bool {
+    let own = p.recordings.iter().any(|r| r.lang == code && r.state == "own");
+    p.skip.is_none() && p.recording(code, voice).map_or(!own, |r| r.state == "stale")
 }
 
-/// For the top bar: English parts without an up-to-date recording, and the running job's percent.
-pub fn badge(state: &State) -> (usize, Option<u32>) {
+/// For the top bar: English parts without an up-to-date recording, the running job's percent,
+/// and the recordings whose text changed since (any language or voice).
+pub fn badge(state: &State) -> (usize, Option<u32>, usize) {
     let running = state.voice_job.read().as_ref().filter(|j| j.running).map(|j| if j.total() > 0 { (j.done() * 100 / j.total()) as u32 } else { 0 });
-    let todo = state.voice_status.read().as_ref().map(|s| s.parts.iter().filter(|p| needs(p, "en")).count()).unwrap_or(0);
-    (todo, running)
+    let todo = state.voice_status.read().as_ref().map(|s| s.parts.iter().filter(|p| p.skip.is_none() && !p.recorded_in("en")).count()).unwrap_or(0);
+    let stale = state.voice_status.read().as_ref().map(|s| s.stale.iter().map(|g| g.parts.len()).sum()).unwrap_or(0);
+    (todo, running, stale)
 }
 
 fn clock(secs: f64) -> String {
@@ -116,7 +125,7 @@ fn size(kb: u64) -> String {
 }
 
 /// Where a voice comes from, by the first letter of its id.
-fn accent(id: &str) -> &'static str {
+pub fn accent(id: &str) -> &'static str {
     match id.chars().next() {
         Some('a') => "American",
         Some('b') => "British",
@@ -130,7 +139,7 @@ fn accent(id: &str) -> &'static str {
 }
 
 /// A hue per voice, for its avatar.
-fn hue(id: &str) -> u32 {
+pub fn hue(id: &str) -> u32 {
     id.bytes().fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)) % 360
 }
 
@@ -188,16 +197,20 @@ pub fn GeneratePage() -> Element {
     let code = lang.code;
     let parts = &status.parts;
     let recordable: Vec<&PartStatus> = parts.iter().filter(|p| p.skip.is_none()).collect();
-    let auto: HashSet<String> = parts.iter().filter(|p| needs(p, code)).map(|p| p.stem.clone()).collect();
+    let auto: HashSet<String> = parts.iter().filter(|p| needs(p, code, &r.voice)).map(|p| p.stem.clone()).collect();
     let sel: HashSet<String> = picked.read().clone().unwrap_or_else(|| auto.clone());
     let n_sel = recordable.iter().filter(|p| sel.contains(&p.stem)).count();
     let cues_sel: usize = recordable.iter().filter(|p| sel.contains(&p.stem)).map(|p| p.cues).sum();
-    let count = |state: &str| parts.iter().filter(|p| p.recordings.get(code).is_some_and(|r| r.state == state)).count();
-    let (n_rec, n_stale, n_own) = (count("recorded"), count("stale"), count("own"));
-    let n_missing = recordable.iter().filter(|p| !p.recordings.contains_key(code)).count();
+    // what the picked voice has recorded in the picked language
+    let mine = |p: &PartStatus| p.recording(code, &r.voice).cloned();
+    let own = |p: &PartStatus| p.recordings.iter().any(|x| x.lang == code && x.state == "own");
+    let count = |state: &str| parts.iter().filter(|p| mine(p).is_some_and(|x| x.state == state)).count();
+    let (n_rec, n_stale) = (count("recorded"), count("stale"));
+    let n_own = parts.iter().filter(|p| mine(p).is_none() && own(p)).count();
+    let n_missing = recordable.iter().filter(|p| mine(p).is_none() && !own(p)).count();
     let total = parts.len().max(1);
-    let audio: f64 = parts.iter().filter_map(|p| p.recordings.get(code)).filter(|r| r.state == "recorded").filter_map(|r| r.duration).sum();
-    let kb: u64 = parts.iter().filter_map(|p| p.recordings.get(code)).map(|r| r.kb).sum();
+    let audio: f64 = parts.iter().filter_map(mine).filter(|x| x.state == "recorded").filter_map(|x| x.duration).sum();
+    let kb: u64 = parts.iter().filter_map(mine).map(|x| x.kb).sum();
     let running = job.as_ref().is_some_and(|j| j.running);
     let (voice_name, _) = v::voice_label(&r.voice);
 
@@ -233,7 +246,7 @@ pub fn GeneratePage() -> Element {
                     }
                     if status.problem.is_none() {
                         div { class: "gen-stats",
-                            div { class: "gen-stat", b { "{n_rec}" span { "/{recordable.len()}" } } span { "recorded" } }
+                            div { class: "gen-stat", b { "{n_rec}" span { "/{recordable.len()}" } } span { "by {voice_name}" } }
                             div { class: "gen-stat", b { "{clock(audio)}" } span { "of audio" } }
                             div { class: "gen-stat", b { "{size(kb)}" } span { "on disk" } }
                         }
@@ -248,17 +261,20 @@ pub fn GeneratePage() -> Element {
                         p { class: "gen-muted", "Then run iwr serve again, or record from the terminal with " code { "iwr voice codecast/" } "." }
                     }
                 } else {
-                    div { class: "gen-coverage", title: "{n_rec} recorded · {n_stale} changed since · {n_missing} missing · {n_own} hand-made",
+                    div { class: "gen-coverage", title: "{voice_name}: {n_rec} recorded · {n_stale} changed since · {n_missing} missing · {n_own} hand-made",
                         i { class: "ok", style: "flex:{n_rec}" }
                         i { class: "stale", style: "flex:{n_stale}" }
                         i { class: "own", style: "flex:{n_own}" }
                         i { class: "missing", style: "flex:{n_missing + total - total.min(n_rec + n_stale + n_own + n_missing)}" }
                     }
                     div { class: "gen-legend",
-                        span { i { class: "ok" } "{n_rec} recorded" }
+                        span { i { class: "ok" } "{n_rec} recorded by {voice_name}" }
                         span { i { class: "stale" } "{n_stale} changed since" }
                         span { i { class: "missing" } "{n_missing} missing" }
                         if n_own > 0 { span { i { class: "own" } "{n_own} hand-made" } }
+                    }
+                    if !status.stale.is_empty() || !status.orphans.is_empty() {
+                        Outdated { status: status.clone(), running, message }
                     }
                     if !status.ready {
                         div { class: "gen-banner",
@@ -275,7 +291,7 @@ pub fn GeneratePage() -> Element {
                         div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } } }
                         div { class: "gen-langs",
                             for l in v::VOICE_LANGS.iter().copied() {
-                                { let done = parts.iter().filter(|p| p.recordings.get(l.code).is_some_and(|r| r.state == "recorded")).count();
+                                { let done = parts.iter().filter(|p| p.recorded_in(l.code)).count();
                                   let n = recordable.len().max(1);
                                   let pct = done * 100 / n;
                                   rsx! {
@@ -292,12 +308,13 @@ pub fn GeneratePage() -> Element {
 
                     // ---- 2. voice
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "2" } div { h3 { "Voice" } p { "Click ▶ to hear a sample (the first one loads the model)." } } }
+                        div { class: "gen-step", span { "2" } div { h3 { "Voice" } p { "Click ▶ to hear a sample. Every voice keeps its own recordings: listeners pick one in the player." } } }
                         div { class: "gen-voices",
                             for id in v::voices_for(&lang) {
                                 { let (name, female) = v::voice_label(id);
                                   let featured = v::FEATURED.contains(&id);
                                   let sel = r.voice == id;
+                                  let has = parts.iter().filter(|p| p.recording(code, id).is_some_and(|x| x.state == "recorded")).count();
                                   let pv = previewing.read().clone().filter(|(p, _)| p == id);
                                   let h = hue(id);
                                   let initial = name.chars().next().unwrap_or('?');
@@ -306,7 +323,9 @@ pub fn GeneratePage() -> Element {
                                         div { class: "avatar", style: "--h:{h}", "{initial}" }
                                         div { class: "who",
                                             div { class: "vname", "{name}" if featured { span { class: "star", title: "one of the best Kokoro voices", "★" } } }
-                                            div { class: "vtags", if female { "♀ " } else { "♂ " } "{accent(id)}" }
+                                            div { class: "vtags", if female { "♀ " } else { "♂ " } "{accent(id)}"
+                                                if has > 0 { span { class: "vhas", title: "parts recorded with this voice", "● {has}/{recordable.len()}" } }
+                                            }
                                         }
                                         button { class: match &pv { Some((_, true)) => "play loading", Some(_) => "play on", None => "play" }, title: "hear a sample",
                                             onclick: move |e| {
@@ -363,12 +382,6 @@ pub fn GeneratePage() -> Element {
                                 div { class: "ends", span { "cleaner" } span { "smaller (0.95 ≈ 18 kbps)" } }
                             }
                         }
-                        if n_own > 0 {
-                            label { class: "gen-check",
-                                input { r#type: "checkbox", checked: r.force, disabled: running, onchange: move |e| req.with_mut(|r| r.force = e.checked()) }
-                                span { "Replace the {n_own} hand-made recording(s)" }
-                            }
-                        }
                     }
 
                     // ---- 4. parts
@@ -383,7 +396,9 @@ pub fn GeneratePage() -> Element {
                         }
                         div { class: "gen-parts",
                             for (i, p) in parts.iter().enumerate() {
-                                { let rec = p.recordings.get(code).cloned();
+                                { let rec = mine(p);
+                                  let others: Vec<String> = p.recordings.iter().filter(|x| x.lang == code && x.state == "recorded").filter_map(|x| x.voice.clone()).filter(|x| *x != r.voice).collect();
+                                  let own = own(p);
                                   let stem = p.stem.clone();
                                   let sel = sel.clone();
                                   let on = sel.contains(&p.stem) && p.skip.is_none();
@@ -391,8 +406,8 @@ pub fn GeneratePage() -> Element {
                                       (Some(_), _) => ("can't record", "skip"),
                                       (_, Some("recorded")) => ("recorded", "ok"),
                                       (_, Some("stale")) => ("text changed", "stale"),
-                                      (_, Some(_)) => ("hand-made", "own"),
-                                      (_, None) => ("missing", "missing"),
+                                      (_, _) if own => ("hand-made", "own"),
+                                      (_, _) => ("missing", "missing"),
                                   };
                                   let meta = match &rec {
                                       Some(r) => {
@@ -414,6 +429,13 @@ pub fn GeneratePage() -> Element {
                                         div { class: "what",
                                             div { class: "pname", if p.name.is_empty() { "{p.stem}" } else { "{p.name}" } }
                                             div { class: "pmeta", code { "{p.stem}.md" } " · {p.cues} cues" if !meta.is_empty() { " · {meta}" } }
+                                        }
+                                        if !others.is_empty() {
+                                            span { class: "gen-others", title: "also recorded by {others.iter().map(|o| v::voice_label(o).0).collect::<Vec<_>>().join(\", \")}",
+                                                for o in others.iter() {
+                                                    span { class: "avatar", style: "--h:{hue(o)}", "{v::voice_label(o).0.chars().next().unwrap_or('?')}" }
+                                                }
+                                            }
                                         }
                                         span { class: "gen-pill {pill_class}", "{pill}" }
                                     }
@@ -527,6 +549,100 @@ fn Progress(job: VoiceJob, show_log: Signal<bool>) -> Element {
                 button { class: "gen-logbtn", onclick: move |_| { let v = *show_log.read(); show_log.set(!v); }, if *show_log.read() { "hide details ▾" } else { "details ({job.log.len()}) ▸" } }
                 if *show_log.read() {
                     pre { class: "gen-log", for l in job.log.iter() { "{l}\n" } }
+                }
+            }
+        }
+    }
+}
+
+/// Recordings whose text changed since, by voice, and files of parts that are gone: record them
+/// again (same voice and delivery) or delete them.
+#[component]
+fn Outdated(status: Rc<VoiceStatus>, running: bool, message: Signal<String>) -> Element {
+    let mut state = use_context::<State>();
+    let mut message = message;
+    // the delete button asks once more: which group (`*` = all) is waiting for that second click
+    let mut confirm = use_signal(|| None::<String>);
+    let n_rec: usize = status.stale.iter().map(|g| g.parts.len()).sum();
+    let n_orphans = status.orphans.iter().filter(|f| f.ends_with(".times")).count();
+    let refresh = move |groups: Vec<String>| {
+        spawn(async move {
+            message.set(String::new());
+            match post("/api/voice/refresh", &v::CleanRequest { groups }).await {
+                Ok(_) => state.voice_job.set(Some(VoiceJob { running: true, stage: "starting".into(), ..Default::default() })),
+                Err(e) => message.set(e),
+            }
+        });
+    };
+    let mut clean = move |groups: Vec<String>| {
+        confirm.set(None);
+        spawn(async move {
+            match post("/api/voice/clean", &v::CleanRequest { groups }).await {
+                Ok(_) => {
+                    state.refresh_voice_status().await;
+                    state.reload_script().await;
+                }
+                Err(e) => message.set(e),
+            }
+        });
+    };
+    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| l.name.to_string()).unwrap_or_else(|| code.to_string());
+    let all_confirm = confirm.read().as_deref() == Some("*");
+    rsx! {
+        section { class: "gen-card gen-outdated",
+            div { class: "gen-out-head",
+                span { class: "gen-out-icon", "↻" }
+                div {
+                    h3 { if n_rec > 0 { "{n_rec} recording(s) out of date: their text changed" } else { "Old recordings to clean up" } }
+                    p {
+                        if n_rec > 0 { "Those parts are spoken by the browser voice until they are recorded again. " }
+                        if n_orphans > 0 { "{n_orphans} recording(s) belong to parts that no longer exist." }
+                    }
+                }
+            }
+            div { class: "gen-out-list",
+                for g in status.stale.iter().cloned() {
+                    { let key = g.key();
+                      let (name, _) = v::voice_label(&g.voice);
+                      let asking = confirm.read().as_deref() == Some(key.as_str());
+                      let parts = g.parts.join(", ");
+                      let (k1, k2, k3) = (key.clone(), key.clone(), key.clone());
+                      rsx! {
+                        div { class: "gen-out-row",
+                            span { class: "avatar", style: "--h:{hue(&g.voice)}", "{name.chars().next().unwrap_or('?')}" }
+                            div { class: "what",
+                                b { "{name} · {lang_name(&g.lang)}" }
+                                span { title: "{parts}", "{g.parts.len()} part(s): {parts}" }
+                            }
+                            button { class: "gen-mini go", disabled: running, onclick: move |_| refresh(vec![k1.clone()]), "↻ Regenerate" }
+                            if asking {
+                                button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![k2.clone()]), "Delete {g.parts.len()} file(s)?" }
+                            } else {
+                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), "Delete" }
+                            }
+                        }
+                    } }
+                }
+                if n_orphans > 0 {
+                    div { class: "gen-out-row",
+                        span { class: "avatar trash", "🗑" }
+                        div { class: "what",
+                            b { "Parts that are gone" }
+                            span { title: "{status.orphans.join(\", \")}", "{status.orphans.join(\", \")}" }
+                        }
+                        span { class: "gen-out-note", "deleted with either action below" }
+                    }
+                }
+            }
+            div { class: "gen-out-foot",
+                if n_rec > 0 {
+                    button { class: "gen-mini go big", disabled: running, onclick: move |_| refresh(vec![]), "↻ Regenerate all out-of-date" }
+                }
+                if all_confirm {
+                    button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![]), "Yes, delete {n_rec + n_orphans} recording(s)" }
+                    button { class: "gen-mini", onclick: move |_| confirm.set(None), "Keep them" }
+                } else {
+                    button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some("*".into())), if n_rec > 0 { "Delete all out-of-date" } else { "Delete them" } }
                 }
             }
         }

@@ -134,6 +134,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/voice", get(api_voice_status).post(api_voice_start))
             .route("/api/voice/job", get(api_voice_job))
             .route("/api/voice/cancel", post(api_voice_cancel))
+            .route("/api/voice/refresh", post(api_voice_refresh))
+            .route("/api/voice/clean", post(api_voice_clean))
             .route("/api/voice/preview", post(api_voice_preview))
             .fallback(static_handler)
             .layer(tower_http::cors::CorsLayer::permissive())
@@ -293,7 +295,6 @@ async fn api_voice_status(State(s): State<AppState>) -> Response {
 
 /// Start recording the codecast in the background; `GET /api/voice/job` follows it.
 async fn api_voice_start(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<iwr_core::voice::VoiceRequest>) -> Response {
-    use crate::voice::Event;
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -301,44 +302,106 @@ async fn api_voice_start(State(s): State<AppState>, headers: HeaderMap, Json(req
     if iwr_core::voice::voice_lang(&req.lang).is_none() || !iwr_core::voice::VOICES.contains(&req.voice.as_str()) {
         return (StatusCode::BAD_REQUEST, "unknown voice or language").into_response();
     }
+    let opts = crate::voice::Opts { voice: req.voice.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone() };
+    spawn_voice_job(s, dir, vec![opts], vec![], Some(req))
+}
+
+/// Record the out-of-date recordings again, each with the voice and delivery it was made with,
+/// and delete the files of parts that are gone.
+async fn api_voice_refresh(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<iwr_core::voice::CleanRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let st = crate::voice::status(Some(&dir));
+    let opts = st
+        .stale
+        .iter()
+        .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone() })
+        .collect();
+    spawn_voice_job(s, dir, opts, st.orphans, None)
+}
+
+/// Delete out-of-date recordings (the parts are spoken by TTS until recorded again) and the
+/// files of parts that are gone; answers how many files went.
+async fn api_voice_clean(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<iwr_core::voice::CleanRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    if s.voice_job.lock().unwrap().0.running {
+        return (StatusCode::CONFLICT, "a recording is running").into_response();
+    }
+    let st = crate::voice::status(Some(&dir));
+    let mut names = st.orphans;
+    names.extend(st.stale.into_iter().filter(|g| req.groups.is_empty() || req.groups.contains(&g.key())).flat_map(|g| g.files));
+    match crate::voice::delete(&dir, &names) {
+        Ok(n) => {
+            eprintln!("voice: deleted {n} out-of-date file(s)");
+            Json(n).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")).into_response(),
+    }
+}
+
+/// Run recordings one after the other in the background (one job at a time), then delete
+/// `delete` (file names in `dir`); `GET /api/voice/job` follows it.
+fn spawn_voice_job(s: AppState, dir: PathBuf, runs: Vec<crate::voice::Opts>, delete: Vec<String>, request: Option<iwr_core::voice::VoiceRequest>) -> Response {
+    use crate::voice::Event;
     {
         let mut job = s.voice_job.lock().unwrap();
         if job.0.running {
             return (StatusCode::CONFLICT, "a recording is already running").into_response();
         }
         let id = job.0.id + 1;
-        *job = (iwr_core::voice::VoiceJob { id, running: true, stage: "starting".into(), request: Some(req.clone()), ..Default::default() }, Some(Instant::now()));
+        *job = (iwr_core::voice::VoiceJob { id, running: true, stage: "starting".into(), request, ..Default::default() }, Some(Instant::now()));
     }
     s.voice_cancel.store(false, Ordering::Relaxed);
-    let opts = crate::voice::Opts { voice: req.voice, speed: req.speed.clamp(0.5, 2.0), lang: req.lang, path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts };
     let shared = s.clone();
     tokio::task::spawn_blocking(move || {
-        let res = crate::voice::record(&dir, &opts, &shared.voice_cancel, &mut |e| {
-            let mut job = shared.voice_job.lock().unwrap();
-            let j = &mut job.0;
-            match e {
-                Event::Stage(t) => j.stage = t,
-                Event::Plan(p) => j.parts = p.into_iter().map(|(stem, cues)| iwr_core::voice::JobPart { stem, cues, ..Default::default() }).collect(),
-                Event::Cue { part, done } => {
-                    if let Some(p) = j.parts.get_mut(part) {
-                        p.done = done;
+        let mut res = Ok(());
+        for o in &runs {
+            // each run's parts come after the earlier runs'
+            let mut offset = 0;
+            res = crate::voice::record(&dir, o, &shared.voice_cancel, &mut |e| {
+                let mut job = shared.voice_job.lock().unwrap();
+                let j = &mut job.0;
+                match e {
+                    Event::Stage(t) => j.stage = t,
+                    Event::Plan(p) => {
+                        offset = j.parts.len();
+                        j.parts.extend(p.into_iter().map(|(stem, cues)| iwr_core::voice::JobPart { stem, cues, ..Default::default() }));
+                    }
+                    Event::Cue { part, done } => {
+                        if let Some(p) = j.parts.get_mut(offset + part) {
+                            p.done = done;
+                        }
+                    }
+                    Event::Part { part, duration, kb } => {
+                        if let Some(p) = j.parts.get_mut(offset + part) {
+                            p.done = p.cues;
+                            p.duration = Some(duration);
+                            p.kb = kb;
+                        }
+                    }
+                    Event::Log(l) => {
+                        eprintln!("voice: {}", l);
+                        j.log.push(l);
+                        let n = j.log.len();
+                        j.log.drain(..n.saturating_sub(200));
                     }
                 }
-                Event::Part { part, duration, kb } => {
-                    if let Some(p) = j.parts.get_mut(part) {
-                        p.done = p.cues;
-                        p.duration = Some(duration);
-                        p.kb = kb;
-                    }
-                }
-                Event::Log(l) => {
-                    eprintln!("voice: {}", l);
-                    j.log.push(l);
-                    let n = j.log.len();
-                    j.log.drain(..n.saturating_sub(200));
-                }
+            });
+            if res.is_err() {
+                break;
             }
-        });
+        }
+        if res.is_ok() && !delete.is_empty() {
+            res = crate::voice::delete(&dir, &delete).map(|n| {
+                shared.voice_job.lock().unwrap().0.log.push(format!("deleted {n} file(s) of parts that are gone"));
+            });
+        }
         let mut job = shared.voice_job.lock().unwrap();
         job.0.running = false;
         job.0.elapsed = job.1.map(|t| t.elapsed().as_secs_f64()).unwrap_or_default();
