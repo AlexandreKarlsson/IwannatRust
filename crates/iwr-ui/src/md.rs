@@ -36,8 +36,11 @@ fn inline(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
 }
 
 fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
-    speech::segments(s, pron)
-        .into_iter()
+    // `segments` trims its text: keep the spaces next to a **bold** run
+    let lead = s.starts_with(char::is_whitespace).then(|| rsx! { " " });
+    let trail = s.ends_with(char::is_whitespace).then(|| rsx! { " " });
+    lead.into_iter()
+        .chain(speech::segments(s, pron).into_iter()
         .map(|seg| match seg {
             Segment::Text(t) => rsx! { "{t}" },
             Segment::Code { code, say } => {
@@ -49,7 +52,8 @@ fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element
                     if parens && !same { span { class: "spk-say", " ({say})" } }
                 }
             }
-        })
+        }))
+        .chain(trail)
         .collect()
 }
 

@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -684,6 +684,8 @@ fn every_tour_builds_and_checks_on_the_demo() {
         let bad = iwr_core::script::check(&p, &s);
         assert!(bad.is_empty(), "{line}: {bad:?}");
     }
+    let s = tutorial(&p);
+    assert!(iwr_core::script::check(&p, &s).is_empty(), "tutorial: {:?}", iwr_core::script::check(&p, &s));
     for (line, err) in [("flow_tour", "needs a function"), ("flow_tour:crate::nope", "not a function"), ("types_tour:crate::nope", "not a module"), ("foo_tour", "unknown tour")] {
         let e = iwr_core::tours::generate(&p, line).unwrap_err();
         assert!(e.contains(err), "{line}: {e}");
@@ -979,4 +981,60 @@ fn cfg_unfolds_a_callee_in_place() {
     assert_eq!(views::cfg_owner("c2"), None);
     // every edge ends on a node
     assert!(g2.edges.iter().all(|e| g2.node(&e.from).is_some() && g2.node(&e.to).is_some()));
+}
+
+#[test]
+fn script_panels_and_folders() {
+    use iwr_core::script::{self, Focus, Panel};
+    let p = iwr_core::analyze_sources(
+        "demo",
+        "/demo",
+        vec![
+            ("src/main.rs".into(), "mod store;\nfn main() { if true { store::save::put(); } }\n".into()),
+            ("src/store/mod.rs".into(), "pub mod save;\npub struct Db;\n".into()),
+            ("src/store/save.rs".into(), "pub fn put() {}\n".into()),
+            ("docs/notes.md".into(), "# notes\n".into()),
+        ],
+    );
+    // `+` lines: sticky inside a part, `+` alone resets, other `+ …` lines are cues
+    let s = script::parse("## A\n+ files\none\ntwo\n+ source\nthree\n+\nfour\n+ 1 is one\n+ search\nfive\n");
+    let c = &s.parts[0].cues;
+    assert_eq!(c.len(), 6);
+    assert_eq!(c[4].say, "+ 1 is one");
+    let at: Vec<Option<Focus>> = (0..6).map(|i| script::focus_at(&s.parts[0], i)).collect();
+    assert_eq!(at, [Some(Focus::Panel(Panel::Files)), Some(Focus::Panel(Panel::Files)), Some(Focus::Panel(Panel::Source)), None, None, Some(Focus::Spot("search"))]);
+    assert_eq!(script::focus_of("zoom"), Some(Some(Focus::Zoom(None))));
+    assert_eq!(script::focus_of("zoom tree"), Some(Some(Focus::Zoom(Some("files")))));
+    assert_eq!(script::focus_of("zoom player"), Some(Some(Focus::Zoom(Some("player")))));
+    assert_eq!(script::focus_of("zoom nowhere"), None);
+    assert_eq!(script::focus_of("zoom"), script::focus_of(" zoom "));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    // folder refs: exact path, unique suffix, trailing slash; a file wins over a folder
+    assert_eq!(script::resolve_dir(&p, "src/store/").as_deref(), Some("src/store"));
+    assert_eq!(script::resolve_dir(&p, "store").as_deref(), Some("src/store"));
+    assert_eq!(script::resolve_dir(&p, "docs").as_deref(), Some("docs"));
+    assert!(script::resolve_dir(&p, "nope").is_none());
+    assert!(script::resolve_dir(&p, "src/main.rs").is_none());
+    assert!(script::check(&p, &script::parse("## A\n! src/store/ docs\nx\n")).is_empty());
+    assert_eq!(script::check(&p, &script::parse("## A\n! src/nope/\nx\n")).len(), 1);
+    // the tutorial codecast is valid on any project, its folder cue on this one
+    for proj in [&p, &project()] {
+        let s = tutorial(proj);
+        assert_eq!(s.parts.len(), 8);
+        assert!(script::check(proj, &s).is_empty(), "{:?}", script::check(proj, &s));
+    }
+    let s = tutorial(&p);
+    let files = s.parts.iter().find(|x| x.name == "Files and folders").unwrap();
+    assert_eq!(files.cues[1].hl, Some(vec!["src/store/".to_string()]));
+    assert_eq!(script::focus_at(files, 0), Some(Focus::Panel(Panel::Files)));
+}
+
+/// The UI's tutorial codecast, filled for `p`.
+fn tutorial(p: &Project) -> iwr_core::script::Script {
+    use iwr_core::script::{self, PartFile};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");
+    let mut stems: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()?.file_name().to_str()?.strip_suffix(".md").map(String::from)).filter(|s| s != "index").collect();
+    stems.sort();
+    let parts: Vec<PartFile> = stems.iter().map(|st| PartFile { stem: st.clone(), text: iwr_core::tutorial::fill(p, &std::fs::read_to_string(dir.join(format!("{st}.md"))).unwrap()), audio: None, times: vec![], voices: vec![] }).collect();
+    script::parse(&script::assemble(&std::fs::read_to_string(dir.join("index.md")).unwrap(), &parts))
 }

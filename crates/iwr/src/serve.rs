@@ -271,10 +271,11 @@ async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<Strin
     }
 }
 
-/// Translate the texts the player sends (English, code in backticks) with the offline model;
-/// the first request for a language sets the model up, which takes a while.
-async fn api_translate(AxPath(lang): AxPath<String>, Json(texts): Json<Vec<String>>) -> Response {
-    match tokio::task::spawn_blocking(move || crate::translate::translate(&lang, &texts, false)).await {
+/// Translate the texts the player sends (English, code in backticks): the author's own
+/// translations next to the codecast, else the offline model; the first request for a language sets the model up, which takes a while.
+async fn api_translate(State(s): State<AppState>, AxPath(lang): AxPath<String>, Json(texts): Json<Vec<String>>) -> Response {
+    let dir = s.script.as_deref().map(crate::codecast::script_dir);
+    match tokio::task::spawn_blocking(move || crate::translate::translate(&lang, &texts, false, dir.as_deref())).await {
         Ok(Ok(done)) => Json(done).into_response(),
         Ok(Err(e)) => {
             eprintln!("translate: {e:#}");

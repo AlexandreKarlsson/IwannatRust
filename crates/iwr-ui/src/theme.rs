@@ -201,7 +201,7 @@ pub fn is_theme(id: &str) -> bool {
 
 /// Where each `[fonts]` role of `codecast.toml` applies.
 const FONT_TARGETS: [(&str, &str, &str); 3] = [
-    ("title", ".node text.title, .settings .shero h2, .settings .chead h3, .plan h2, .plan .name, .side-head .title, .cast-title", "system-ui, sans-serif"),
+    ("title", ".node text.title, .settings .shero h2, .settings .chead h3, .plan h2, .plan .name, .side-head .title, .cast-title, .tut-card h2", "system-ui, sans-serif"),
     ("text", "&, button, input, select, .bhead .label.note", "system-ui, sans-serif"),
     ("code", "code, pre, .source-pane, .ihead .sig, .bhead, .chip.var, .chip.def, .chip.call, .node text.sub, .node text.cap", "ui-monospace, Menlo, Consolas, monospace"),
 ];
@@ -276,7 +276,7 @@ button.small { padding:2px 6px; font-size:11px; }
 input[type=text], select { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-size:12px; }
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:12px; }
-.app { display:flex; flex-direction:column; height:100vh; }
+.app { display:flex; flex-direction:column; height:100vh; overflow:clip; }
 .topbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; position:relative; z-index:20; }
 .topbar .brand { font-weight:700; color:var(--accent); margin-right:8px; letter-spacing:.3px; }
 .topbar .brand span { color:var(--muted); font-weight:400; font-size:11px; margin-left:6px; }
@@ -305,6 +305,46 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .ftree .frow.sel.nar { box-shadow: inset 3px 0 0 var(--hi), 0 0 0 1px var(--hi); }
 .ftree .frow { transition: background .3s, box-shadow .3s; }
 .ftree .frow.dir { color:var(--muted); }
+.ftree .frow.dir.nar { color:var(--hi); font-weight:600; }
+/* `+ panel` in a codecast: that panel grows, the others shrink (over the sizes set by hand) */
+.main .sidebar, .main .details, .main .side { transition: width .45s ease; }
+.main .blocks-pane.half { transition: flex-basis .45s ease; }
+.ftree .frow, .sidebar .item { transition: font-size .3s, padding .3s, background .3s, box-shadow .3s; }
+.main.focus-files .sidebar, .main.focus-items .sidebar { width:max(40vw, 340px) !important; }
+.main.focus-files .ftree .frow { font-size:16px; padding:4px 8px; }
+.main.focus-files .ftree .fic { font-size:15px; width:36px; }
+.main.focus-files .ftree .fcount { font-size:12px; }
+.main.focus-items .sidebar .item { font-size:15px; padding:4px 8px; }
+.main.focus-view .sidebar, .main.focus-source .sidebar { width:150px !important; }
+.main.focus-view .details, .main.focus-view .side { width:260px !important; }
+.main.focus-view .blocks-pane.half { flex-basis:72% !important; }
+.main.focus-source .details { width:max(55vw, 420px) !important; }
+.main.focus-source .details .source { font-size:1.12em; }
+.main.focus-source .blocks-pane.half { flex-basis:30% !important; }
+.main.focus-source .source-pane { font-size:1.08em; }
+/* first start: the welcome dialog and the tutorial */
+.tut-backdrop { position:fixed; inset:0; z-index:80; }
+.tut-backdrop.dim { background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+.tut-card { background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:14px; box-shadow:0 14px 40px rgba(0,0,0,.45); }
+.tut-card h2 { margin:8px 0; font-size:20px; }
+.tut-card.welcome { position:static; width:min(440px, calc(100vw - 32px)); text-align:center; padding:24px 24px 18px; }
+.tut-card.welcome p { color:var(--muted); margin:0 0 16px; }
+/* `+ search` in a codecast: that part of the app in the light, the rest dimmed, the player readable */
+/* `+ zoom`: the presenter's zoom of the middle of the screen */
+.main { transform-origin:0 0; transition: transform .6s ease; }
+.main.zoomed { position:relative; z-index:0; }
+.spot-dim { position:fixed; z-index:60; background:rgba(0,0,0,.55); pointer-events:none; animation: spot-in .3s ease; }
+@keyframes spot-in { from { opacity:0; } }
+.app.spotting .guide { position:relative; z-index:61; }
+.spot-on { outline:2px solid var(--accent) !important; outline-offset:3px; border-radius:6px; animation: spot-pulse 1.6s ease-in-out infinite; }
+@keyframes spot-pulse { 50% { outline-offset:7px; } }
+.tut-actions { display:flex; gap:8px; align-items:center; margin-top:12px; }
+.tut-actions .spacer { flex:1; }
+.tut-actions.col { flex-direction:column; align-items:stretch; }
+.tut-actions button { cursor:pointer; padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:var(--panel2); color:var(--text); }
+.tut-actions button:hover { border-color:var(--accent); }
+.tut-actions .tut-primary { background:var(--accent); border-color:var(--accent); color:var(--bg); font-weight:600; }
+.tut-actions .tut-quiet { background:transparent; border-color:transparent; color:var(--muted); }
 .ftree .frow.other { color:var(--muted); }
 .ftree .fic { font-size:11px; width:28px; flex:none; }
 .ftree .fcount { margin-left:auto; color:var(--muted); font-size:10px; }
@@ -698,6 +738,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-step > span { flex:none; width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; color:#fff; background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--hi))); box-shadow:0 4px 12px -4px color-mix(in srgb, var(--accent) 70%, transparent); }
 .gen-step h3 { margin:0; font-size:15px; }
 .gen-step p { margin:2px 0 0; font-size:12px; color:var(--muted); }
+.gen-step p.gen-warn { margin-top:6px; padding:6px 9px; border-radius:7px; color:var(--text); background:color-mix(in srgb, var(--hi) 14%, transparent); border:1px solid color-mix(in srgb, var(--hi) 35%, transparent); }
+.gen-step p.gen-warn code { font-size:11px; }
 .gen-step > div:nth-child(2) { flex:1; }
 .gen-langs { display:grid; grid-template-columns:repeat(auto-fill, minmax(128px, 1fr)); gap:8px; }
 .gen-lang { display:flex; flex-direction:column; align-items:flex-start; gap:6px; padding:10px 12px; border-radius:12px; border:1.5px solid var(--border); background:var(--panel2); color:var(--text); cursor:pointer; text-align:left; transition:border-color .15s, transform .12s, background .2s; }

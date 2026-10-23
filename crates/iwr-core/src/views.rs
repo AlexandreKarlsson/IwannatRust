@@ -281,7 +281,25 @@ impl Graph {
                     break;
                 }
             }
-            let p = best.map(|b| b.1).unwrap_or(pts[m]);
+            let mut p = best.map(|b| b.1).unwrap_or(pts[m]);
+            // no free spot on the curve (a self-loop, boxes too close): the nearest free one off it
+            if best.is_some_and(|(c, _)| c > 0.0) {
+                let cost = |q: (f64, f64)| -> f64 { taken.iter().map(|t| overlap((q.0 - w / 2.0, q.1 - 8.0, w, 15.0), *t)).sum() };
+                let (o, mut least) = (p, best.map_or(f64::INFINITY, |b| b.0));
+                for d in (1..=8).map(|k| k as f64 * 6.0) {
+                    for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+                        let q = (o.0 + dx * (d + w / 2.0), o.1 + dy * d);
+                        let c = cost(q);
+                        if c < least {
+                            least = c;
+                            p = q;
+                        }
+                    }
+                    if least == 0.0 {
+                        break;
+                    }
+                }
+            }
             taken.push((p.0 - w / 2.0, p.1 - 8.0, w, 15.0));
             out[i] = Some(p);
         }
@@ -289,9 +307,24 @@ impl Graph {
     }
 }
 
-/// Width of an edge label's background (10 px text).
+/// Width of an edge label's background (10 px text; wide characters count double).
 pub fn edge_label_width(label: &str) -> f64 {
-    label.chars().count() as f64 * 6.0 + 8.0
+    display_width(label) * 6.0 + 8.0
+}
+
+/// Height of an edge label's background.
+pub const EDGE_LABEL_H: f64 = 15.0;
+
+/// Width of a text in narrow-character units: emoji, CJK and other wide characters count 2,
+/// joiners and variation selectors 0.
+pub fn display_width(s: &str) -> f64 {
+    s.chars()
+        .map(|c| match c as u32 {
+            0x200D | 0xFE0E | 0xFE0F | 0x1F3FB..=0x1F3FF => 0.0,
+            u if u >= 0x2600 => 2.0,
+            _ => 1.0,
+        })
+        .sum()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -554,7 +587,7 @@ fn apply_layout(g: &mut Graph, res: &layout::LayoutResult) {
 
 fn layered_layout(g: &mut Graph, reverse: &dyn Fn(&VEdge) -> bool, opts: &LayoutOptions) {
     let nodes: Vec<LayoutNode> = g.nodes.iter().map(|n| LayoutNode { id: n.id.clone(), w: n.w, h: n.h }).collect();
-    let edges: Vec<LayoutEdge> = g.edges.iter().map(|e| LayoutEdge { from: e.from.clone(), to: e.to.clone(), reverse_rank: reverse(e), rank_only: e.hub }).collect();
+    let edges: Vec<LayoutEdge> = g.edges.iter().map(|e| LayoutEdge { from: e.from.clone(), to: e.to.clone(), reverse_rank: reverse(e), rank_only: e.hub, label: e.label.as_deref().map_or((0.0, 0.0), |l| (edge_label_width(l), EDGE_LABEL_H)) }).collect();
     let res = layout::layered(&nodes, &edges, opts);
     apply_layout(g, &res);
 }

@@ -15,7 +15,10 @@ with — see [codecast.md](codecast.md#look-and-defaults-codecasttoml)). Validat
 ## <Part name>               one subject, 4–10 cues, playable alone
 plan: <one line about it>    optional: its line on the plan page (or write it after the link in index.md)
 @ <view>[:<ref>]             what to show (sticky until the next @); `@ plan` shows the plan page
-! <ref> [<ref> …]            what to glow (sticky; `!` alone clears)
+! <ref> [<ref> …]            what to glow (sticky; `!` alone clears); `src/store/` glows a folder: the file tree opens it, closes the rest
++ files|items|view|source    enlarge that panel (sticky in the part; `+` alone: normal; none: no change)
++ search|player|settings|…   or light up that part of the app (list in codecast.md)
++ zoom [files|side|search|…] or zoom in on what `!` lights up (or on that panel / part)
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
 ^ <exact text>               popup card with a path, endpoint, command or name (this cue only, never spoken)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
@@ -187,7 +190,10 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
     never says it. Hyphenated English words too: "well formed", "read only", "brand new", "64"
     instead of "sixty-four". Name a function only when the listener needs it, and then in a `^` line
     rather than in the sentence. `iwr check` notes every word that breaks this rule.
-14. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
+14. **Say where before what.** When a cue lights up a control or a panel (`+ search`, `+ files`),
+    start with its place: "At the top right, the search box…", "On the left, the files…".
+15. **Zoom on big pages.** A long file or a wide graph: `!` the part, then `+ zoom`, and `+` after.
+16. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
     short, kind, and no puns that need spelling.
 
 ## Diagrams (when the code has no picture)

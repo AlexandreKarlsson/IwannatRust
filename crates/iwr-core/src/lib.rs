@@ -15,6 +15,7 @@ pub mod diagram;
 pub mod model;
 pub mod guide;
 pub mod script;
+pub mod tutorial;
 pub mod tours;
 pub mod glossary;
 pub mod highlight;

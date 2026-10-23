@@ -291,7 +291,7 @@ pub fn GeneratePage() -> Element {
 
                     // ---- 1. language
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } } }
+                        div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } p { class: "gen-warn", "⚠ The offline translation is rough for now. For a good one, translate with another tool (DeepL, an LLM…): " code { "iwr translate codecast/ --lang ja --pieces > ja.json" } ", fill in the values, save it as " code { "codecast/translations/ja.json" } "; those pieces win over the model." } } }
                         div { class: "gen-langs",
                             for l in v::VOICE_LANGS.iter().copied() {
                                 { let done = parts.iter().filter(|p| p.recorded_in(l.code)).count();

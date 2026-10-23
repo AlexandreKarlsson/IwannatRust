@@ -281,3 +281,17 @@ pub fn pronounce(s: &script::Script, glossary: Option<&str>) -> Vec<(String, Str
     v.extend(s.pronounce.iter().cloned());
     v
 }
+
+#[cfg(test)]
+mod tutorial_tests {
+    /// The UI ships the tutorial with its recording: editing a sentence without recording it
+    /// again (`iwr voice crates/iwr-ui/assets/tutorial --path examples/demo`) fails here.
+    #[test]
+    fn tutorial_recording_matches_its_text() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");
+        let loaded = super::load(&dir).unwrap();
+        assert!(loaded.stale.is_empty(), "record the tutorial again: {:?}", loaded.stale);
+        let s = iwr_core::script::parse(&loaded.text);
+        assert!(s.parts.iter().all(|p| p.voices.iter().any(|v| v.voice == "af_heart" && v.times.len() == p.cues.len())));
+    }
+}

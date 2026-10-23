@@ -1,11 +1,11 @@
 # IwannatRust docs
 
-- [User guide](user-guide.md) — views, interactions, guide mode, keyboard, themes
-- [CLI](cli.md) — `serve`, `export`, `analyze`, `summary`
-- [Architecture](architecture.md) — crates, pipeline, data model, layout engine
-- [Model reference](model.md) — the JSON produced by `iwr analyze` / `/api/project`
-- [Writing codecasts](writing-codecasts.md) — the guide an agent follows to write a good one
-- [Commenting your code](commenting.md) — how `//!`, `///` and `//` comments become the titles of boxes, flow nodes and code blocks
-- [Codecast](codecast.md) — script format, refs, brief for LLMs, player (TTS / recording / read)
-- [Embedding](embedding.md) — static export, docs sites, Zensical plan
-- [Development](development.md) — build, test, QA loop, adding a view
+- [User guide](user-guide.md): first start and the tutorial, layout, views, codecast player, keys, settings, Generate page
+- [Codecast](codecast.md): script format, refs, tours, questions, diagrams, side panel, panels / spots / zoom, popups, speech, languages, player, recordings
+- [Writing codecasts](writing-codecasts.md): the guide a person or an AI follows to write a good one
+- [Commenting your code](commenting.md): how `//!`, `///` and `//` comments become box titles, flow labels and block names
+- [CLI](cli.md): every command and the HTTP API of `serve`
+- [Architecture](architecture.md): crates, pipeline, UI modules
+- [Model reference](model.md): the JSON of `iwr analyze` / `/api/project`
+- [Embedding](embedding.md): static export, docs sites
+- [Development](development.md): build, test, visual QA, the tutorial's recording, adding a view

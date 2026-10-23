@@ -137,6 +137,10 @@ enum Cmd {
         /// Project path (for generated tours and the names kept as code)
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        /// Print the pieces to translate as JSON (no model), to fill with another tool and save as
+        /// `translations/<lang>.json` next to the codecast
+        #[arg(long)]
+        pieces: bool,
     },
     /// Validate a codecast's refs against the project (a script file or a `codecast/` directory)
     Check {
@@ -205,7 +209,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Voice { script, voice, speed, lang, path, gap, level, force, retranslate, fresh } => voice::run(&script, &voice::Opts { voice, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh }),
-        Cmd::Translate { script, lang, path } => translate::run(&script, &path, &lang),
+        Cmd::Translate { script, lang, path, pieces } => if pieces { translate::print_pieces(&script, &path, &lang) } else { translate::run(&script, &path, &lang) },
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
             let loaded = codecast::load(&script)?;

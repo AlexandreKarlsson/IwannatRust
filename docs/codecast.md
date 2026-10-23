@@ -138,7 +138,7 @@ architecture_tour                        generated cues, e.g. every module with 
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
+Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `+` [enlarge a panel or light up a part of the app](#panels-spots-and-the-file-tree), `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -294,6 +294,63 @@ The panel draws the bytes as a coloured strip with offsets and each field's name
 (field, offset, size, value, description); hovering a byte or a row lights both. `iwr check`
 reports unreadable lines, sizes that do not add up to the sample, and `|` lines naming no block.
 
+## Panels, spots and the file tree
+
+**Enlarge a panel.** A `+` line above a cue makes one panel of the screen big and the others small,
+from that cue on, until another `+` line or the end of the part. Nothing changes without one, and
+the sizes the viewer set by hand come back afterwards.
+
+| Line | Enlarges |
+|------|----------|
+| `+ files` | the file tree (the sidebar, on its files tab, shown even if the viewer closed it), with bigger rows |
+| `+ items` | the item list of the sidebar |
+| `+ view` | the view in the middle: the graph, the diagram, the Code view's blocks |
+| `+ source` | the source: the details panel next to a graph, the source pane of the Code view |
+| `+` | everything back to normal (also `+ none`) |
+
+**Light up a part of the app.** `+` also takes a part of the interface: it gets a ring, the rest
+of the screen dims, the player stays readable. Same stickiness as a panel; a line holds one panel
+or one spot. This is how the tutorial (itself a codecast, `crates/iwr-ui/assets/tutorial/`) shows
+the buttons.
+
+| Spot | Is |
+|------|----|
+| `brand` · `panel-button` · `views` · `split` · `search` | the app's name, the sidebar button, the Code tab and the views, the source button, the search box |
+| `codecast` · `tour` · `generate` · `help` · `settings` | the buttons of the top bar (`generate` only with `iwr serve`) |
+| `sidebar-tabs` | the files / items tabs (shows the sidebar) |
+| `player` · `caption` · `parts` · `questions` | the player bar, its text, its parts, the questions under the text |
+| `voice` · `lang` · `plan-button` | the voice picker, the language picker, the plan button |
+| `side` | the side panel (`\|` lines) |
+
+**Zoom like a presenter.** On a big page, `+ zoom` scales the middle of the screen onto what the
+cue highlights (`!`: glowing graph nodes, highlighted blocks and lines, files and folders), up to
+2.2×, the top bar and the player untouched; it follows the highlight as views move. `+ zoom files`,
+`+ zoom side`, `+ zoom search`… zoom onto a panel or a spot instead (a tall one: its top half).
+Same stickiness; `+` zooms back out.
+
+```
+@ flow:crate::run
+! crate::run/b3
++ zoom
+Here, the loop that saves every task.
++
+```
+
+**Folders and files.** `!` takes files and folders too (`! src/storage/`, `! src/main.rs`). When a
+cue highlights one, the file tree closes every folder except the highlighted folders and those on
+the way to a highlighted file or folder, glows them and scrolls to the first. Highlighting items,
+blocks or lines leaves the tree alone.
+
+```
++ files
+! src/storage/
+Everything about saving lives in one folder.
+! src/main.rs
+The entry point sits at the top, next to it.
++
+Back to the code.
+```
+
 ## Popups
 
 Some things must be seen exactly but never read aloud: a path (`/srv/gw`), an endpoint
@@ -364,11 +421,13 @@ iwr speak codecast/            # the whole codecast as it will be spoken, to rev
 ## Languages
 
 A codecast is written once, in English, and played in another language by picking it in the
-player bar (or Settings, or `?lang=ja` in the URL). Nothing is translated on disk: when a language
+player bar (or Settings, or `?lang=ja` in the URL). Nothing is translated on disk by iwr: when a language
 is picked, the player sends every text a viewer reads or hears (cues, generated tours, questions
 and answers, part names, `plan:` lines, side notes, glossary questions) to be translated, and plays
 the result. Directives, refs, diagrams and code stay as written.
 
+- **Your own translation first.** `translations/<lang>.json` next to the codecast, made with
+  another tool, wins over the model piece by piece (see below); recommended for now.
 - **Offline model.** `iwr serve` translates with an [Argos Translate](https://github.com/argosopentech/argos-translate)
   model (CTranslate2, CPU), set up on first use under `~/.cache/iwr/translate` (Python venv,
   ~250 MB per language). Translations are cached there: a codecast is translated once, then only
@@ -390,7 +449,35 @@ the result. Directives, refs, diagrams and code stay as written.
 - Glossary questions are still found from the English text, then shown translated. The player's
   own buttons stay English.
 
-Machine translation is approximate; write short sentences, one idea each, and put code in backticks.
+### Translating with another tool
+
+> ⚠ **The offline translation does not work very well for now.** Argos models are small: terms
+> get mistranslated, sentences come out stiff, Japanese especially. For a codecast people will
+> watch, translate it with another tool (DeepL, Google Translate, an LLM such as Claude) and give
+> iwr the result.
+
+The player translates *pieces* (a cue, an answer, a table cell…), looked up by their English text.
+Your own translations go in `translations/<lang>.json` next to the codecast (in the `codecast/`
+directory, or beside a single-file `codecast.md`): a JSON object, English piece → translation.
+Pieces found there are used as they are; the others (empty values, or text edited since) still go
+to the offline model. With every piece translated, the model is not even installed.
+
+1. Dump the pieces (no model needed):
+   ```
+   iwr translate codecast/ --lang ja --pieces > ja.json
+   ```
+   Every key is an English piece, in reading order; the values are empty (or your translation so
+   far, so run it again after editing the script: new pieces show up empty).
+2. Translate the values with your tool. With an LLM, a prompt like: *"Translate every value of
+   this JSON object into Japanese from its key. Keep the keys unchanged. Keep everything in
+   `backticks` exactly as is. Answer with the JSON only."* With DeepL or a CAT tool, translate the
+   file as JSON (keys locked). Keep the backticks: they protect code, which is put back unchanged.
+3. Save the result as `codecast/translations/ja.json`, check it with
+   `iwr translate codecast/ --lang ja` (prints the translated codecast), then play it with
+   `iwr serve`, record it with `iwr voice codecast/ --lang ja`, or export it with
+   `iwr export --lang ja`. Commit the file with the codecast.
+
+Write for translation either way: short sentences, one idea each, code in backticks.
 
 ## Refs
 
@@ -400,6 +487,7 @@ Machine translation is approximate; write short sentences, one idea each, and pu
 | module path | module (scopes module views, glows the module box) | `crate::storage`, `storage` |
 | `<item>/b<n>` | block *n* of that function, ids as printed by `iwr brief` | `crate::run/b5` |
 | `<file>` | a whole file (`@ code:src/parser.rs` opens it in the Code view) | `src/parser.rs` |
+| `<folder>/` | a folder of the file tree (`!` only; exact path or unique suffix; the `/` keeps a module of the same name from winning) | `src/storage/`, `storage/` |
 | `<file>:<l>[-<l>]` | source lines | `src/main.rs:49-52` |
 | `<file>:<l>:<c1>-<c2>` | columns on a line (word underline, use with `=`) | `src/main.rs:49:17-44` |
 
@@ -439,7 +527,7 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 |-------|---------|-------|
 | 🔊 TTS | when the utterance ends | browser `speechSynthesis`; markdown/code stripped before speaking |
 | 🎧 recording | by time: cue with the largest `[t] ≤` position | `audio:` lines (per part or whole script), `--audio`, or a file picked in *load…*; with per-part recordings the tour continues into the next part's file |
-| 📖 read | prev / next, or autoplay every 3 s | |
+| 📖 read | prev / next, or autoplay (seconds per cue in settings, default 4) | |
 
 **Generated recording (the default way to voice a codecast).** `iwr voice codecast/` speaks every
 cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS, CPU, ~4× real time)
@@ -467,8 +555,9 @@ spoken by browser TTS. Options: `--voice af_heart` (Kokoro voice name), `--speed
 
 Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing
 continues with the next part until the script ends; unticked, it stops at the end of each part (`next part ▶`).
-`load…` accepts pasted text, a script file and an audio file. `▶ Narrate` (or `g`) plays the built-in
-walkthrough as a script; `codecast from here` in the details panel starts it at a function.
+`load…` accepts pasted text, a script file and an audio file. The 📣 button (or `g`) plays the
+project's codecast, or the built-in walkthrough when there is none; `codecast from here` in the
+details panel starts the walkthrough at a function. The tutorial (`?` button) is a codecast too.
 Keys: `←` `→` step, `space` play/pause, `Esc` close.
 
 `iwr serve` re-reads the script file (or directory) and `glossary.md` on every page load, so edit and refresh.

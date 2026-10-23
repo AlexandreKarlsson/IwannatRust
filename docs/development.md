@@ -15,7 +15,7 @@ cargo install dioxus-cli --version 0.7.10 --locked     # provides `dx` (in ~/.ca
 ## Build / run
 
 ```sh
-./build.sh                                   # dx build --release (UI) + cargo build --release -p iwr
+scripts/iwr build                            # or ./build.sh: dx build --release (UI) + cargo build --release -p iwr
 ./target/release/iwr serve examples/demo
 ```
 
@@ -28,15 +28,32 @@ UI type-check without `dx` noise: `cargo check -p iwr-ui --target wasm32-unknown
 ## Tests
 
 ```sh
-cargo test -p iwr-core          # crates/iwr-core/tests/analyze.rs: parsing, resolution, CFG, blocks, views, guide, module paths
-cargo clippy --workspace --exclude iwr-ui
+scripts/iwr test                # tests + clippy + wasm check of the core
+cargo test -p iwr-core          # crates/iwr-core/tests/analyze.rs: parsing, resolution, CFG, blocks, views, guide, scripts, the tutorial filled for several projects
+cargo test -p iwr               # the tutorial's recording matches its text
 ```
 
 Views test asserts no dangling edges, every edge routed, no overlapping siblings — run it after touching `layout`.
 
+## The tutorial
+
+`crates/iwr-ui/assets/tutorial/` is a codecast directory: part files whose directive lines use
+placeholders (`{dir}`, `{file}`, `{fn}`, `{fn_line}`, `{fn_b1}`, filled by `iwr_core::tutorial::fill`;
+spoken text never names the project) and their `af_heart` recordings. After editing a sentence:
+
+```sh
+./target/release/iwr voice crates/iwr-ui/assets/tutorial --path examples/demo
+```
+
+then rebuild (the recordings are UI assets). New parts go in `PARTS` (`crates/iwr-ui/src/tutorial.rs`).
+
 ## Visual QA
 
-Headless Chrome + `playwright-core` against a running `iwr serve` is the fastest loop: click tabs/blocks, hover, screenshot each mode, capture console errors. Selectors: `.node` (svg nodes), `.iblk`/`.blk` (code view blocks), `.sidebar .mod` (module headers), `button:has-text('…')`.
+Headless Chrome against a running `iwr serve` is the fastest loop (`scripts/iwr shot`, or drive it
+over the DevTools protocol: click, press keys, screenshot each cue, read classes). A fresh
+`--user-data-dir` shows the first-start dialog. Selectors: `.node` (svg nodes), `.iblk`/`.blk` (code
+view blocks), `.sidebar .mod` (module headers), `.main.focus-*` / `.spot-on` / `.main.zoomed`
+(codecast panels, spots, zoom).
 
 ## Adding a view
 

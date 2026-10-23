@@ -8,8 +8,8 @@ iwr summary [PATH]                         text dump: modules, items, calls, rel
 iwr brief   [PATH] [--fn P] [--no-body] [--no-overview]   compact text brief for writing a codecast (see codecast.md)
 iwr guide   [PATH] [--fn P]                built-in walkthrough as a codecast script (text) on stdout
 iwr speak   SCRIPT                         print a codecast as it will be spoken (code said as words), to review the TTS text
-iwr voice   DIR [--voice V] [--speed X] [--lang L] [--path P] [--gap S] [--level Q] [--force] [--retranslate] [--fresh]   record a codecast/ directory with Kokoro TTS: NN-part.<voice>.ogg (Opus) + .times per part and voice (each voice keeps its own files; the player picks one) file (unchanged parts and cues are skipped); --lang ja|fr|es|it|pt translates each part first and writes NN-part.<lang>.ogg + .times; --retranslate skips the translation cache, --fresh the cue clip cache
-iwr translate SCRIPT --lang L [--path PATH]   translate a codecast offline (Argos model, cached in ~/.cache/iwr/translate) and print it: what the player shows in that language
+iwr voice   DIR [--voice V] [--speed X] [--lang L] [--path P] [--gap S] [--level Q] [--force] [--retranslate] [--fresh]   record a codecast/ directory with Kokoro TTS: NN-part.<voice>.ogg (Opus) + .times per part and voice (each voice keeps its own files; the player picks one; unchanged parts and cues are skipped); --lang ja|fr|es|it|pt translates each part first and writes NN-part.<lang>.ogg + .times; --retranslate skips the translation cache, --fresh the cue clip cache
+iwr translate SCRIPT --lang L [--path PATH] [--pieces]   translate a codecast offline (`translations/<lang>.json` next to it first, then the Argos model, cached in ~/.cache/iwr/translate) and print it: what the player shows in that language; --pieces prints the pieces as JSON instead (no model) to translate with another tool and save as `translations/<lang>.json` (the offline model is rough: see codecast.md § Translating with another tool)
 iwr check   SCRIPT [--path PATH]           validate a script's refs (file or codecast/ directory) its glossary.md and codecast.toml; exit 1 if any is unresolved, a question has no answer, or a recording is missing (notes parts whose recording is stale: TTS speaks them)
 ```
 
@@ -23,8 +23,8 @@ HTTP API of `serve`:
 | `GET /api/version` | integer, increments on every re-analysis |
 | `GET /api/script` | the `--script` file as text, a directory assembled into one (re-read each request), 404 if none |
 | `GET /api/audio` | the `--audio` file, 404 if none |
-| `GET /api/codecast/NAME` | a recording named by an `audio:` line, read from the script's directory (audio types only) |
-| `POST /api/translate/LANG` | JSON list of English texts → JSON list of translations (offline model, cached; the first call for a language downloads its model), 503 if it cannot |
+| `GET /api/codecast/NAME` | a file of the script's directory: a recording named by an `audio:` line, or a font of `codecast.toml` (no path escapes) |
+| `POST /api/translate/LANG` | JSON list of English texts → JSON list of translations (the codecast's `translations/<lang>.json` first, then the offline model, cached; the first call for a language downloads its model), 503 if it cannot |
 | `GET /api/glossary` | the project glossary (`glossary.md` next to the script), re-read on every request |
 | `GET /api/config` | the codecast's `codecast.toml` as JSON, re-read on every request; its font files are served by `/api/codecast/PATH` |
 | `POST /api/config` | JSON `Config` → written as `codecast.toml` next to the script (400 with the problems if a value is bad, 409 without a codecast); same-origin loopback only |

@@ -139,7 +139,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         let spoken = match target {
             Some(code) => {
                 report(Event::Stage(format!("translating {} into {}", stem, code)));
-                translated(&text, code, &names, &pron, o.retranslate)?
+                translated(&text, code, &names, &pron, o.retranslate, dir)?
             }
             None => english,
         };
@@ -268,10 +268,10 @@ fn sidecar(home: &Path, job: serde_json::Value, cancel: &AtomicBool, report: &mu
 }
 
 /// A part file's cues translated into `lang` (as the player translates them), as they will be spoken.
-fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)], fresh: bool) -> Result<Vec<String>> {
+fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)], fresh: bool, dir: &Path) -> Result<Vec<String>> {
     let mut s = iwr_core::script::parse(text);
     let texts = iwr_core::i18n::texts(&s, &[], names);
-    let done = crate::translate::translate(lang, &texts, fresh)?;
+    let done = crate::translate::translate(lang, &texts, fresh, Some(dir))?;
     let map: std::collections::HashMap<String, String> = texts.into_iter().zip(done).collect();
     iwr_core::i18n::apply(&mut s, &mut [], names, &|t| map.get(t).cloned());
     Ok(s.parts.iter().flat_map(|p| &p.cues).map(|c| iwr_core::speech::spoken(&c.say, pron)).collect())

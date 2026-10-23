@@ -8,6 +8,28 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- First start: the app asks whether you have used it before; *No* plays the tutorial, which is
+  itself a codecast, recorded with a natural voice and shipped with the app, played on the open
+  project (player, file tree, Code view, views, sketch, side note, question, the top bar's buttons,
+  writing your own). The top bar's *?* button asks again. After it, the codecast button plays the
+  project's own codecast again (it used to fall back to the built-in tour).
+- Presenter zoom: `+ zoom` scales the middle of the screen onto what the cue highlights (graph
+  nodes, blocks, lines, files), `+ zoom files` / `+ zoom side` onto a panel or a part of the app.
+  The tutorial uses it, opens on why IwannatRust exists (a sketch and a note with icons: every
+  project gets a virtual presentation that stays on track), and says where each control is before
+  naming it.
+- Codecast spots: `+ search`, `+ player`, `+ settings`… light up a part of the app (ring, the rest
+  dimmed, the player readable), from that cue on.
+- Codecast panels: a `+ files` / `+ items` / `+ view` / `+ source` line enlarges that panel from
+  that cue on (the others shrink, the camera follows); `+` alone gives the normal sizes back.
+  Without one nothing changes.
+- Folder refs: `! src/storage/` highlights a folder of the file tree. A cue that highlights files
+  or folders closes every other folder and opens the way to them.
+
+- Own translations: `iwr translate --pieces` prints a codecast's pieces as JSON to translate with
+  another tool (DeepL, an LLM…); saved as `translations/<lang>.json` next to the codecast, they win
+  over the offline model (player, `iwr voice --lang`, `iwr export --lang`). The docs, Settings and
+  the Generate page now say the offline translation is rough for now and show how.
 - Popups: a `^ <text>` line above a cue (or inside a `?` answer) shows a small card with a path,
   endpoint, command or name while that cue plays. Never spoken, never translated, not part of a
   recording's hash. `iwr check` notes hyphenated words, paths and HTTP requests in spoken text,
@@ -106,6 +128,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Edge labels no longer cover box names: the layered layout widens the gap between two layers
+  when a label needs room (left-to-right diagrams), a label with no free spot on its arrow (a
+  self-loop) moves to the nearest free one, wide characters (CJK, emoji) count double in label
+  widths. Mermaid self-loops (`a --> a`) are drawn as a loop instead of nothing.
 - Graph arrows readable on big graphs: boxes are opaque (arrows no longer show through their text),
   long arrows cross each layer straight instead of cutting corners through boxes, ends spread
   along a box side instead of piling into its centre, fewer crossings (best ordering kept, then

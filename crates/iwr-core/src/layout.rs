@@ -43,6 +43,9 @@ pub struct LayoutEdge {
     /// Counts for ranking only: no dummy nodes, no pull on the ordering, routed straight
     /// (edges that are hidden most of the time, like architecture hub arrows).
     pub rank_only: bool,
+    /// Size `(w, h)` of the edge's label, zero when it has none: the gap between the two layers
+    /// it joins grows so the label fits on the arrow, clear of both boxes.
+    pub label: (f64, f64),
 }
 
 #[derive(Debug, Clone)]
@@ -427,12 +430,22 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
     // main axis
     let mut layer_main: Vec<f64> = Vec::new();
     let mut layer_size: Vec<f64> = Vec::new();
+    // a label is placed on the middle three quarters of its arrow (the ends carry the heads)
+    let mut gaps = vec![gap_main; layers.len()];
+    for e in edges {
+        let (Some(&a), Some(&b)) = (index.get(e.from.as_str()), index.get(e.to.as_str())) else { continue };
+        let (ra, rb) = (vn[a].rank.min(vn[b].rank), vn[a].rank.max(vn[b].rank));
+        let room = if opts.horizontal { e.label.0 } else { e.label.1 };
+        if rb == ra + 1 && room > 0.0 && !e.rank_only {
+            gaps[ra] = gaps[ra].max((room + 8.0) / 0.75);
+        }
+    }
     let mut y = opts.margin;
-    for layer in &layers {
+    for (li, layer) in layers.iter().enumerate() {
         layer_main.push(y);
         let h = layer.iter().map(|&u| size_main(u)).fold(0.0, f64::max);
         layer_size.push(h);
-        y += h + gap_main;
+        y += h + gaps[li];
     }
     // rect for every virtual node (dummies get a zero-height rect centred in the layer)
     let mut vrects: Vec<Rect> = Vec::with_capacity(vn_len);

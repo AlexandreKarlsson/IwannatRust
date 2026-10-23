@@ -16,6 +16,7 @@ mod settings;
 mod side;
 mod source;
 mod theme;
+mod tutorial;
 
 use dioxus::prelude::*;
 use iwr_core::model::{ItemId, Project, Span};
@@ -82,6 +83,17 @@ pub struct State {
     pub hl: Signal<Vec<iwr_core::script::Resolved>>,
     /// the `!` refs as written: diagram nodes are glowed by id
     pub hl_ids: Signal<Vec<String>>,
+    /// folders highlighted by the current cue (`! src/storage/`), as the file tree names them
+    pub hl_dirs: Signal<Vec<String>>,
+    /// the panel the current cue enlarges (`+ files`); `None`: every panel at its own size
+    pub focus: Signal<Option<iwr_core::script::Panel>>,
+    /// the part of the app the current cue lights up (`+ search`, see `iwr_core::script::UI_SPOTS`)
+    pub spot: Signal<Option<&'static str>>,
+    /// what the screen zooms onto (`+ zoom`): `""` the highlight, else a panel or a spot name
+    pub zoom: Signal<Option<&'static str>>,
+    /// the codecast found next to the project, with its recording settings (`audio_url`,
+    /// `audio_base`): what the codecast button plays again after another one (the tutorial)
+    pub own_script: Signal<Option<(Rc<iwr_core::script::Script>, Option<String>, String)>>,
     /// the diagram shown by `@ diagram` (from the current part)
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
     /// `>` ops of the current part up to the current cue, replayed on the diagram
@@ -133,6 +145,9 @@ pub struct State {
     pub drag: Signal<Option<(u8, f64, f64)>>,
     /// animate camera / scroll (set by the codecast player, cleared by manual pan/zoom)
     pub animate: Signal<bool>,
+    // ---- first start
+    /// the "have you used this app before?" dialog
+    pub welcome_open: Signal<bool>,
     // ---- settings
     pub settings_open: Signal<bool>,
     /// the Generate page (record the codecast's voice with Kokoro)
@@ -370,6 +385,12 @@ fn App() -> Element {
         tts_gen: Signal::new(0),
         hl: Signal::new(vec![]),
         hl_ids: Signal::new(vec![]),
+        hl_dirs: Signal::new(vec![]),
+        focus: Signal::new(None),
+        spot: Signal::new(None),
+        zoom: Signal::new(None),
+        own_script: Signal::new(None),
+        welcome_open: Signal::new(false),
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
         side: Signal::new(None),
@@ -439,6 +460,15 @@ fn App() -> Element {
         }
     });
 
+    // first start: ask whether the app is new to the viewer (once per browser)
+    use_future(move || async move {
+        if let Ok(v) = document::eval("try { return localStorage.getItem('iwr-welcomed') || ''; } catch (e) { return 'x'; }").await {
+            if v.as_str() == Some("") {
+                state.welcome_open.set(true);
+            }
+        }
+    });
+
     // settings persistence
     use_future(move || async move {
         if let Ok(v) = document::eval("return localStorage.getItem('iwr-settings') || '';").await {
@@ -496,7 +526,9 @@ fn App() -> Element {
                                     state.glossary.set(Rc::new(iwr_core::glossary::merge(&[iwr_core::glossary::builtin(), own])));
                                     state.glossary_pronounce.set(iwr_core::speech::parse_pronounce(&g));
                                 }
-                                state.load_script(iwr_core::script::parse(&text));
+                                let s = iwr_core::script::parse(&text);
+                                state.own_script.set(Some((Rc::new(s.clone()), state.audio_url.peek().clone(), state.audio_base.peek().clone())));
+                                state.load_script(s);
                             }
                         } else if state.script.read().is_some() {
                             // refs are re-resolved on the next cue; just re-apply
@@ -556,13 +588,15 @@ fn App() -> Element {
                         if state.script.read().is_some() {
                             state.stop_script()
                         } else {
-                            state.start_builtin_guide(None)
+                            state.start_codecast()
                         }
                     }
                     "t" => { state.close_pages(); state.start_tour() }
                     "," => { let v = *state.settings_open.read(); state.close_pages(); state.settings_open.set(!v) }
                     "Escape" => {
-                        if *state.settings_open.read() || *state.generate_open.read() {
+                        if *state.welcome_open.read() {
+                            state.close_welcome()
+                        } else if *state.settings_open.read() || *state.generate_open.read() {
                             state.close_pages()
                         } else if state.answering.read().is_some() {
                             state.finish_answer()
@@ -586,19 +620,25 @@ fn App() -> Element {
     let settings_open = *state.settings_open.read();
     let generate_open = *state.generate_open.read();
     let has_side = state.side.read().is_some();
+    let focus = *state.focus.read();
+    let focus_cls = focus.map(|f| format!(" focus-{}", f.name())).unwrap_or_default();
+    // a cue that enlarges the sidebar shows it even when the viewer closed it
+    let spot = *state.spot.read();
+    let sidebar_open = sidebar_open || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
+    let welcome_open = *state.welcome_open.read();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
-        div { class: format!("app theme-{}{}", theme_name, if dragging { " dragging" } else { "" }),
+        div { class: format!("app theme-{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }),
             panels::TopBar {}
             if settings_open {
                 settings::SettingsPage {}
             } else if generate_open {
                 generate::GeneratePage {}
             } else {
-            div { class: "main",
+            div { class: "main{focus_cls}",
                 onmousemove: move |e| {
                     if let Some((which, x0, v0)) = *state.drag.read() {
                         let x = e.data().client_coordinates().x;
@@ -637,6 +677,15 @@ fn App() -> Element {
             }
             if has_guide {
                 player::PlayerBar {}
+            }
+            if welcome_open {
+                tutorial::Welcome {}
+            }
+            if let Some(name) = spot.filter(|_| has_guide) {
+                tutorial::Spot { key: "{name}", name: name.to_string() }
+            }
+            if let Some(on) = state.zoom.read().filter(|_| has_guide && !settings_open && !generate_open) {
+                tutorial::Zoom { key: "z-{on}", on: on.to_string() }
             }
         }
     }

@@ -229,6 +229,10 @@ pub struct Cue {
     /// `architecture_tour` line: a generated tour that [`expand_tours`] puts in place of this cue
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tour: Option<String>,
+    /// `+ files` / `+ search`: the panel enlarged, or the part of the app lit up, from this cue
+    /// on (see [`Focus`]); `Some("")` (`+` alone) gives everything back its normal look
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<String>,
 }
 
 /// A line that asks for a generated tour: `name_tour` or `name_tour:<ref>`.
@@ -268,6 +272,7 @@ pub fn expand_tours(p: &Project, s: &mut Script) {
                 first.hl = c.hl.or(first.hl.take());
                 first.code = c.code.or(first.code.take());
                 first.side = c.side.or(first.side.take());
+                first.focus = c.focus.or(first.focus.take());
                 first.ops.extend(c.ops);
                 first.questions.extend(c.questions);
             }
@@ -448,6 +453,11 @@ pub fn parse(text: &str) -> Script {
             pending.show = Some(rest.trim().to_string());
             continue;
         }
+        // `+ files`, `+ search`; any other `+ …` line is a cue
+        if let Some(rest) = t.strip_prefix('+').filter(|r| focus_of(r).is_some()) {
+            pending.focus = Some(rest.trim().to_string());
+            continue;
+        }
         if let Some(rest) = t.strip_prefix('!') {
             pending.hl = Some(rest.split_whitespace().map(|r| r.to_string()).collect());
             continue;
@@ -597,6 +607,9 @@ pub fn to_text(s: &Script) -> String {
             }
             for l in &c.pop {
                 out.push_str(&format!("^ {}\n", l));
+            }
+            if let Some(f) = &c.focus {
+                out.push_str(&format!("+ {}\n", f).replace("+ \n", "+\n"));
             }
             let say = flatten(&c.say);
             match (&c.tour, c.t) {
@@ -915,6 +928,122 @@ pub fn side_at(part: &Part, cue: usize) -> Option<Side> {
     find_side(part, s).ok().flatten()
 }
 
+/// A panel of the app a cue can enlarge (`+ files`): the others shrink while it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Panel {
+    /// the file tree (folders and files)
+    Files,
+    /// the item list of the sidebar
+    Items,
+    /// the view in the middle: a graph, the code blocks, a diagram
+    View,
+    /// the source: the details panel next to a graph, the source pane of the Code view
+    Source,
+}
+
+impl Panel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Panel::Files => "files",
+            Panel::Items => "items",
+            Panel::View => "view",
+            Panel::Source => "source",
+        }
+    }
+}
+
+/// A `+` line's panel: `Some(Some(_))`, `Some(None)` for normal sizes (`+` alone, `+ none`),
+/// `None` when the word is not a panel.
+pub fn panel_of(s: &str) -> Option<Option<Panel>> {
+    Some(Some(match s.trim() {
+        "" | "none" | "off" | "normal" => return Some(None),
+        "files" | "folders" | "tree" => Panel::Files,
+        "items" => Panel::Items,
+        "view" | "graph" | "canvas" | "blocks" | "diagram" => Panel::View,
+        "source" | "code" => Panel::Source,
+        _ => return None,
+    }))
+}
+
+/// Parts of the app a `+` line can light up (the rest of the screen dims, the player stays
+/// readable). The UI knows where each one is.
+pub const UI_SPOTS: &[(&str, &str)] = &[
+    ("brand", "the app's name, top left"),
+    ("panel-button", "the button that shows or hides the sidebar"),
+    ("views", "the Code tab and the views"),
+    ("split", "the button that shows the source next to the blocks"),
+    ("search", "the search box"),
+    ("codecast", "the button that starts or stops a codecast"),
+    ("tour", "the full tour button"),
+    ("generate", "the Generate page button (iwr serve only)"),
+    ("help", "the help button: the tutorial"),
+    ("settings", "the settings button"),
+    ("sidebar-tabs", "the files / items tabs of the sidebar"),
+    ("player", "the player bar"),
+    ("caption", "the text of the codecast"),
+    ("parts", "the parts of the codecast"),
+    ("voice", "the voice picker"),
+    ("lang", "the language picker"),
+    ("plan-button", "the plan button of the player"),
+    ("questions", "the questions offered under the text"),
+    ("side", "the side panel of a codecast (`|` lines)"),
+];
+
+/// What a `+` line puts forward.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// a panel grows, the others shrink
+    Panel(Panel),
+    /// a part of the app ([`UI_SPOTS`]) is lit up
+    Spot(&'static str),
+    /// the screen zooms like a presenter would: onto what the cue highlights (`+ zoom`), or onto a
+    /// panel or a part of the app (`+ zoom files`, `+ zoom search`; the name as [`Panel::name`]
+    /// or in [`UI_SPOTS`])
+    Zoom(Option<&'static str>),
+}
+
+/// A `+` line's focus: `Some(Some(_))`, `Some(None)` for the normal look (`+` alone), `None` when
+/// the word is neither a panel nor a spot.
+pub fn focus_of(s: &str) -> Option<Option<Focus>> {
+    let s = s.trim();
+    if s == "zoom" {
+        return Some(Some(Focus::Zoom(None)));
+    }
+    if let Some(on) = s.strip_prefix("zoom ") {
+        return match focus_of(on)?? {
+            Focus::Panel(p) => Some(Some(Focus::Zoom(Some(p.name())))),
+            Focus::Spot(n) => Some(Some(Focus::Zoom(Some(n)))),
+            Focus::Zoom(_) => None,
+        };
+    }
+    panel_of(s).map(|p| p.map(Focus::Panel)).or_else(|| UI_SPOTS.iter().find(|(n, _)| *n == s.trim()).map(|(n, _)| Some(Focus::Spot(n))))
+}
+
+/// The focus at cue `cue` of a part: the last `+` line from the part's first cue on.
+pub fn focus_at(part: &Part, cue: usize) -> Option<Focus> {
+    part.cues.iter().take(cue + 1).rev().find_map(|c| c.focus.as_deref()).and_then(focus_of).flatten()
+}
+
+/// A folder ref (`src/storage`, `src/storage/`, `storage/`): the directory as the file tree
+/// names it (`src/storage`). An exact path wins, else a unique suffix. Callers try [`resolve`]
+/// first: a file or a module of that name wins over the folder (end the ref with `/`).
+pub fn resolve_dir(p: &Project, r: &str) -> Option<String> {
+    let r = r.trim().trim_end_matches('/');
+    if r.is_empty() || r.contains(':') {
+        return None;
+    }
+    let mut dirs: Vec<&str> = p.files.iter().flat_map(|f| f.path.match_indices('/').map(|(i, _)| &f.path[..i])).collect();
+    dirs.sort();
+    dirs.dedup();
+    if dirs.contains(&r) {
+        return Some(r.to_string());
+    }
+    let tail = format!("/{}", r);
+    let mut cands = dirs.into_iter().filter(|d| d.ends_with(&tail));
+    let first = cands.next()?;
+    cands.next().is_none().then(|| first.to_string())
+}
+
 /// Split `view[:ref]`.
 pub fn parse_show(s: &str) -> (Option<Mode>, Option<&str>) {
     match s.split_once(':') {
@@ -1082,7 +1211,7 @@ impl<'a> Track<'a> {
                 }
                 (Some(Mode::Diagram), None) => {}
                 _ => {
-                    if resolve(p, r).is_none() {
+                    if resolve(p, r).is_none() && resolve_dir(p, r).is_none() {
                         bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
                     }
                 }
@@ -1280,7 +1409,7 @@ pub fn hard_to_say(say: &str) -> Vec<String> {
         let hyphen = (1..b.len().saturating_sub(1)).any(|k| b[k] == b'-' && b[k - 1].is_ascii_alphanumeric() && b[k + 1].is_ascii_alphanumeric());
         let path = w.len() > 1 && w.contains('/') && w.split('/').filter(|s| !s.is_empty()).count() >= if w.starts_with('/') { 1 } else { 2 } && !w.contains("://");
         let verb = VERBS.contains(&w) && words.get(i + 1).is_some_and(|n| n.starts_with('/'));
-        let hit = if verb { format!("{} {}", w, words[i + 1].trim_end_matches(|c: char| matches!(c, ',' | '.' | ';' | ':'))) } else { w.to_string() };
+        let hit = if verb { format!("{} {}", w, words[i + 1].trim_end_matches([',', '.', ';', ':'])) } else { w.to_string() };
         if (hyphen || path || verb) && !out.iter().any(|o| o == &hit || o.ends_with(&format!(" {}", w))) {
             out.push(hit);
         }

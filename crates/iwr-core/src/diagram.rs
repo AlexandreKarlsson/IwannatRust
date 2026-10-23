@@ -18,7 +18,7 @@
 //! writer can tell kinds of things apart without a legend. Emoji in labels are plain text.
 
 use crate::layout::{self, LayoutEdge, LayoutNode, LayoutOptions, Rect};
-use crate::views::{EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
+use crate::views::{self, display_width, EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -559,16 +559,6 @@ const MARGIN: f64 = 24.0;
 
 /// Characters wider than a Latin letter (emoji, CJK) count double; joiners and variation
 /// selectors count nothing.
-fn display_width(s: &str) -> f64 {
-    s.chars()
-        .map(|c| match c as u32 {
-            0x200D | 0xFE0E | 0xFE0F | 0x1F3FB..=0x1F3FF => 0.0,
-            u if u >= 0x2600 => 2.0,
-            _ => 1.0,
-        })
-        .sum()
-}
-
 fn node_size(n: &DNode) -> (f64, f64) {
     let lines = n.label.lines().count().max(1) as f64;
     let wmax = n.label.lines().map(display_width).fold(0.0, f64::max);
@@ -668,7 +658,8 @@ impl<'a> Ctx<'a> {
             if a == b {
                 continue;
             }
-            ledges.push(LayoutEdge { from: a.to_string(), to: b.to_string(), reverse_rank: false, ..Default::default() });
+            let label = e.label.as_deref().map_or((0.0, 0.0), |l| (views::edge_label_width(l), views::EDGE_LABEL_H));
+            ledges.push(LayoutEdge { from: a.to_string(), to: b.to_string(), reverse_rank: false, label, ..Default::default() });
             if a == e.from && b == e.to && !self.is_group(a) && !self.is_group(b) {
                 direct.push(ei);
             }
@@ -851,6 +842,12 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
         // routed around boxes: drawn as straight runs with rounded corners
         let mut backward = false;
         let points = match ctx.routes.get(&ei) {
+            // a loop on the right side, like the layered layout's
+            _ if e.from == e.to => {
+                backward = true;
+                let (x, y) = (ra.right(), ra.cy());
+                vec![(x, y - 8.0), (x + 22.0, y - 14.0), (x + 22.0, y + 14.0), (x, y + 8.0)]
+            }
             Some((grp, pts)) => {
                 let (ox, oy) = origin.get(grp).copied().unwrap_or((MARGIN, MARGIN));
                 pts.iter().map(|p| (p.0 + ox, p.1 + oy)).collect()
@@ -1165,5 +1162,20 @@ mod tests {
         assert!(g.node("alice").is_some());
         assert_eq!(parse_ops(&op_text(&ops[1])), vec![ops[1].clone()]);
         assert!(matches!(parse_ops("+")[0], Op::Move { .. }), "a lone `+` is a node name, not a toggle");
+    }
+
+    #[test]
+    fn edge_labels_stay_off_the_boxes() {
+        // a long label between two neighbouring layers, a self-loop, and a wide (CJK) label
+        let d = parse("graph LR\n  a[Player] -->|glows and speaks to the listener| b[You]\n  b -->|retries| b\n  b -->|日本語のラベルです| c[End]\n");
+        let g = graph(&d, &[]);
+        for (e, spot) in g.edges.iter().zip(g.label_spots()) {
+            let (Some(l), Some((x, y))) = (&e.label, spot) else { panic!("no spot for {:?}", e.label) };
+            let w = views::edge_label_width(l);
+            for n in &g.nodes {
+                let clear = x + w / 2.0 <= n.x || x - w / 2.0 >= n.x + n.w || y + 7.0 <= n.y || y - 8.0 >= n.y + n.h;
+                assert!(clear, "label {l:?} covers box {:?}", n.label);
+            }
+        }
     }
 }

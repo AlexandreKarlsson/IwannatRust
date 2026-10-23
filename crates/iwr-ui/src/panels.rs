@@ -55,7 +55,7 @@ pub fn TopBar() -> Element {
             input { r#type: "text", placeholder: "search items…", value: "{search}", oninput: move |e| state.search.set(e.value()) }
             div { class: "sep" }
             IconButton { name: "codecast", tip: if has_guide { "Stop the codecast (g)".to_string() } else { "Play the codecast (g): the loaded script, or the built-in tour. Load your own from the player bar.".to_string() }, active: has_guide, text: if has_guide { "stop".to_string() } else { "codecast".to_string() },
-                onclick: move |_| { if has_guide { state.stop_script() } else { state.start_builtin_guide(None) } } }
+                onclick: move |_| { if has_guide { state.stop_script() } else { state.start_codecast() } } }
             IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.close_pages(); state.start_tour() } }
             if live {
                 button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { "Generating the voice… (open to follow it)".to_string() } else if stale > 0 { format!("Generate the voice: the text changed since {stale} recording(s) — regenerate or delete them") } else if to_record > 0 { format!("Generate the voice: {to_record} part(s) without an up-to-date recording") } else { "Generate the voice: record the codecast with Kokoro (voice, language, speed)".to_string() }, "aria-label": "Generate the voice",
@@ -71,6 +71,7 @@ pub fn TopBar() -> Element {
                     }
                 }
             }
+            IconButton { name: "question", tip: "Help: the tutorial, a codecast about the app".to_string(), active: *state.welcome_open.read(), onclick: move |_| { state.close_pages(); state.welcome_open.set(true); } }
             IconButton { name: "settings", tip: "Settings (,): theme, views, voice, layout".to_string(), active: settings_open, onclick: move |_| { state.close_pages(); state.settings_open.set(!settings_open); } }
         }
     }
@@ -177,6 +178,8 @@ fn FileTree() -> Element {
     };
     // files targeted by the current codecast cue
     let nar_files: std::collections::HashSet<usize> = state.hl.read().iter().map(|r| r.span.file).collect();
+    // and the folders it names
+    let nar_dirs = state.hl_dirs.read().clone();
     let closed = state.closed_dirs.read().clone();
     // build (depth, name, is_dir, file id, dir path) rows in tree order
     #[derive(Default)]
@@ -202,7 +205,8 @@ fn FileTree() -> Element {
         let mut files = d.files.clone();
         files.sort();
         for (name, id) in files {
-            out.push((depth, name, false, Some(id), String::new()));
+            let fp = if path.is_empty() { name.clone() } else { format!("{}/{}", path, name) };
+            out.push((depth, name, false, Some(id), fp));
         }
     }
     let mut list = Vec::new();
@@ -215,9 +219,10 @@ fn FileTree() -> Element {
                     let pad = 6 + depth * 14;
                     if is_dir {
                         let is_closed = closed.contains(&dp);
+                        let cls = if nar_dirs.contains(&dp) { "frow dir nar" } else { "frow dir" };
                         let dp2 = dp.clone();
                         rsx! {
-                            div { class: "frow dir", style: "padding-left:{pad}px", onclick: move |_| {
+                            div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", onclick: move |_| {
                                     let mut c = state.closed_dirs.write();
                                     if !c.remove(&dp2) { c.insert(dp2.clone()); }
                                 },
@@ -232,7 +237,7 @@ fn FileTree() -> Element {
                         let icon = if f.rust { "🦀" } else if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" };
                         let cls = format!("frow file{}{}{}", if current == Some(id) { " sel" } else { "" }, if nar_files.contains(&id) { " nar" } else { "" }, if f.rust { "" } else { " other" });
                         rsx! {
-                            div { class: "{cls}", style: "padding-left:{pad}px", title: if f.rust { format!("{} items", count) } else { name.clone() },
+                            div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", title: if f.rust { format!("{} items", count) } else { name.clone() },
                                 onclick: move |_| { state.code_file.set(Some(id)); state.set_mode(Mode::Code); state.selected.set(None); state.selected_span.set(None); },
                                 span { class: "fic", "{icon}" }
                                 span { "{name}" }

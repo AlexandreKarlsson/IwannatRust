@@ -459,7 +459,7 @@ pub fn SettingsPage() -> Element {
                                 option { value: "read", "📖 read silently, advance on a timer" }
                             }
                         }
-                        Row { title: "Language", desc: "translated when played, offline (iwr serve), spoken by a browser voice of that language; recordings and code stay English".to_string(),
+                        Row { title: "Language", desc: "translated when played, offline (iwr serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (iwr translate --pieces, see the docs)".to_string(),
                             select { class: "theme-select", disabled: locked, value: "{lang}",
                                 onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                                 for l in iwr_core::i18n::LANGS {

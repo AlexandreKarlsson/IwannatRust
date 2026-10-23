@@ -4,11 +4,26 @@
 iwr serve path/to/project      # opens http://127.0.0.1:4321
 ```
 
+## First start
+
+The first time a browser opens the app, it asks **"Have you used IwannatRust before?"**:
+
+- **No, show me around**: the tutorial, which is itself a codecast (about five minutes, recorded
+  once with a natural voice and shipped with the app). It plays on the open project: the player,
+  the file tree opening the folders it talks about, the Code view with an underline, the views, a
+  sketch, a side note, a question, the buttons of the top bar (each one lit up in turn), and how
+  to write your own. It pauses, rewinds and skips like any codecast; closing it and pressing `g`
+  brings back the project's own codecast.
+- **Yes, I know my way**: nothing.
+
+The answer is remembered per browser (`iwr-welcomed` in `localStorage`). The **?** button in the
+top bar asks again.
+
 ## Layout
 
 | Area | Content |
 |------|---------|
-| Top bar | `Code` (default) · `Views ▸` reveals the analysis views as icons (hover for the name and what it shows) · split icon (source next to the blocks) · search · 📣 codecast · 📍 full tour · ⚙ settings |
+| Top bar | `Code` (default) · `Views ▸` reveals the analysis views as icons (hover for the name and what it shows) · split icon (source next to the blocks) · search · 📣 codecast · 📍 full tour · ? help (the tutorial) · ⚙ settings |
 | Sidebar (`☰` toggles, open by default) | Two tabs. **📁 files** (default, like an editor's explorer): the whole repository tree, Rust files with their item count, other text files viewable in the source pane; the file being shown is highlighted, files a codecast cue points at glow; click a file to open it in the Code view (item count on the right). **☰ items**: every item grouped by module. Click = select + show source. Double-click a function = open its control flow. Click a **module header** = scope the module-level views to that subtree (chip in the canvas clears it). |
 | Center | Code view or graph canvas |
 | Right | Details + source (graph modes) or the source pane (Code view) |
@@ -47,8 +62,8 @@ What the graph views include (external calls, macros, constructors, tests) is se
 
 ## Codecast and the full tour
 
-📣 *codecast* (or `g`) opens the player with the loaded script, or with the built-in tour of the
-project. 📍 *full tour* (or `t`) plays it from the first cue and goes on to the next part when one
+📣 *codecast* (or `g`) opens the player with the project's codecast, or with the built-in tour of
+the project when it has none. 📍 *full tour* (or `t`) plays it from the first cue and goes on to the next part when one
 ends, until the last one; with the *full tour* box unticked (player bar or settings) playing stops
 at the end of each part and `next part ▶` continues.
 
@@ -60,7 +75,10 @@ in that function until it is fully explained; the functions it calls come next, 
 `codecast from here` in the details panel starts the same tour at any function.
 
 Every cue switches view, glows the relevant boxes, highlights source lines and can underline a code
-range. Voice: browser TTS (rate in settings), a recording, or silent reading (seconds per cue in
+range. A cue may also open the folders it talks about (the others close), enlarge a panel, light up
+a control (the rest dims) or zoom in on part of a big page; the next cue or part puts things back.
+Questions appear under the text: click one to pause, read the answer, and carry on. `plan` lists
+the parts. Voice: a recording, browser TTS (rate in settings), or silent reading (seconds per cue in
 settings).
 
 Scripts can also be written by an AI or by hand and loaded with `iwr serve --script`, or `load…` in
@@ -76,7 +94,7 @@ the player bar. See [codecast.md](codecast.md) for the format, the brief and the
 | `t` | start the full tour |
 | `f` | fit graph to view |
 | `,` | open / close the settings page |
-| `Esc` | close the settings page, or the player |
+| `Esc` | close the welcome dialog, the settings page, or the player |
 
 ## Settings
 
@@ -98,7 +116,9 @@ serve`) or download it.
 
 With `iwr serve` and a `codecast/` directory, **generate** in the top bar (its badge counts the
 parts without an up-to-date English recording) opens a page that records the codecast with Kokoro,
-like `iwr voice`: pick the language (other languages are translated from the English parts), a
+like `iwr voice`: pick the language (other languages are translated from the English parts; the
+offline translation is rough for now, so translate with another tool first: see
+[codecast.md § Translating with another tool](codecast.md#translating-with-another-tool)), a
 voice (▶ plays a sample), the speed, the pause between cues and the compression, then the parts
 (by default the ones missing or changed since their recording). A progress bar follows every cue
 with the time left; *Cancel* keeps the parts already written. The recording runs in the server, so

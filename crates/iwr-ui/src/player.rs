@@ -277,6 +277,19 @@ impl State {
         document::eval(&format!("try {{ const a = document.getElementById('iwr-audio'); if (a) a.currentTime = {:.3}; }} catch (e) {{}}", t));
     }
 
+    /// The codecast button: the project's own codecast again, else the built-in tour.
+    pub fn start_codecast(&mut self) {
+        let own = self.own_script.peek().clone();
+        match own {
+            Some((s, audio, base)) => {
+                self.audio_url.set(audio);
+                self.audio_base.set(base);
+                self.load_script((*s).clone());
+            }
+            None => self.start_builtin_guide(None),
+        }
+    }
+
     pub fn start_builtin_guide(&mut self, root: Option<usize>) {
         let Some(p) = self.project.read().clone() else { return };
         let steps = iwr_core::guide::build(&p, root, &iwr_core::guide::GuideOptions::default());
@@ -292,6 +305,10 @@ impl State {
         self.tts_gen += 1;
         self.hl.set(vec![]);
         self.hl_ids.set(vec![]);
+        self.hl_dirs.set(vec![]);
+        self.focus.set(None);
+        self.spot.set(None);
+        self.zoom.set(None);
         if matches!(*self.mode.read(), Mode::Diagram | Mode::Plan) {
             self.set_mode(Mode::Code);
         }
@@ -348,7 +365,7 @@ impl State {
     /// Play the whole codecast from its first cue, part after part.
     pub fn start_tour(&mut self) {
         if self.script.read().is_none() {
-            self.start_builtin_guide(None);
+            self.start_codecast();
         }
         self.tour.set(true);
         self.part_idx.set(0);
@@ -384,6 +401,28 @@ impl State {
         // `|` lines are sticky inside a part too
         let side = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::side_at(part, cue_idx));
         self.side.set(side.map(Rc::new));
+        // and `+` lines: the enlarged panel, or the part of the app in the light
+        let focus = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::focus_at(part, cue_idx));
+        let (panel, spot, zoom) = match focus {
+            Some(script::Focus::Panel(p)) => (Some(p), None, None),
+            Some(script::Focus::Spot(s)) => (None, Some(s), None),
+            Some(script::Focus::Zoom(on)) => (None, None, Some(on.unwrap_or(""))),
+            None => (None, None, None),
+        };
+        if *self.zoom.peek() != zoom {
+            self.zoom.set(zoom);
+        }
+        match panel {
+            Some(script::Panel::Files) => self.files_tab.set(true),
+            Some(script::Panel::Items) => self.files_tab.set(false),
+            _ => {}
+        }
+        if *self.focus.peek() != panel {
+            self.focus.set(panel);
+        }
+        if *self.spot.peek() != spot {
+            self.spot.set(spot);
+        }
         self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
     }
 
@@ -436,6 +475,13 @@ impl State {
             let in_diagram = *self.mode.read() == Mode::Diagram;
             let side_ids = self.side.read().as_ref().map(|s| s.ids()).unwrap_or_default();
             let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter(|r| !side_ids.contains(r)).filter_map(|r| script::resolve(p, r)).collect() };
+            // folders: refs that are not a file, an item or a module
+            let dirs: Vec<String> = if in_diagram { vec![] } else { refs.iter().filter(|r| !side_ids.contains(r) && script::resolve(p, r).is_none()).filter_map(|r| script::resolve_dir(p, r)).collect() };
+            let files: Vec<usize> = resolved.iter().filter(|r| r.item.is_none() && r.module.is_none() && !r.inner).map(|r| r.span.file).collect();
+            if !files.is_empty() || !dirs.is_empty() {
+                self.show_in_tree(p, &files, &dirs);
+            }
+            self.hl_dirs.set(dirs);
             // in the Code view open the blocks that contain the highlight
             if *self.mode.read() == Mode::Code {
                 for r in &resolved {
@@ -469,8 +515,31 @@ impl State {
         if let Some(m) = *self.code_mark.read() {
             self.selected_span.set(Some(m));
         }
-        // camera (the Code view scrolls instead; the plan page is a list). It replaces the
-        // fit that a scope / root / mode change above asked for.
+        self.camera();
+    }
+
+    /// Close every folder of the file tree but the highlighted ones and those on the way to a
+    /// highlighted file or folder, then scroll the tree to the first of them.
+    fn show_in_tree(&mut self, p: &iwr_core::model::Project, files: &[usize], dirs: &[String]) {
+        let mut closed: std::collections::HashSet<String> = p.files.iter().flat_map(|f| f.path.match_indices('/').map(|(i, _)| f.path[..i].to_string()).collect::<Vec<_>>()).collect();
+        let paths = files.iter().map(|f| p.file(*f).path.clone()).chain(dirs.iter().map(|d| format!("{}/", d)));
+        let mut first = None;
+        for path in paths {
+            for (i, _) in path.match_indices('/') {
+                closed.remove(&path[..i]);
+            }
+            first.get_or_insert(path.trim_end_matches('/').to_string());
+        }
+        self.closed_dirs.set(closed);
+        self.files_tab.set(true);
+        if let Some(f) = first {
+            self.scroll_to(&format!("ft-{}", f));
+        }
+    }
+
+    /// Place the camera on the highlight (the Code view scrolls instead; the plan page is a
+    /// list). It replaces the fit that a scope / root / mode change asked for.
+    pub fn camera(&mut self) {
         let req = *self.fit_request.peek();
         self.fit_done.set(req);
         if !matches!(*self.mode.read(), Mode::Code | Mode::Plan) {
@@ -861,14 +930,14 @@ pub fn PlayerBar() -> Element {
                         title: "browser text-to-speech status", "🔊 {tts_info}" }
                 }
                 div { class: "row",
-                    select { class: "theme-select", disabled: locked, value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
+                    select { class: "theme-select", "data-spot": "voice", disabled: locked, value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
                         onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
                         // `selected` per option: the recording option comes and goes (language, loading)
                         option { value: "tts", selected: voice == Voice::Tts, "🔊 voice (TTS)" }
                         if has_recording { option { value: "audio", selected: voice == Voice::Audio, "🎧 recording" } }
                         option { value: "read", selected: voice == Voice::Read, "📖 read" }
                     }
-                    select { class: "theme-select", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline), recordings are English only",
+                    select { class: "theme-select", "data-spot": "lang", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline, rough for now: better translated with another tool, see iwr translate --pieces), recordings are English only",
                         onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                         for l in iwr_core::i18n::LANGS {
                             option { value: l.code, "{l.name}" }
@@ -886,7 +955,7 @@ pub fn PlayerBar() -> Element {
                     }
                 }
                 div { class: "row",
-                    button { class: "small", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Plan); }, "plan" }
+                    button { class: "small", "data-spot": "plan", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Plan); }, "plan" }
                     button { class: "small", onclick: move |_| { let v = *show_load.read(); show_load.set(!v); }, "load…" }
                     button { class: "small", onclick: move |_| state.stop_script(), "✕ close" }
                 }

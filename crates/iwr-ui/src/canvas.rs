@@ -55,6 +55,27 @@ pub fn Canvas() -> Element {
         }
     };
 
+    // a cue enlarged or shrank a panel: once the resize animation is over, measure the canvas
+    // again and aim the camera at the highlight with the new size
+    use_effect(move || {
+        let _ = *state.focus.read();
+        if state.script.peek().is_none() {
+            return;
+        }
+        spawn(async move {
+            gloo_timers::future::sleep(std::time::Duration::from_millis(480)).await;
+            // layout size, not the drawn one: a `+ zoom` may be scaling the screen
+            if let Ok(v) = document::eval("const s = document.querySelector('.canvas-wrap svg'); return s ? [s.clientWidth, s.clientHeight] : [];").await {
+                let n: Vec<f64> = v.as_array().map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
+                if let [w, h] = n[..] {
+                    let (x, y, _, _) = *state.canvas_rect.peek();
+                    state.canvas_rect.set((x, y, w, h));
+                }
+            }
+            state.camera();
+        });
+    });
+
     let t = *state.view.read();
     let g = graph.read().clone();
     let mode = *state.mode.read();
