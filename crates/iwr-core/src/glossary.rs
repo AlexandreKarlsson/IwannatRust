@@ -38,7 +38,7 @@ pub struct Entry {
 
 impl Entry {
     pub fn question(&self) -> Question {
-        Question { ask: self.ask.clone(), answer: self.answer.clone(), show: self.show.clone(), hl: self.hl.clone(), code: self.code.clone(), side: None, term: Some(self.term.clone()) }
+        Question { ask: self.ask.clone(), answer: self.answer.clone(), show: self.show.clone(), hl: self.hl.clone(), code: self.code.clone(), side: None, pop: vec![], term: Some(self.term.clone()) }
     }
 }
 

@@ -102,11 +102,11 @@ pub fn CodeView() -> Element {
     // top-level items of this file (methods are rendered under their impl)
     let mut items: Vec<&Item> = p.items.iter().filter(|i| i.span.file == file && i.kind != ItemKind::Method).collect();
     items.sort_by_key(|i| i.span.line_start);
-    let n_files = p.files.len();
     let files: Vec<(usize, String)> = p.files.iter().map(|f| (f.id, f.path.clone())).collect();
     let module_doc = p.modules.iter().find(|m| m.file == Some(file)).and_then(|m| m.doc.clone());
-    // a non-Rust file needs the source pane to be useful
-    let show_source = show_source || !sf.rust;
+    // a non-Rust text file has no blocks: its coloured source takes the whole view
+    let source_only = !sf.rust && sf.text;
+    let show_source = show_source || source_only;
 
     // scroll the source to the selection when it changes
     use_effect(move || {
@@ -143,35 +143,33 @@ pub fn CodeView() -> Element {
                     }
                 });
             },
-            div { class: if show_source { "blocks-pane half" } else { "blocks-pane" }, style: if show_source { format!("flex: 0 0 {:.1}%", split * 100.0) } else { String::new() }, onmouseleave: move |_| state.hover_span.set(None),
-                div { class: "file-bar",
-                    if n_files > 1 {
-                        select { value: "{file}", onchange: move |e| { if let Ok(id) = e.value().parse::<usize>() { state.code_file.set(Some(id)); } },
-                            for (id, path) in files.iter() {
-                                option { value: "{id}", selected: *id == file, "{path}" }
-                            }
-                        }
-                    } else {
-                        span { class: "path", "{sf.path}" }
+            if !source_only {
+                div { class: if show_source { "blocks-pane half" } else { "blocks-pane" }, style: if show_source { format!("flex: 0 0 {:.1}%", split * 100.0) } else { String::new() }, onmouseleave: move |_| state.hover_span.set(None),
+                    div { class: "file-bar",
+                        FilePick { file, files: files.clone() }
+                        span { class: "status", "{items.len()} items · click a block to open it" }
                     }
-                    span { class: "status", "{items.len()} items · click a block to open it" }
-                }
-                if let Some(d) = module_doc {
-                    div { class: "moddoc", "{d}" }
-                }
-                if !sf.rust {
-                    div { class: "status", style: "margin-top:20px",
-                        if sf.text { "Not a Rust source file: nothing to analyze. The content is shown on the right." } else { "Binary or large file: not shown." }
+                    if let Some(d) = module_doc {
+                        div { class: "moddoc", "{d}" }
                     }
-                }
-                for it in items {
-                    ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
+                    if !sf.text {
+                        div { class: "status", style: "margin-top:20px", "Binary or large file: not shown." }
+                    }
+                    for it in items {
+                        ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
+                    }
                 }
             }
             if show_source {
-                div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((2, e.data().client_coordinates().x, *state.split.read()))); } }
+                if !source_only {
+                    div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((2, e.data().client_coordinates().x, *state.split.read()))); } }
+                }
                 div { class: "source-pane", onmouseleave: move |_| state.hover_span.set(None),
-                    div { class: "path", "{sf.path}" }
+                    if source_only {
+                        div { class: "path", FilePick { file, files } }
+                    } else {
+                        div { class: "path", "{sf.path}" }
+                    }
                     for (i, line) in sf.content.lines().enumerate() {
                         {
                             let ln = i + 1;
@@ -189,6 +187,23 @@ pub fn CodeView() -> Element {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// The file shown in the Code view: a picker when the project has several, else its path.
+#[component]
+fn FilePick(file: usize, files: Vec<(usize, String)>) -> Element {
+    let mut state = use_context::<State>();
+    if files.len() <= 1 {
+        let path = files.first().map(|f| f.1.clone()).unwrap_or_default();
+        return rsx! { span { class: "path", "{path}" } };
+    }
+    rsx! {
+        select { value: "{file}", onchange: move |e| { if let Ok(id) = e.value().parse::<usize>() { state.code_file.set(Some(id)); } },
+            for (id, path) in files.iter() {
+                option { value: "{id}", selected: *id == file, "{path}" }
             }
         }
     }

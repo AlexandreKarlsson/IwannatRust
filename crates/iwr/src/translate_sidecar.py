@@ -71,7 +71,9 @@ def main():
     flat = [s for ss in split for s in ss]
     print(f"translating {len(job['texts'])} text(s), {len(flat)} sentence(s) to {lang}…", file=sys.stderr, flush=True)
     done = tr.translate_batch([sp.encode(s, out_type=str) for s in flat], beam_size=2, max_batch_size=32) if flat else []
-    said = iter(sp.decode(r.hypotheses[0]) for r in done)
+    # not sp.decode: the target vocabulary is larger than the tokenizer's, and sp.decode copies
+    # the pieces it doesn't know with their ▁ word marks
+    said = iter("".join(r.hypotheses[0]).replace("▁", " ").strip() for r in done)
     sep = "" if lang in CJK else " "
     json.dump([sep.join(next(said) for _ in ss) for ss in split], sys.stdout, ensure_ascii=False)
 

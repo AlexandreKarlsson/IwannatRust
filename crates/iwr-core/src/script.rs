@@ -222,6 +222,10 @@ pub struct Cue {
     /// `| kind[:ref]`: what the side panel shows from this cue on; `Some("")` closes it
     #[serde(default)]
     pub side: Option<String>,
+    /// `^` lines: a popup card shown with this cue only (a path, an endpoint, a command), never
+    /// spoken nor translated
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pop: Vec<String>,
     /// `architecture_tour` line: a generated tour that [`expand_tours`] puts in place of this cue
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tour: Option<String>,
@@ -287,6 +291,9 @@ pub struct Question {
     /// `|` line of the answer: the side panel while it is shown
     #[serde(default)]
     pub side: Option<String>,
+    /// `^` lines of the answer: its popup card, never spoken
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pop: Vec<String>,
     /// glossary term this came from (`None` for questions written in the script)
     #[serde(default)]
     pub term: Option<String>,
@@ -348,6 +355,8 @@ pub fn parse(text: &str) -> Script {
                     q.code = Some(rest.trim().to_string());
                 } else if let Some(rest) = t.strip_prefix("| ").or_else(|| (t == "|").then_some("")) {
                     q.side = Some(rest.trim().to_string());
+                } else if let Some(rest) = t.strip_prefix("^ ") {
+                    q.pop.push(rest.trim().to_string());
                 } else if !t.starts_with("//") {
                     q.answer.push_str(t);
                     q.answer.push('\n');
@@ -449,6 +458,10 @@ pub fn parse(text: &str) -> Script {
         }
         if let Some(rest) = t.strip_prefix('>') {
             pending.ops.extend(crate::diagram::parse_ops(rest));
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("^ ") {
+            pending.pop.push(rest.trim().to_string());
             continue;
         }
         // `| bytes:Header`; a markdown table row (`| a | b |`) is not a directive
@@ -582,6 +595,9 @@ pub fn to_text(s: &Script) -> String {
             if let Some(sd) = &c.side {
                 out.push_str(&format!("| {}\n", sd).replace("| \n", "|\n"));
             }
+            for l in &c.pop {
+                out.push_str(&format!("^ {}\n", l));
+            }
             let say = flatten(&c.say);
             match (&c.tour, c.t) {
                 (Some(tour), _) => out.push_str(&format!("{}\n", tour)),
@@ -601,6 +617,9 @@ pub fn to_text(s: &Script) -> String {
                 }
                 if let Some(sd) = &q.side {
                     out.push_str(&format!("  | {}\n", sd).replace("| \n", "|\n"));
+                }
+                for l in &q.pop {
+                    out.push_str(&format!("  ^ {}\n", l));
                 }
                 for l in q.answer.lines() {
                     out.push_str(&format!("  {}\n", l));
@@ -1245,6 +1264,28 @@ pub fn step_cue(p: &Project, st: &crate::guide::GuideStep, last_show: &mut Optio
 /// `pronounce:` list call `speech::spoken` directly.
 pub fn speakable(say: &str) -> String {
     crate::speech::spoken(say, &crate::speech::builtin_pronounce())
+}
+
+/// Words in spoken text that a voice stumbles on and that belong in a `^` popup instead: hyphenated
+/// words (`gw-config-server`, `Wi-Fi`), paths (`/srv/gw`, `src/main.rs`) and HTTP requests
+/// (`GET /config`). For `iwr check`. Code blocks are skipped.
+pub fn hard_to_say(say: &str) -> Vec<String> {
+    const VERBS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+    let text = plain(say);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut out: Vec<String> = Vec::new();
+    for (i, w) in words.iter().enumerate() {
+        let w = w.trim_matches(|c: char| matches!(c, ',' | '.' | ';' | ':' | '!' | '?' | '(' | ')' | '"' | '\'' | '«' | '»'));
+        let b = w.as_bytes();
+        let hyphen = (1..b.len().saturating_sub(1)).any(|k| b[k] == b'-' && b[k - 1].is_ascii_alphanumeric() && b[k + 1].is_ascii_alphanumeric());
+        let path = w.len() > 1 && w.contains('/') && w.split('/').filter(|s| !s.is_empty()).count() >= if w.starts_with('/') { 1 } else { 2 } && !w.contains("://");
+        let verb = VERBS.contains(&w) && words.get(i + 1).is_some_and(|n| n.starts_with('/'));
+        let hit = if verb { format!("{} {}", w, words[i + 1].trim_end_matches(|c: char| matches!(c, ',' | '.' | ';' | ':'))) } else { w.to_string() };
+        if (hyphen || path || verb) && !out.iter().any(|o| o == &hit || o.ends_with(&format!(" {}", w))) {
+            out.push(hit);
+        }
+    }
+    out
 }
 
 /// Markdown stripped, code left as written (for matching glossary terms).

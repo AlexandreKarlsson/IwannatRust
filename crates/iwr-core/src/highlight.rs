@@ -1,5 +1,6 @@
-//! Syntax highlighting for the source panes: a small Rust lexer that cuts a file
-//! into coloured tokens, line by line. Syntactic only, tolerant of broken code.
+//! Syntax highlighting for the source panes: small lexers (Rust, shell, Terraform/HCL,
+//! TOML/YAML-like config) that cut a file into coloured tokens, line by line.
+//! Syntactic only, tolerant of broken code.
 
 /// What a piece of source text is, for colouring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,8 +21,10 @@ pub enum Tok {
     Comment,
     /// `///`, `//!`, `/** */`.
     Doc,
-    /// `#[...]` and `#![...]`.
+    /// `#[...]` and `#![...]`; a `--flag` in shell.
     Attr,
+    /// Variable of a script: `$x`, `${x}`, `var.x`, `${...}` in a string.
+    Var,
 }
 
 impl Tok {
@@ -40,12 +43,59 @@ impl Tok {
             Tok::Comment => "t-com",
             Tok::Doc => "t-doc",
             Tok::Attr => "t-attr",
+            Tok::Var => "t-var",
         }
     }
 }
 
 /// One line of highlighted source: consecutive `(kind, text)` runs.
 pub type Line = Vec<(Tok, String)>;
+
+/// Languages the source panes colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Rust,
+    Shell,
+    /// Terraform and other HCL files.
+    Hcl,
+    /// TOML, YAML, INI, `.env`: `#` comments, keys, strings.
+    Conf,
+    Plain,
+}
+
+impl Lang {
+    /// Guess from the file name, or from a `#!` line for scripts without an extension.
+    pub fn detect(path: &str, src: &str) -> Lang {
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+        match ext.as_str() {
+            "rs" => Lang::Rust,
+            "sh" | "bash" | "zsh" | "ksh" | "bats" | "bashrc" | "zshrc" | "profile" | "envrc" => Lang::Shell,
+            "tf" | "tfvars" | "hcl" | "nomad" => Lang::Hcl,
+            "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" => Lang::Conf,
+            _ => {
+                // `#!/bin/bash`, `#!/usr/bin/env -S bash -e`
+                let mut words = src.lines().next().and_then(|l| l.strip_prefix("#!")).unwrap_or("").split_whitespace();
+                let mut prog = words.next().map(|w| w.rsplit('/').next().unwrap_or(w));
+                if prog == Some("env") {
+                    prog = words.find(|w| !w.starts_with('-'));
+                }
+                if prog.is_some_and(|p| matches!(p, "sh" | "bash" | "zsh" | "ksh" | "dash")) { Lang::Shell } else { Lang::Plain }
+            }
+        }
+    }
+}
+
+/// Highlight a file in the language its path (or `#!` line) tells. One entry per line of `src.lines()`.
+pub fn file(path: &str, src: &str) -> Vec<Line> {
+    match Lang::detect(path, src) {
+        Lang::Rust => rust(src),
+        Lang::Shell => shell(src),
+        Lang::Hcl => hcl(src),
+        Lang::Conf => conf(src),
+        Lang::Plain => src.lines().map(|l| vec![(Tok::Plain, l.to_string())]).collect(),
+    }
+}
 
 const KEYWORDS: &[&str] = &[
     "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "static", "struct", "super", "trait", "type", "union", "unsafe", "use", "where", "while", "yield",
@@ -160,12 +210,382 @@ pub fn rust(src: &str) -> Vec<Line> {
         }
         out.push(tok, &c[start..i]);
     }
-    let mut lines = out.lines;
-    // `str::lines` drops the empty piece after a final newline
-    if src.ends_with('\n') {
-        lines.pop();
+    out.finish(src)
+}
+
+const SH_KEYWORDS: &[&str] = &[
+    "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac", "in", "function", "select", "return", "local", "export", "readonly", "declare", "typeset", "exit", "break", "continue", "shift", "source", "eval", "exec", "trap", "set", "unset",
+];
+
+/// Highlight a shell script (sh, bash, zsh): commands, variables, strings, here-documents.
+pub fn shell(src: &str) -> Vec<Line> {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = Out { lines: vec![Vec::new()] };
+    let mut i = 0;
+    // the next word is a command name
+    let mut cmd = true;
+    // here-document delimiters whose bodies start after the current line
+    let mut heredocs: Vec<String> = Vec::new();
+    while i < c.len() {
+        let ch = c[i];
+        let start = i;
+        let tok = if ch == '\n' {
+            i += 1;
+            out.push(Tok::Plain, &c[start..i]);
+            cmd = true;
+            for d in std::mem::take(&mut heredocs) {
+                let s = i;
+                i = heredoc_end(&c, i, &d);
+                out.push(Tok::Str, &c[s..i]);
+            }
+            continue;
+        } else if ch == '\\' {
+            i = (i + 2).min(c.len());
+            Tok::Plain
+        } else if ch == '#' && (i == 0 || c[i - 1].is_whitespace() || matches!(c[i - 1], ';' | '(' | '|' | '&')) {
+            i = line_end(&c, i);
+            Tok::Comment
+        } else if ch == '\'' {
+            i = quote_end(&c, i, '\'', false);
+            Tok::Str
+        } else if ch == '"' {
+            i = interp_string(&c, i, &mut out, '$');
+            cmd = false;
+            continue;
+        } else if ch == '$' {
+            i = var_end(&c, i);
+            if i == start + 1 {
+                Tok::Plain
+            } else {
+                cmd = c[i - 1] == '(';
+                Tok::Var
+            }
+        } else if ch == '<' && c.get(i + 1) == Some(&'<') && c.get(i + 2) != Some(&'<') {
+            match heredoc_start(&c, i + 2) {
+                Some((end, delim)) => {
+                    heredocs.push(delim);
+                    i = end;
+                    Tok::Str
+                }
+                None => {
+                    i += 2;
+                    Tok::Plain
+                }
+            }
+        } else if is_sh_word(ch) {
+            while i < c.len() && is_sh_word(c[i]) {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            // NAME=value
+            if let Some(eq) = w.find('=').filter(|&k| k > 0 && w[..k].chars().all(is_ident) && !w.starts_with(|x: char| x.is_ascii_digit())) {
+                let eq = w[..eq].chars().count();
+                out.push(Tok::Var, &c[start..start + eq]);
+                out.push(Tok::Plain, &c[start + eq..i]);
+                continue;
+            }
+            if SH_KEYWORDS.contains(&w.as_str()) {
+                cmd = matches!(w.as_str(), "if" | "then" | "else" | "elif" | "do" | "while" | "until" | "exec" | "eval");
+                Tok::Keyword
+            } else if w.starts_with('-') {
+                Tok::Attr
+            } else if cmd {
+                cmd = false;
+                Tok::Fn
+            } else if w.chars().all(|x| x.is_ascii_digit()) {
+                Tok::Num
+            } else {
+                Tok::Plain
+            }
+        } else {
+            i += 1;
+            if matches!(ch, ';' | '|' | '&' | '(' | '{' | '`' | '!') {
+                cmd = true;
+            } else if !ch.is_whitespace() {
+                cmd = false;
+            }
+            Tok::Plain
+        };
+        out.push(tok, &c[start..i]);
     }
-    lines
+    out.finish(src)
+}
+
+fn is_sh_word(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '+' | ':' | '@' | '%' | ',' | '~' | '=')
+}
+
+/// End of `$name`, `$1`, `$?`, `${...}`, or of the `$(` / `$((` that opens a substitution.
+fn var_end(c: &[char], i: usize) -> usize {
+    match c.get(i + 1) {
+        Some('{') => {
+            let mut depth = 0;
+            let mut j = i + 1;
+            while j < c.len() {
+                match c[j] {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return j + 1;
+                        }
+                    }
+                    '\n' => return j,
+                    _ => {}
+                }
+                j += 1;
+            }
+            c.len()
+        }
+        Some('(') => i + if c.get(i + 2) == Some(&'(') { 3 } else { 2 },
+        Some(&x) if is_ident_start(x) => {
+            let mut j = i + 1;
+            while j < c.len() && is_ident(c[j]) {
+                j += 1;
+            }
+            j
+        }
+        Some(x) if x.is_ascii_digit() || matches!(x, '@' | '*' | '#' | '?' | '$' | '!' | '-') => i + 2,
+        _ => i + 1,
+    }
+}
+
+/// After `<<`: the optional `-`, the (maybe quoted) delimiter word. Returns its end and the word.
+fn heredoc_start(c: &[char], mut j: usize) -> Option<(usize, String)> {
+    if c.get(j) == Some(&'-') {
+        j += 1;
+    }
+    while c.get(j) == Some(&' ') {
+        j += 1;
+    }
+    let quote = c.get(j).copied().filter(|q| matches!(q, '\'' | '"'));
+    if quote.is_some() {
+        j += 1;
+    }
+    let ws = j;
+    while j < c.len() && is_ident(c[j]) {
+        j += 1;
+    }
+    if j == ws {
+        return None;
+    }
+    let word = c[ws..j].iter().collect();
+    if quote.is_some() && c.get(j).copied() == quote {
+        j += 1;
+    }
+    Some((j, word))
+}
+
+/// End of a here-document body starting at `i`: the end of its delimiter line
+/// (before the newline), or the end of the file.
+fn heredoc_end(c: &[char], mut i: usize, delim: &str) -> usize {
+    while i < c.len() {
+        let e = line_end(c, i);
+        let line: String = c[i..e].iter().collect();
+        if line.trim_start_matches('\t').trim_end_matches('\r') == delim {
+            return e;
+        }
+        i = e + 1;
+    }
+    c.len()
+}
+
+fn line_end(c: &[char], mut i: usize) -> usize {
+    while i < c.len() && c[i] != '\n' {
+        i += 1;
+    }
+    i
+}
+
+/// End of a string opened by `q` at `i` (past the closing quote, or at the end of the file).
+fn quote_end(c: &[char], mut i: usize, q: char, escapes: bool) -> usize {
+    i += 1;
+    while i < c.len() && c[i] != q {
+        i += if escapes && c[i] == '\\' { 2 } else { 1 };
+    }
+    (i + 1).min(c.len())
+}
+
+/// Push a `"` string whose `$x` / `${...}` (shell, `sigil = '$'`) or `${...}` / `%{...}`
+/// (HCL, `sigil = '%'`) pieces are variables. Returns the end of the string.
+fn interp_string(c: &[char], i: usize, out: &mut Out, sigil: char) -> usize {
+    let mut s = i;
+    let mut j = i + 1;
+    while j < c.len() && c[j] != '"' {
+        if c[j] == '\\' {
+            j += 2;
+            continue;
+        }
+        let opens = (c[j] == '$' || c[j] == sigil) && (sigil == '$' || c.get(j + 1) == Some(&'{'));
+        if opens {
+            let e = if sigil == '$' { var_end(c, j) } else { brace_end(c, j + 1) };
+            if e > j + 1 {
+                out.push(Tok::Str, &c[s..j]);
+                out.push(Tok::Var, &c[j..e]);
+                j = e;
+                s = j;
+                continue;
+            }
+        }
+        j += 1;
+    }
+    let j = (j + 1).min(c.len());
+    out.push(Tok::Str, &c[s..j]);
+    j
+}
+
+/// Past the `}` matching the `{` at `i` (or the end of the file).
+fn brace_end(c: &[char], i: usize) -> usize {
+    let mut depth = 0;
+    for (j, &x) in c.iter().enumerate().skip(i) {
+        match x {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return j + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    c.len()
+}
+
+/// Only blanks between the start of the line and `i`.
+fn line_start(c: &[char], i: usize) -> bool {
+    c[..i].iter().rev().take_while(|&&x| x != '\n').all(|x| x.is_whitespace())
+}
+
+/// Index of the first character at or after `i` that is not a space or tab.
+fn skip_blanks(c: &[char], mut i: usize) -> usize {
+    while i < c.len() && matches!(c[i], ' ' | '\t') {
+        i += 1;
+    }
+    i
+}
+
+const HCL_KEYWORDS: &[&str] = &["for", "in", "if", "else", "endif", "endfor"];
+/// Roots of references: `var.x`, `local.x`, `module.x.y`…
+const HCL_ROOTS: &[&str] = &["var", "local", "module", "data", "each", "count", "path", "terraform", "self"];
+
+/// Highlight Terraform / HCL: block types, attribute names, references, interpolations.
+pub fn hcl(src: &str) -> Vec<Line> {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = Out { lines: vec![Vec::new()] };
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        let start = i;
+        let tok = if ch == '#' || (ch == '/' && c.get(i + 1) == Some(&'/')) {
+            i = line_end(&c, i);
+            Tok::Comment
+        } else if ch == '/' && c.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                i += 1;
+            }
+            i = (i + 2).min(c.len());
+            Tok::Comment
+        } else if ch == '"' {
+            i = interp_string(&c, i, &mut out, '%');
+            continue;
+        } else if ch == '<' && c.get(i + 1) == Some(&'<') {
+            match heredoc_start(&c, i + 2) {
+                Some((end, delim)) => {
+                    let body = (line_end(&c, end) + 1).min(c.len());
+                    i = heredoc_end(&c, body, &delim);
+                    Tok::Str
+                }
+                None => {
+                    i += 2;
+                    Tok::Plain
+                }
+            }
+        } else if ch.is_ascii_digit() {
+            while i < c.len() && (c[i].is_ascii_alphanumeric() || c[i] == '.') {
+                i += 1;
+            }
+            Tok::Num
+        } else if is_ident_start(ch) {
+            while i < c.len() && (is_ident(c[i]) || c[i] == '-') {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            let k = skip_blanks(&c, i);
+            let (next, after) = (c.get(k).copied(), c.get(k + 1).copied());
+            if line_start(&c, start) && matches!(next, Some('"') | Some('{')) {
+                Tok::Keyword
+            } else if (next == Some('=') && after != Some('=')) || (next == Some(':') && line_start(&c, start)) {
+                Tok::Fn
+            } else if next == Some('(') {
+                Tok::Macro
+            } else if matches!(w.as_str(), "true" | "false" | "null") {
+                Tok::Builtin
+            } else if HCL_KEYWORDS.contains(&w.as_str()) {
+                Tok::Keyword
+            } else if HCL_ROOTS.contains(&w.as_str()) && c.get(i) == Some(&'.') {
+                Tok::Var
+            } else {
+                Tok::Plain
+            }
+        } else {
+            i += 1;
+            Tok::Plain
+        };
+        out.push(tok, &c[start..i]);
+    }
+    out.finish(src)
+}
+
+/// Highlight a TOML / YAML / INI / `.env` file: comments, `[sections]`, keys, strings, numbers.
+pub fn conf(src: &str) -> Vec<Line> {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = Out { lines: vec![Vec::new()] };
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        let start = i;
+        let first = line_start(&c, i);
+        let tok = if ch == '#' && (i == 0 || c[i - 1].is_whitespace()) || (ch == ';' && first) {
+            i = line_end(&c, i);
+            Tok::Comment
+        } else if ch == '[' && first {
+            i = line_end(&c, i);
+            Tok::Type
+        } else if ch == '"' || ch == '\'' {
+            i = quote_end(&c, i, ch, ch == '"');
+            Tok::Str
+        } else if ch.is_ascii_digit() || (ch == '-' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
+            i += 1;
+            while i < c.len() && (c[i].is_ascii_alphanumeric() || matches!(c[i], '.' | '_' | ':' | '-')) {
+                i += 1;
+            }
+            Tok::Num
+        } else if is_ident_start(ch) {
+            while i < c.len() && (is_ident(c[i]) || matches!(c[i], '-' | '.')) {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            // a key starts its line (or follows a YAML `- `) and is followed by `=` or `: `
+            let keyed = first || (start >= 2 && c[start - 2] == '-' && c[start - 1] == ' ' && line_start(&c, start - 2));
+            let k = skip_blanks(&c, i);
+            let sep = c.get(k).copied();
+            let colon = sep == Some(':') && c.get(k + 1).is_none_or(|x| x.is_whitespace());
+            if keyed && (sep == Some('=') || colon) {
+                Tok::Fn
+            } else if matches!(w.as_str(), "true" | "false" | "yes" | "no" | "on" | "off" | "null") {
+                Tok::Builtin
+            } else {
+                Tok::Plain
+            }
+        } else {
+            i += 1;
+            Tok::Plain
+        };
+        out.push(tok, &c[start..i]);
+    }
+    out.finish(src)
 }
 
 struct Out {
@@ -173,6 +593,16 @@ struct Out {
 }
 
 impl Out {
+    /// The lines, one per line of `src.lines()`.
+    fn finish(self, src: &str) -> Vec<Line> {
+        let mut lines = self.lines;
+        // `str::lines` drops the empty piece after a final newline
+        if src.ends_with('\n') {
+            lines.pop();
+        }
+        lines
+    }
+
     /// Append text, starting a new line at each `\n` (a `\r` before it is dropped, like `str::lines`).
     fn push(&mut self, tok: Tok, text: &[char]) {
         let s: String = text.iter().collect();
@@ -320,6 +750,72 @@ mod tests {
         assert!(has(Tok::Str, "b'1'"));
         assert!(has(Tok::Builtin, "Some"));
         assert!(has(Tok::Num, "2"));
+    }
+
+    fn kinds_of(lines: Vec<Line>) -> Vec<(Tok, String)> {
+        lines.into_iter().flatten().filter(|(t, _)| *t != Tok::Plain).collect()
+    }
+
+    #[test]
+    fn detect() {
+        assert_eq!(Lang::detect("src/main.rs", ""), Lang::Rust);
+        assert_eq!(Lang::detect("infra/main.tf", ""), Lang::Hcl);
+        assert_eq!(Lang::detect("deploy.sh", ""), Lang::Shell);
+        assert_eq!(Lang::detect("scripts/iwr", "#!/usr/bin/env bash\n"), Lang::Shell);
+        assert_eq!(Lang::detect("Cargo.toml", ""), Lang::Conf);
+        assert_eq!(Lang::detect("README", "hello"), Lang::Plain);
+    }
+
+    #[test]
+    fn shell_tokens() {
+        let src = "#!/bin/bash\n# build\nNAME=x\nif [ -f \"$f\" ]; then\n  cargo build --release \"${NAME}-1\" | tee log\nfi\ncat <<'EOF'\n$not a var\nEOF\necho done\n";
+        let lines = shell(src);
+        assert_eq!(lines.len(), src.lines().count());
+        let k = kinds_of(lines);
+        let has = |t: Tok, s: &str| k.iter().any(|(a, b)| *a == t && b == s);
+        assert!(has(Tok::Comment, "# build"));
+        assert!(has(Tok::Var, "NAME"));
+        assert!(has(Tok::Keyword, "if"));
+        assert!(has(Tok::Attr, "-f"));
+        assert!(has(Tok::Var, "$f"));
+        assert!(has(Tok::Fn, "cargo"));
+        assert!(has(Tok::Attr, "--release"));
+        assert!(has(Tok::Var, "${NAME}"));
+        assert!(has(Tok::Fn, "tee"));
+        assert!(has(Tok::Str, "$not a var"));
+        assert!(has(Tok::Fn, "echo"));
+        assert!(!has(Tok::Fn, "build"));
+    }
+
+    #[test]
+    fn hcl_tokens() {
+        let src = "# vpc\nresource \"aws_vpc\" \"main\" {\n  cidr_block = var.cidr\n  tags = merge(local.tags, { Name = \"${var.name}-vpc\" })\n  enabled = true\n}\n";
+        let lines = hcl(src);
+        assert_eq!(lines.len(), src.lines().count());
+        let k = kinds_of(lines);
+        let has = |t: Tok, s: &str| k.iter().any(|(a, b)| *a == t && b == s);
+        assert!(has(Tok::Comment, "# vpc"));
+        assert!(has(Tok::Keyword, "resource"));
+        assert!(has(Tok::Str, "\"aws_vpc\""));
+        assert!(has(Tok::Fn, "cidr_block"));
+        assert!(has(Tok::Var, "var"));
+        assert!(has(Tok::Macro, "merge"));
+        assert!(has(Tok::Var, "${var.name}"));
+        assert!(has(Tok::Builtin, "true"));
+    }
+
+    #[test]
+    fn conf_tokens() {
+        let k = kinds_of(conf("[package]\nname = \"iwr\" # ok\nversion: 2\n- key: yes\n"));
+        let has = |t: Tok, s: &str| k.iter().any(|(a, b)| *a == t && b == s);
+        assert!(has(Tok::Type, "[package]"));
+        assert!(has(Tok::Fn, "name"));
+        assert!(has(Tok::Str, "\"iwr\""));
+        assert!(has(Tok::Comment, "# ok"));
+        assert!(has(Tok::Fn, "version"));
+        assert!(has(Tok::Num, "2"));
+        assert!(has(Tok::Fn, "key"));
+        assert!(has(Tok::Builtin, "yes"));
     }
 
     #[test]

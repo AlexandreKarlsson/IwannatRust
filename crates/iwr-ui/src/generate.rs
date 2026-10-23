@@ -215,23 +215,26 @@ pub fn GeneratePage() -> Element {
     let (voice_name, _) = v::voice_label(&r.voice);
 
     let n_auto = auto.len();
-    let generate = move |_| {
-        let mut r = req.read().clone();
-        let sel = picked.read().clone();
+    // record the ticked parts; `retranslate` / `fresh` skip the translation / cue clip caches
+    let generate = move |retranslate: bool, fresh: bool| {
         let auto = auto.clone();
-        r.parts = sel.unwrap_or(auto).into_iter().collect();
-        r.parts.sort();
-        stop_preview();
-        spawn(async move {
-            message.set(String::new());
-            match start(&r).await {
-                Ok(()) => {
-                    picked.set(None);
-                    state.voice_job.set(Some(VoiceJob { running: true, stage: "starting".into(), request: Some(r), ..Default::default() }));
+        move |_| {
+            let mut r = VoiceRequest { retranslate, fresh, ..req.read().clone() };
+            let sel = picked.read().clone();
+            r.parts = sel.unwrap_or_else(|| auto.clone()).into_iter().collect();
+            r.parts.sort();
+            stop_preview();
+            spawn(async move {
+                message.set(String::new());
+                match start(&r).await {
+                    Ok(()) => {
+                        picked.set(None);
+                        state.voice_job.set(Some(VoiceJob { running: true, stage: "starting".into(), request: Some(VoiceRequest { retranslate: false, fresh: false, ..r.clone() }), ..Default::default() }));
+                    }
+                    Err(e) => message.set(e),
                 }
-                Err(e) => message.set(e),
-            }
-        });
+            });
+        }
     };
 
     rsx! {
@@ -460,9 +463,21 @@ pub fn GeneratePage() -> Element {
                                 span { "{voice_name} · {lang.name} · {r.speed:.2}×" }
                                 if !message.read().is_empty() { span { class: "gen-error", "{message}" } }
                             }
-                            button { class: "gen-go", disabled: n_sel == 0, onclick: generate,
-                                Icon { name: "voice", size: 18 }
-                                if n_sel == 0 { "Generate" } else { "Generate {n_sel} part(s)" }
+                            div { class: "gen-buttons",
+                                if code != "en" {
+                                    button { class: "gen-again", disabled: n_sel == 0, onclick: generate(true, false),
+                                        title: "translate the ticked parts again (not from the cache), then record them",
+                                        "↻ Retranslate"
+                                    }
+                                }
+                                button { class: "gen-again", disabled: n_sel == 0, onclick: generate(false, true),
+                                    title: "synthesize every cue of the ticked parts again (not from the cache)",
+                                    "↻ Rerecord"
+                                }
+                                button { class: "gen-go", disabled: n_sel == 0, onclick: generate(false, false),
+                                    Icon { name: "voice", size: 18 }
+                                    if n_sel == 0 { "Generate" } else { "Generate {n_sel} part(s)" }
+                                }
                             }
                         }
                     }

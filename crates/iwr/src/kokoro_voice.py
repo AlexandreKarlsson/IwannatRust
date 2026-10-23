@@ -1,14 +1,14 @@
 """Kokoro TTS for `iwr voice`: reads a job (JSON) on stdin, writes one audio file per part.
 Progress goes to stderr as `@` lines the CLI reads; anything else there is a log line.
 
-Job: {"model", "voices", "voice", "speed", "lang", "gap", "level", "cache",
+Job: {"model", "voices", "voice", "speed", "lang", "gap", "level", "cache", "fresh",
       "parts": [{"out": "/abs/01-welcome.ogg", "cues": ["spoken text", ...]}]}
 Output is Ogg Opus; `level` is libsndfile's compression level (0.95 ≈ 18 kbps, clear speech).
 Progress: `@ready` once the model is loaded, `@cue P I N` when cue I (1-based) of N of part P
 (0-based) is done, `@part {"out", "times": [0.0, 4.2, ...], "duration"}` when a part's file is written.
 
 Each cue is synthesized alone (cached by text + voice + speed), so its start time is exact and
-editing one cue only re-synthesizes that cue.
+editing one cue only re-synthesizes that cue; `fresh` synthesizes every cue again.
 
 Japanese (`lang` "ja"): espeak cannot read kana or kanji, so the text goes through misaki's
 Japanese G2P (pyopenjtalk) and Kokoro speaks the phonemes; Latin runs inside (code, names) are
@@ -60,7 +60,7 @@ def main():
         for i, text in enumerate(part["cues"]):
             key = hashlib.sha256(f'{job["voice"]}|{job["speed"]}|{job["lang"]}|{text}'.encode()).hexdigest()[:24]
             clip = os.path.join(job["cache"], key + ".wav")
-            if os.path.exists(clip):
+            if os.path.exists(clip) and not job.get("fresh"):
                 audio, _ = sf.read(clip, dtype="float32")
             elif text.strip():
                 if g2p:

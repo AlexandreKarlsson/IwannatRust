@@ -31,7 +31,7 @@ pub fn shaded(p: &Project, file: FileId) -> Rc<Shaded> {
     if let Some(s) = CACHE.with(|c| c.borrow().get(&file).filter(|e| (e.0, e.1) == key).map(|e| e.2.clone())) {
         return s;
     }
-    let lines = if sf.rust { highlight::rust(&sf.content) } else { sf.content.lines().map(|l| vec![(Tok::Plain, l.to_string())]).collect() };
+    let lines = highlight::file(&sf.path, &sf.content);
     let mut colors = vec![(None, None); lines.len()];
     // innermost item first wins: visit items from the largest span to the smallest
     let mut items: Vec<_> = p.items.iter().filter(|i| i.span.file == file && i.kind != ItemKind::Module).collect();

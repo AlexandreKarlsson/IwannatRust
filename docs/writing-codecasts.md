@@ -17,6 +17,7 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 @ <view>[:<ref>]             what to show (sticky until the next @); `@ plan` shows the plan page
 ! <ref> [<ref> …]            what to glow (sticky; `!` alone clears)
 = <file>:<line>:<c1>-<c2>    what to underline in the code (this cue only)
+^ <exact text>               popup card with a path, endpoint, command or name (this cue only, never spoken)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
 | bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
@@ -170,9 +171,23 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
 11. **Write code as code**: `parse_all`, `Task::weight`, `&tasks`, `Option<Task>` are spoken as
     "parse all", "Task weight", "a reference to tasks", "Option of Task", and the caption shows the
     real token. Never spell for the voice ("parse underscore all"). Backticks are optional for single
-    names, useful for expressions. Fix a word the voice gets wrong with `pronounce: written = spoken`
+    names. Fix a word the voice gets wrong with `pronounce: written = spoken`
     in the header, and list acronyms to read letter by letter with `spell: IP, CoAP, HTTP`.
-12. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
+    Version numbers (`1.5.0`, `v0.12`) are read in one breath: "1 point 5 point 0".
+12. **Avoid code in the script.** The player already shows the code; point at it with `@` and `=`
+    and say what it does in plain words. Name a function or type when the listener needs the
+    name, but never write expressions, signatures or snippets into a cue: read aloud they become
+    word soup ("a reference to self dot tasks dot iter of"). No fenced code blocks for code either;
+    example blocks are for data (`| json:`, `| md:`), not source.
+13. **Say it in words, show it with `^`.** Spoken text has no dashes, no paths, no endpoints and
+    no HTTP verbs. A voice reads `gw-config-server` as "G W dash config dash server", `/srv/gw` as
+    "slash serve slash G W", `GET /config/wifi` as a shout; a translation model breaks them further.
+    Say what the thing is ("the config server", "the data disk", "it asks for its wifi file") and
+    put the exact name in a `^` line above the cue: the viewer sees it in a popup card, the voice
+    never says it. Hyphenated English words too: "well formed", "read only", "brand new", "64"
+    instead of "sixty-four". Name a function only when the listener needs it, and then in a `^` line
+    rather than in the sentence. `iwr check` notes every word that breaks this rule.
+14. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
     short, kind, and no puns that need spelling.
 
 ## Diagrams (when the code has no picture)
@@ -296,4 +311,7 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 - Each big idea has one metaphor; jargon comes after the plain words.
 - Every module has a `//!`, loops and key `if`s have a short `//` (if you may edit the code).
 - Inventory parts may use tours (`architecture_tour`, `types_tour`, `errors_tour`…) instead of hand-written cue lists.
+- Cues talk about the code, they do not quote it: names at most, no expressions or snippets.
+- No dashes, paths, endpoints or HTTP verbs in cues, answers, part names or `plan:` lines; exact
+  names go in `^` popups. `iwr check` prints no "hard to say" note.
 - `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.

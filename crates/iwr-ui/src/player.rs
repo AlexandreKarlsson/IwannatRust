@@ -577,6 +577,10 @@ pub fn PlayerBar() -> Element {
     let pct = (cue_idx + 1) as f64 / total.max(1) as f64 * 100.0;
     let title = s.title.clone();
     let say = cue.say.clone();
+    // an answer being shown brings its own popup, the cue's comes back after it
+    let pop = match &*state.answering.read() { Some(q) => q.pop.clone(), None => cue.pop.clone() };
+    // the cue whose popup the viewer closed; the next cue's popup shows again
+    let mut pop_closed = use_signal(|| None::<(usize, usize)>);
     let n_parts = s.parts.len();
     let tour = *state.tour.read();
     let tts_info = state.tts_info.read().clone();
@@ -819,6 +823,17 @@ pub fn PlayerBar() -> Element {
 
     rsx! {
         div { class: "guide",
+            if !pop.is_empty() && pop_closed() != Some((part_idx, cue_idx)) {
+                div { class: "pop", key: "{part_idx}-{cue_idx}-{answering.is_some()}", title: "shown with this sentence, not spoken",
+                    button { class: "x", title: "close", onclick: move |_| pop_closed.set(Some((part_idx, cue_idx))), "✕" }
+                    for l in pop.iter().cloned() {
+                        div { class: "pop-row",
+                            // a row with backticks is markdown; a bare row is a path, endpoint or command
+                            if l.contains('`') { Markdown { text: l } } else { code { "{l}" } }
+                        }
+                    }
+                }
+            }
             div { class: "ctl",
                 div { class: "row",
                     button { onclick: move |_| { state.tts_gen += 1; state.step(-1); }, disabled: cue_idx == 0, "◀" }

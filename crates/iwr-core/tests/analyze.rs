@@ -226,7 +226,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, tour: None });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -518,6 +518,30 @@ fn script_side_panel() {
     assert_eq!(bad.len(), 2, "{:?}", bad);
     assert!(bad[0].contains("unresolved ref `magic`"), "{}", bad[0]);
     assert!(bad[1].contains("no byte layout `Nope`"), "{}", bad[1]);
+}
+
+#[test]
+fn script_popups() {
+    use iwr_core::script;
+    let text = "## Request\n^ GET /config/wifi\n^ Answer: `200` with the wifi file\nThe gateway asks for one file.\nNo popup here.\n? Where is it kept?\n  ^ /data/config.db\n  In the config database.\n";
+    let s = script::parse(text);
+    let cues = &s.parts[0].cues;
+    assert_eq!(cues[0].pop, ["GET /config/wifi", "Answer: `200` with the wifi file"]);
+    // shown, never spoken
+    assert_eq!(cues[0].say, "The gateway asks for one file.");
+    assert!(cues[1].pop.is_empty());
+    assert_eq!(cues[1].questions[0].pop, ["/data/config.db"]);
+    assert_eq!(cues[1].questions[0].answer.trim(), "In the config database.");
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+}
+
+#[test]
+fn script_hard_to_say() {
+    use iwr_core::script::hard_to_say;
+    assert_eq!(hard_to_say("It asks GET /config/wifi, then reads /srv/gw and src/main.rs."), ["GET /config/wifi", "/srv/gw", "src/main.rs"]);
+    assert_eq!(hard_to_say("The gw-config-server sends a well-formed Wi-Fi file."), ["gw-config-server", "well-formed", "Wi-Fi"]);
+    // a dash between words, numbers and URLs are fine
+    assert!(hard_to_say("One file - one origin, at 1.5.0, see https://example.com/a/b.").is_empty());
 }
 
 #[test]

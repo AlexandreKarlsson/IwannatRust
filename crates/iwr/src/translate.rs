@@ -20,8 +20,9 @@ const SIDECAR: &str = include_str!("translate_sidecar.py");
 /// One translation at a time: the cache file is rewritten after each.
 static LOCK: Mutex<()> = Mutex::new(());
 
-/// Translate English texts (protected by `iwr_core::i18n::texts`) into `lang`, cached.
-pub fn translate(lang: &str, texts: &[String]) -> Result<Vec<String>> {
+/// Translate English texts (protected by `iwr_core::i18n::texts`) into `lang`, cached;
+/// `fresh` translates them again (and caches the new translations).
+pub fn translate(lang: &str, texts: &[String], fresh: bool) -> Result<Vec<String>> {
     if iwr_core::i18n::lang(lang).is_none() || lang == "en" {
         bail!("no translation to {:?}", lang);
     }
@@ -29,7 +30,8 @@ pub fn translate(lang: &str, texts: &[String]) -> Result<Vec<String>> {
     let home = home()?;
     let cache_path = home.join(format!("{}.json", lang));
     let mut cache: HashMap<String, String> = std::fs::read_to_string(&cache_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    let mut todo: Vec<String> = texts.iter().filter(|t| !cache.contains_key(*t)).cloned().collect();
+    let mut todo: Vec<String> = texts.iter().filter(|t| fresh || !cache.contains_key(*t)).cloned().collect();
+    todo.sort();
     todo.dedup();
     if !todo.is_empty() {
         let py = setup(&home)?;
@@ -58,7 +60,7 @@ pub fn codecast_map(script: &Path, project: &iwr_core::Project, lang: &str) -> R
         g.push(iwr_core::glossary::parse(own));
     }
     let texts = iwr_core::i18n::texts(&s, &iwr_core::glossary::merge(&g), &iwr_core::i18n::names(project));
-    let done = translate(lang, &texts)?;
+    let done = translate(lang, &texts, false)?;
     Ok(texts.into_iter().zip(done).collect())
 }
 

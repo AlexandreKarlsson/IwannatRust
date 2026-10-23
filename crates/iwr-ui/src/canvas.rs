@@ -203,7 +203,7 @@ pub fn Canvas() -> Element {
                 }
             }
             if let Some(note) = &g.note {
-                div { class: "note", "{note}" }
+                div { class: "canvas-note", "{note}" }
             }
             if !legend.is_empty() {
                 div { class: "legend",

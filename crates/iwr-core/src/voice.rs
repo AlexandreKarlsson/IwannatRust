@@ -192,11 +192,17 @@ pub struct VoiceRequest {
     /// part stems to record (each one, up to date or not); empty = every part that needs it
     #[serde(default)]
     pub parts: Vec<String>,
+    /// translate the parts again instead of taking the cached translation
+    #[serde(default)]
+    pub retranslate: bool,
+    /// synthesize every cue again instead of taking the cached clips
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 impl Default for VoiceRequest {
     fn default() -> Self {
-        Self { voice: DEFAULT_VOICE.into(), speed: 1.0, lang: "en-us".into(), gap: 0.4, level: 0.95, force: false, parts: vec![] }
+        Self { voice: DEFAULT_VOICE.into(), speed: 1.0, lang: "en-us".into(), gap: 0.4, level: 0.95, force: false, parts: vec![], retranslate: false, fresh: false }
     }
 }
 

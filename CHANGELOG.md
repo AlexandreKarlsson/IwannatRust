@@ -8,6 +8,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Popups: a `^ <text>` line above a cue (or inside a `?` answer) shows a small card with a path,
+  endpoint, command or name while that cue plays. Never spoken, never translated, not part of a
+  recording's hash. `iwr check` notes hyphenated words, paths and HTTP requests in spoken text,
+  and the writing guide asks for words in the voice and exact text in a popup.
 - Several recorded voices per codecast: `iwr voice` writes `NN-part.<voice>.ogg` + `.times`, so
   recording another voice keeps the first (older `NN-part.ogg` files are renamed to their voice on
   the next run). The player shows a *recorded voice* chip with a picker (avatar, accent, parts

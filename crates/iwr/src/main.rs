@@ -120,6 +120,12 @@ enum Cmd {
         /// Re-record parts that are up to date (each voice has its own files: recording another voice keeps this one)
         #[arg(long)]
         force: bool,
+        /// Translate the parts again instead of taking the cached translations (with --lang)
+        #[arg(long)]
+        retranslate: bool,
+        /// Synthesize every cue again instead of taking the cached clips
+        #[arg(long)]
+        fresh: bool,
     },
     /// Translate a codecast offline (Argos models, cached) and print it; the player translates the same way when another language is picked
     Translate {
@@ -198,7 +204,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Voice { script, voice, speed, lang, path, gap, level, force } => voice::run(&script, &voice::Opts { voice, speed, lang, path, gap, level, force, only: vec![] }),
+        Cmd::Voice { script, voice, speed, lang, path, gap, level, force, retranslate, fresh } => voice::run(&script, &voice::Opts { voice, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh }),
         Cmd::Translate { script, lang, path } => translate::run(&script, &path, &lang),
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
@@ -222,6 +228,10 @@ fn main() -> Result<()> {
                 for (i, c) in p.cues.iter().enumerate() {
                     for u in iwr_core::speech::unspoken(&c.say, &pron) {
                         println!("  note: {} / cue {}: `{}` will be spoken as written; add a `pronounce:` line", p.name, i + 1, u);
+                    }
+                    let answers = c.questions.iter().map(|q| q.answer.as_str());
+                    for w in std::iter::once(c.say.as_str()).chain(answers).flat_map(iwr_core::script::hard_to_say) {
+                        println!("  note: {} / cue {}: `{}` is hard to say; say it in words and show it with a `^` line", p.name, i + 1, w);
                     }
                 }
             }

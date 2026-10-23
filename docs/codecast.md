@@ -127,6 +127,7 @@ audio: 02-running.mp3                    optional recording of this part only
 @ flow:crate::run
 ! crate::run/b1
 = src/main.rs:49:17-44                   underline this code            this cue only
+^ GET /config/wifi                       popup card: shown, never spoken  this cue only
 [12.5] run starts by parsing the input.  optional start time in seconds (recording mode)
 ! crate::run/b5 crate::run/b6
 Every task is saved, in a loop.
@@ -137,7 +138,7 @@ architecture_tour                        generated cues, e.g. every module with 
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
+Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -292,6 +293,32 @@ pairs, spaces, `0x` and `:` tolerated) fills the strip and the *value* column: `
 The panel draws the bytes as a coloured strip with offsets and each field's name, then a table
 (field, offset, size, value, description); hovering a byte or a row lights both. `iwr check`
 reports unreadable lines, sizes that do not add up to the sample, and `|` lines naming no block.
+
+## Popups
+
+Some things must be seen exactly but never read aloud: a path (`/srv/gw`), an endpoint
+(`GET /config/wifi`), a command, an identifier with dashes (`gw-config-server`), a config key. A
+voice mangles them ("slash serve slash G W", "G W dash config dash server") and a translation
+model mangles them worse. Say the idea in words, and put the exact text in a `^` line above the cue:
+
+```
+! gw type
+^ GET /config/wifi
+So it asks for one file, the wifi config. Same header, same serial.
+```
+
+Each `^` line is one row of a small card that floats above the caption while that cue plays, and
+goes away with the next cue (the viewer can also close it). A row without backticks is shown as
+code, as written; a row with backticks is markdown (``^ Answer: `200` with the file``). Several
+`^` lines stack in one card. An indented `^` line inside a `?` answer is the answer's own card.
+
+Popups are not part of the spoken text: they are not read, not translated, and not in the hash of a
+recording, so adding or editing one never makes a recording out of date. For a longer listing (a
+folder tree, a request with headers, a table of rules) use the [side panel](#side-panel).
+
+`iwr check` notes every word of a cue or answer that belongs in a popup instead: hyphenated words
+(`gw-config-server`, `Wi-Fi`, `well-formed`), paths (`/data/config.db`, `src/main.rs`) and HTTP
+requests (`GET /config/wifi`).
 
 ## How code is spoken
 

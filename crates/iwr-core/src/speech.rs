@@ -63,6 +63,33 @@ pub fn spell(word: &str) -> String {
     word.chars().filter(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).collect::<Vec<_>>().join(" ")
 }
 
+/// A version number (`1.5.0`, `v0.12.3`, `2.0.1-beta`): two dots or more, or a `v` and one dot.
+/// TTS takes each dot for a sentence end and pauses; [`say_version`] reads it in one breath.
+pub fn is_version(tok: &str) -> bool {
+    let (v, t) = match tok.strip_prefix(['v', 'V']) {
+        Some(t) => (true, t),
+        None => (false, tok),
+    };
+    let core = t.split_once('-').map_or(t, |(c, _)| c);
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() >= if v { 2 } else { 3 } && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// `1.5.0` → "1 point 5 point 0", `v2.1` → "version 2 point 1", `1.0.0-rc1` → "1 point 0 point 0 rc1".
+pub fn say_version(tok: &str) -> String {
+    let (v, t) = match tok.strip_prefix(['v', 'V']) {
+        Some(t) => ("version ", t),
+        None => ("", tok),
+    };
+    let (core, pre) = t.split_once('-').map_or((t, ""), |(c, p)| (c, p));
+    let mut s = format!("{v}{}", core.split('.').collect::<Vec<_>>().join(" point "));
+    if !pre.is_empty() {
+        s.push(' ');
+        s.push_str(&pre.replace(['-', '.'], " "));
+    }
+    s
+}
+
 /// Does a bare word (no backticks) look like code? Paths, snake_case, calls, generics, references,
 /// attributes, known macros, CamelCase (two humps), primitive types, lifetimes, a lone `?`.
 pub fn looks_like_code(tok: &str) -> bool {
@@ -161,6 +188,9 @@ pub fn say_code(code: &str, pron: &Pronounce) -> String {
     let code = code.trim();
     if let Some((_, say)) = pron.iter().rev().find(|(w, _)| w == code) {
         return say.clone();
+    }
+    if is_version(code) {
+        return say_version(code);
     }
     if let Some(said) = say_path(code) {
         return said;
@@ -392,7 +422,7 @@ impl Parser<'_> {
                         self.i += 1;
                     }
                     let suffix = self.ident();
-                    self.push(n);
+                    self.push(if is_version(&n) { say_version(&n) } else { n });
                     if !suffix.is_empty() {
                         self.push(word(&suffix, self.pron));
                     }
@@ -559,7 +589,11 @@ fn segment_words(out: &mut Vec<Segment>, text: &str, pron: &Pronounce) {
             core = &core[..core.len() - last.len_utf8()];
         }
         let trail = &w[lead + core.len()..];
-        if looks_like_code(core) && pron.iter().all(|(a, _)| a != core) || pron.iter().any(|(a, _)| a == core) {
+        if is_version(core) {
+            push_text(out, lead_s);
+            out.push(Segment::Code { code: core.to_string(), say: say_version(core) });
+            push_text(out, trail);
+        } else if looks_like_code(core) && pron.iter().all(|(a, _)| a != core) || pron.iter().any(|(a, _)| a == core) {
             push_text(out, lead_s);
             out.push(Segment::Code { code: core.to_string(), say: say_code(core, pron) });
             push_text(out, trail);
@@ -611,5 +645,14 @@ mod tests {
         let mut p = pron.clone();
         p.extend(parse_pronounce("pronounce: ID = identity"));
         assert_eq!(spoken("the ID", &p), "the identity");
+    }
+
+    #[test]
+    fn versions_read_in_one_breath() {
+        let pron = builtin_pronounce();
+        assert_eq!(spoken("Bump it to 1.5.0.", &pron), "Bump it to 1 point 5 point 0.");
+        assert_eq!(spoken("since v0.12, see `2.0.1-beta`", &pron), "since version 0 point 12, see 2 point 0 point 1 beta");
+        assert_eq!(spoken("costs 1.5 more", &pron), "costs 1.5 more");
+        assert_eq!(spoken("`x == 1.2.3`", &pron), "x equals 1 point 2 point 3");
     }
 }

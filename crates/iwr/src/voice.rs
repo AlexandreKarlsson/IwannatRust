@@ -50,6 +50,10 @@ pub struct Opts {
     pub force: bool,
     /// record only these part stems, each one even when up to date (empty: every part that needs it)
     pub only: Vec<String>,
+    /// translate again instead of taking the cached translation
+    pub retranslate: bool,
+    /// synthesize every cue again instead of taking the cached clips
+    pub fresh: bool,
 }
 
 /// What a recording reports while it works.
@@ -126,7 +130,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         let own = std::fs::read_to_string(&times_path).ok();
         let out = dir.join(format!("{}.ogg", stem));
         let up_to_date = own.as_deref().is_some_and(|t| t.lines().next() == Some(header(o).as_str())) && codecast::read_times(&times_path).iter().map(|(_, h)| h).eq(hashes.iter()) && out.is_file();
-        if up_to_date && !o.force && !asked {
+        if up_to_date && !(o.force || o.retranslate || o.fresh || asked) {
             continue;
         }
         if cancel.load(Ordering::Relaxed) {
@@ -135,7 +139,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         let spoken = match target {
             Some(code) => {
                 report(Event::Stage(format!("translating {} into {}", stem, code)));
-                translated(&text, code, &names, &pron)?
+                translated(&text, code, &names, &pron, o.retranslate)?
             }
             None => english,
         };
@@ -201,7 +205,7 @@ fn part_files(dir: &Path) -> Result<Vec<PathBuf>> {
 fn job(home: &Path, o: &Opts, parts: Vec<serde_json::Value>) -> serde_json::Value {
     serde_json::json!({
         "model": home.join(MODEL), "voices": home.join(VOICES), "voice": o.voice, "speed": o.speed, "lang": o.lang,
-        "gap": o.gap, "level": o.level, "cache": home.join("clips"), "parts": parts,
+        "gap": o.gap, "level": o.level, "cache": home.join("clips"), "fresh": o.fresh, "parts": parts,
     })
 }
 
@@ -264,10 +268,10 @@ fn sidecar(home: &Path, job: serde_json::Value, cancel: &AtomicBool, report: &mu
 }
 
 /// A part file's cues translated into `lang` (as the player translates them), as they will be spoken.
-fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)]) -> Result<Vec<String>> {
+fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)], fresh: bool) -> Result<Vec<String>> {
     let mut s = iwr_core::script::parse(text);
     let texts = iwr_core::i18n::texts(&s, &[], names);
-    let done = crate::translate::translate(lang, &texts)?;
+    let done = crate::translate::translate(lang, &texts, fresh)?;
     let map: std::collections::HashMap<String, String> = texts.into_iter().zip(done).collect();
     iwr_core::i18n::apply(&mut s, &mut [], names, &|t| map.get(t).cloned());
     Ok(s.parts.iter().flat_map(|p| &p.cues).map(|c| iwr_core::speech::spoken(&c.say, pron)).collect())
@@ -429,7 +433,7 @@ pub fn preview(voice: &str, speed: f32, lang: &str) -> Result<Vec<u8>> {
     let out = home.join("previews").join(format!("{}-{}-{}.ogg", voice, speed, l.arg));
     if !out.is_file() {
         std::fs::create_dir_all(out.parent().unwrap())?;
-        let o = Opts { voice: voice.into(), speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![] };
+        let o = Opts { voice: voice.into(), speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![], retranslate: false, fresh: false };
         let parts = vec![serde_json::json!({ "out": out, "cues": [l.sample] })];
         sidecar(&home, job(&home, &o, parts), &AtomicBool::new(false), &mut |_| {}, &mut |_, _, _| Ok(0))?;
     }
