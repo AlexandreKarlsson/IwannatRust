@@ -121,7 +121,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Codecast refs: `file:line[:c1-c2]` works on any file of the repository (Terraform, YAML…),
   not only `.rs` files.
-- Module paths: a crate is named after its `[package] name` when its folder differs.
+- Module paths: a crate is named after its `[package] name` when its folder differs; a ref by
+  its folder name (`! config-server`) still finds the crate, not only the folder.
 - Recorded voice: a part the picked voice has no up-to-date recording of is spoken by the browser
   voice instead of another recorded voice; the voice chip warns (`⚠ 7/9`) and the voice list names
   the missing parts.

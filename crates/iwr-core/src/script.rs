@@ -1121,7 +1121,11 @@ pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
     };
     let Some(id) = find_item(p, path) else {
         // a module?
-        let m = p.modules.iter().find(|m| m.path == r || m.path == format!("crate::{}", r) || (r != "crate" && m.path.ends_with(&format!("::{}", r))))?;
+        let m = p.modules.iter().find(|m| m.path == r || m.path == format!("crate::{}", r) || (r != "crate" && m.path.ends_with(&format!("::{}", r)))).or_else(|| {
+            // a crate named after its package, asked for by its folder (`config-server` holding `gw-config-server`)
+            let root = |f: &str| [format!("{r}/src/main.rs"), format!("{r}/src/lib.rs")].iter().any(|x| f == x || f.ends_with(&format!("/{x}")));
+            p.modules.iter().find(|m| !m.path.contains("::") && m.file.is_some_and(|f| root(&p.files[f].path)))
+        })?;
         let span = m.span.or_else(|| m.file.map(|f| Span { file: f, line_start: 1, col_start: 1, line_end: p.files[f].content.lines().count().max(1), col_end: 1 }))?;
         return Some(Resolved { span, item: None, module: Some(m.id), inner: false });
     };

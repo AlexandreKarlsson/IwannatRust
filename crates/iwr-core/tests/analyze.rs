@@ -204,6 +204,9 @@ fn crate_named_after_its_package() {
     assert!(paths.contains(&"z-config-handler::poll"), "{paths:?}");
     assert!(paths.contains(&"plain"), "{paths:?}");
     assert!(!paths.contains(&"config-handler"), "{paths:?}");
+    // the folder name still finds the crate's module
+    let r = iwr_core::script::resolve(&p, "config-handler").unwrap();
+    assert_eq!(r.module.map(|m| p.modules[m].path.as_str()), Some("z-config-handler"));
 }
 
 #[test]
