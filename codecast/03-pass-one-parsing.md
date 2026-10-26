@@ -1,5 +1,6 @@
 ## Pass one: parsing
 @ flow:iwr-core::parse::collect
+! iwr-core::parse::collect
 collect is pass one. It gets the file list and returns a Collected: the Project so far, plus the function bodies kept aside for pass two.
 ! iwr-core::parse::collect/b1 iwr-core::parse::collect/b2
 First, an empty Project and a context around it. The context tracks the module tree and collects the bodies.

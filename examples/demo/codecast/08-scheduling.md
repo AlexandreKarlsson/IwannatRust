@@ -1,5 +1,6 @@
 ## Scheduling
 @ flow:crate::scheduler::Scheduler::next_task
+! crate::scheduler::Scheduler::next_task
 next_task is the heart of the scheduler. It returns an Option: a task, or None when there is nothing left. That None is what ends the main loop in run.
 ! crate::scheduler::Scheduler::next_task/b1
 It starts by asking the storage for every task it has. This call goes through the Storage trait, so the scheduler never knows it is talking to a HashMap. It could be a database, a file, or a very patient intern.

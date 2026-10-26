@@ -9,6 +9,7 @@ steps  1  ascii  Step count, still text
 sample: 62 75 69 6c 64 3a 68 69 67 68 3a 33
 ```
 @ code:crate::parser::parse_all
+! crate::parser::parse_all
 The parser is three small functions. parse_all is the entry: it walks the lines, skips the empty ones, and collects a task per line. Nothing clever, which is what you want from a parser.
 ! crate::parser::parse_all/b2 crate::parser::parse_all/b3 crate::parser::parse_all/b4
 Blank lines are skipped with a continue, so a trailing newline is not an error. Small mercies.

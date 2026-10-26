@@ -1,5 +1,6 @@
 ## Views and layout
 @ flow:iwr-core::views::build
+! iwr-core::views::build
 build is the only door into the views module. The UI calls it with a mode and options, and gets a Graph with positioned nodes back.
 ! iwr-core::views::build/b2
 One match, one builder per mode: call tree, control flow, architecture, branch tree, structure, types, error flow.

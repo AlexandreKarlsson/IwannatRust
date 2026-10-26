@@ -1,5 +1,6 @@
 ## The codecast format
 @ code:iwr-core::script::parse
+! iwr-core::script::parse
 A codecast is a markdown file: headings for parts, one line per spoken cue, and short directive lines above a cue that say what to show. parse reads it, and it never fails: an unknown line is simply spoken.
 ! iwr-core::script::parse/b2 iwr-core::script::parse/b3
 Two accumulators: the part being filled, and pending, the cue being built from the directive lines above its text.

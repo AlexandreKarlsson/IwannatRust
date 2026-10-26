@@ -1,5 +1,6 @@
 ## Where errors go
 @ errors
+! crate::AppError
 This is the error flow view. It shows every function that can fail, every error type, and how errors travel between them. Think of it as the plumbing diagram: where the water goes when something leaks.
 ! crate::parser::ParseError crate::storage::StorageError
 The parser and the storage each have their own error enum, close to where the problems happen. Each variant carries what you would want to know: the line number of a missing field, the text of a bad priority, the name of a duplicate task.

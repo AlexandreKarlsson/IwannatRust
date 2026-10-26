@@ -1,5 +1,6 @@
 ## The data
 @ types
+! crate::model::Task crate::model::Priority
 This is the types view. Structs and enums hold the values, traits describe behaviour several types can share. Green arrows mean contains, purple dashed arrows mean implements.
 ! crate::model::Task
 A task is a struct: a name, a priority and a number of steps. A struct is a type with named fields, like a record or a plain object, minus the inheritance drama.

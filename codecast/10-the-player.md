@@ -6,6 +6,7 @@ graph LR
   player -->|glows and speaks| you[🙂 you]
 ```
 @ flow:iwr-ui::player::State::apply_cue
+! iwr-ui::player::State::apply_cue
 On the browser side, every step of a codecast ends in apply_cue. It is short, and it is the whole contract between a script and the screen.
 ! iwr-ui::player::State::apply_cue/b4 iwr-ui::player::State::apply_cue/b11
 First the diagram ops: every greater-than line of the part up to this cue, in order. Replaying from the first cue is what makes stepping backwards correct for free.

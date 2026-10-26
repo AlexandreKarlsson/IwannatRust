@@ -1,5 +1,6 @@
 ## Pass two: linking
 @ flow:iwr-core::resolve::finish
+! iwr-core::resolve::finish
 finish is pass two, and it is long because this is where everything gets linked: impl blocks to their types, fields to the types they mention, calls to the functions they call.
 ! iwr-core::resolve::finish/b2
 First an index: every type, function and method by name, so the lookups below are cheap.

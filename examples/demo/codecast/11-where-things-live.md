@@ -1,5 +1,6 @@
 ## Where things live
 @ code:src/main.rs
+! crate::main
 main.rs holds the entry point, the top level error type with its two conversions, the run function, and execute. It also declares the four modules, which is what makes the other files part of the crate at all.
 @ code:src/parser.rs
 ! crate::parser::parse_line

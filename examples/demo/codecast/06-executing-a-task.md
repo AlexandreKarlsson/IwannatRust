@@ -1,5 +1,6 @@
 ## Executing a task
 @ flow:crate::execute
+! crate::execute
 Execute is the smallest function with the most interesting shape, because it calls itself. This is its control flow, and the surprise is at the bottom.
 ! crate::execute/b1 crate::execute/b2
 It starts by printing the task name, indented by the current depth. Depth zero for the tasks run passes in, deeper for the ones we are about to create.

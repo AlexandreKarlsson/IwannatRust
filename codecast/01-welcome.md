@@ -6,8 +6,13 @@ graph LR
   cli -->|embeds| ui
   demo[🎒 demo] -.->|explained by| cli
 ```
+@ arch
++ view
+! iwr-core iwr-ui iwr demo
+Welcome to IwannatRust, a tool that reads a Rust project and explains it: with pictures, with a voice, and with questions you can click. On screen, IwannatRust explaining itself: its architecture, one box per module.
 @ plan
-Welcome to IwannatRust, a tool that reads a Rust project and explains it: with pictures, with a voice, and with questions you can click. This is the plan: ten parts, from the source files to the player. Click any of them to jump there, or let the tour run.
++
+This is the plan: ten parts, from the source files to the player. Click any of them to jump there, or let the tour run.
 @ diagram
 First, the map: four crates, and who depends on whom.
 ! core

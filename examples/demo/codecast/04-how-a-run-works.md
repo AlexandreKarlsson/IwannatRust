@@ -1,5 +1,6 @@
 ## How a run works
 @ flow:crate::run
+! crate::run
 Everything starts in main, which prints a banner, calls run, and prints the result. So run is where the story is, and we will stay here for a while. This is its control flow: every box is a statement, and the edges are the paths execution can take.
 ! crate::run/b1
 = src/main.rs:49:17-44

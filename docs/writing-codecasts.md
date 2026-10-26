@@ -147,8 +147,9 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
 ## How to write it
 
 1. **A tour, not a list of facts.** The script plays in a row: a *Welcome* part saying what the
-   project is for and where we will go (put `@ plan` on that cue: the player shows the parts as a
-   list, so give each one a line after its link in `index.md`), parts that follow from each other,
+   project is for (opening on the architecture, see rule 3) and where we will go (put `@ plan` on
+   that second cue: the player shows the parts as a list, so give each one a line after its link in
+   `index.md`), parts that follow from each other,
    a one-sentence wrap-up.
 2. **Parts are subjects**, with titles a listener would pick from a menu (*How a request flows*,
    *Where errors go*, *The scheduler*), 4–12 of them. First the big picture, then deeper; for a

@@ -1,5 +1,6 @@
 ## What is a crate anyway
 @ structure
+! crate::main
 Rust code comes in crates. A crate is one library or one program, compiled as a whole. This demo is a single crate called demo, and everything you see in this tour lives inside it.
 This is the structure view: the crate at the top, its modules below, and inside each module the functions, types and traits. It is the table of contents of the program.
 @ code:src/main.rs

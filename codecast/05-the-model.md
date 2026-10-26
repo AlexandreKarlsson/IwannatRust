@@ -1,5 +1,6 @@
 ## The model
 @ types:iwr-core::model
+! iwr-core::model::Project
 Everything the two passes produce lives in one module, model. This view shows its structs and enums and how they contain each other.
 ! iwr-core::model::Project
 Project is the root: files, modules, items, calls, type relations, and the entry point. It is plain data with serde derives, so it travels as JSON to the browser.
