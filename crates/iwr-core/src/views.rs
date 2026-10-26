@@ -1118,13 +1118,20 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
     if let Some(max_y) = g.nodes.iter().filter(|n| n.id != "c1").map(|n| n.y + n.h).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))) {
         if let Some(exit) = g.nodes.iter_mut().find(|n| n.id == "c1") {
             if exit.y < max_y + 30.0 {
+                let (old_y, h) = (exit.y, exit.h);
                 exit.y = max_y + 44.0;
                 let (ex, ey, eid) = (exit.x + exit.w / 2.0, exit.y, exit.id.clone());
                 g.height = g.height.max(exit.y + exit.h + 24.0);
                 for e in &mut g.edges {
                     if e.to == eid && !e.backward {
-                        if let Some(last) = e.points.last_mut() {
-                            *last = (ex, ey);
+                        // through the slot the exit leaves (nothing else is there), then down to it,
+                        // so the arrow never runs over the boxes of that row
+                        if let Some(&(x, y)) = e.points.last() {
+                            e.points.pop();
+                            if (y - old_y).abs() < 0.5 {
+                                e.points.extend([(x, old_y), (x, old_y + h)]);
+                            }
+                            e.points.push((ex, ey));
                         }
                     }
                 }

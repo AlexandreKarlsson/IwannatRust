@@ -40,8 +40,8 @@ pub struct LayoutEdge {
     pub to: String,
     /// Reverse this edge when computing ranks (e.g. `implements` edges so traits sit on top).
     pub reverse_rank: bool,
-    /// Counts for ranking only: no dummy nodes, no pull on the ordering, routed straight
-    /// (edges that are hidden most of the time, like architecture hub arrows).
+    /// Counts for ranking only: no dummy nodes, no pull on the ordering, routed through the free
+    /// gaps of the layers it skips (edges that are hidden most of the time, like architecture hub arrows).
     pub rank_only: bool,
     /// Size `(w, h)` of the edge's label, zero when it has none: the gap between the two layers
     /// it joins grows so the label fits on the arrow, clear of both boxes.
@@ -523,8 +523,45 @@ fn layered_component(nodes: &[LayoutNode], edges: &[LayoutEdge], opts: &LayoutOp
                 }
             }
         }
+        // a rank-only edge has no dummies: through every layer it skips, it takes the free gap
+        // nearest its straight line, so it never slides along a box on the way
+        let (r0, r1) = (vn[a].rank, vn[b].rank);
+        if ordered.len() == 2 && pts.len() == 2 && r0.abs_diff(r1) > 1 {
+            let main = |p: (f64, f64)| if opts.horizontal { p.0 } else { p.1 };
+            let side = |p: (f64, f64)| if opts.horizontal { p.1 } else { p.0 };
+            let (m0, m1, s0, s1) = (main(pts[0]), main(pts[1]), side(pts[0]), side(pts[1]));
+            let skipped: Vec<usize> = if r0 < r1 { (r0 + 1..r1).collect() } else { (r1 + 1..r0).rev().collect() };
+            let mut mid = Vec::new();
+            for li in skipped {
+                let (lo, hi) = (layer_main[li], layer_main[li] + layer_size[li]);
+                let t = ((lo + hi) / 2.0 - m0) / (m1 - m0);
+                let want = s0 + (s1 - s0) * t;
+                let mut boxes: Vec<(f64, f64)> = (0..n).filter(|&u| vn[u].rank == li).map(|u| {
+                    let r = vrects[u];
+                    if opts.horizontal { (r.y, r.bottom()) } else { (r.x, r.right()) }
+                }).collect();
+                boxes.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+                const AIR: f64 = 10.0;
+                let free = |c: f64| boxes.iter().all(|b| c < b.0 - AIR || c > b.1 + AIR);
+                let c = if free(want) {
+                    want
+                } else {
+                    let mut cands: Vec<f64> = boxes.windows(2).map(|w| (w[0].1 + w[1].0) / 2.0).collect();
+                    cands.extend(boxes.first().map(|b| b.0 - 2.0 * AIR));
+                    cands.extend(boxes.last().map(|b| b.1 + 2.0 * AIR));
+                    cands.into_iter().min_by(|x, y| (x - want).abs().partial_cmp(&(y - want).abs()).unwrap()).unwrap_or(want)
+                };
+                let (enter, leave) = if r0 < r1 { (lo, hi) } else { (hi, lo) };
+                if opts.horizontal {
+                    mid.extend([(enter, c), (leave, c)]);
+                } else {
+                    mid.extend([(c, enter), (c, leave)]);
+                }
+            }
+            pts.splice(1..1, mid);
+        }
         // a cycle-broken edge between adjacent layers still points "up": mark backward so the UI curves it
-        let backward = reversed.contains(&(a, b)) && ordered.len() == 2;
+        let backward = reversed.contains(&(a, b)) && pts.len() == 2;
         routes.push(EdgeRoute { from: e.from.clone(), to: e.to.clone(), points: pts, backward });
     }
     spread_ports(&mut routes, &vrects[..n], opts.horizontal);
@@ -711,6 +748,14 @@ impl Seg {
 /// Straight run an edge keeps before it meets its box, so the arrow head arrives square to the side.
 pub const STUB: f64 = 12.0;
 
+/// Control-point reach of a step between layers, `gap` deep and `shift` wide: half the gap, up
+/// to nearly all of it as the step gets wider, so a long sideways jump leaves and meets its layer
+/// steeply instead of skimming along the boxes there.
+fn steep(gap: f64, shift: f64) -> f64 {
+    let gap = gap.max(20.0);
+    gap * (0.5 + 0.4 * (shift / (4.0 * gap)).min(1.0))
+}
+
 /// How an edge route is drawn. Layered routes bend only between layers: every step is a cubic
 /// whose ends follow the layout axis (`sideways` = left to right), a straight line when aligned.
 /// `backward` routes (around the side) keep their corners; three points make one soft curve.
@@ -757,7 +802,7 @@ pub fn edge_segments(points: &[(f64, f64)], backward: bool, sideways: bool) -> V
             // the last step ends square to the box: a short straight run before the arrow head
             let stub = if last { STUB.min((b.0 - a.0).abs() / 3.0) } else { 0.0 };
             let e = (b.0 - dir * stub, b.1);
-            let d = (e.0 - a.0).abs().max(20.0) * 0.5;
+            let d = steep((e.0 - a.0).abs(), (e.1 - a.1).abs());
             segs.push(Seg::Cubic(a, (a.0 + dir * d, a.1), (e.0 - dir * d, e.1), e));
             if stub > 0.0 {
                 segs.push(Seg::Line(e, b));
@@ -770,7 +815,7 @@ pub fn edge_segments(points: &[(f64, f64)], backward: bool, sideways: bool) -> V
             let dir = if b.1 >= a.1 { 1.0 } else { -1.0 };
             let stub = if last { STUB.min((b.1 - a.1).abs() / 3.0) } else { 0.0 };
             let e = (b.0, b.1 - dir * stub);
-            let d = (e.1 - a.1).abs().max(20.0) * 0.5;
+            let d = steep((e.1 - a.1).abs(), (e.0 - a.0).abs());
             segs.push(Seg::Cubic(a, (a.0, a.1 + dir * d), (e.0, e.1 - dir * d), e));
             if stub > 0.0 {
                 segs.push(Seg::Line(e, b));
@@ -819,4 +864,20 @@ pub fn edge_samples(segs: &[Seg], step: f64) -> Vec<(f64, f64)> {
         out.extend((skip..=k).map(|i| s.at(i as f64 / k as f64)));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rank_only_edges_go_around_the_boxes_they_skip() {
+        let node = |id: &str| LayoutNode { id: id.into(), w: 120.0, h: 32.0 };
+        let edge = |a: &str, b: &str, rank_only: bool| LayoutEdge { from: a.into(), to: b.into(), rank_only, ..Default::default() };
+        let res = layered(&[node("a"), node("b"), node("c")], &[edge("a", "b", false), edge("b", "c", false), edge("a", "c", true)], &LayoutOptions::default());
+        let b = res.rects["b"];
+        let r = res.edges.iter().find(|e| e.from == "a" && e.to == "c").unwrap();
+        let samples = edge_samples(&edge_segments(&r.points, r.backward, false), 2.0);
+        assert!(samples.iter().all(|p| p.0 < b.x - 6.0 || p.0 > b.right() + 6.0 || p.1 < b.y - 6.0 || p.1 > b.bottom() + 6.0), "skims b {:?}: {:?}", b, r.points);
+    }
 }

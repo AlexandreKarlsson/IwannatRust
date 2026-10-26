@@ -863,8 +863,10 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
                     v
                 };
                 let (ua, ub) = (ancestors(&e.from), ancestors(&e.to));
-                // what the arrow must go around: boxes, the groups it is not inside, every group title
+                // what the arrow must go around: boxes, the groups it is not inside, every group's title
                 let mut blocks: Vec<Rect> = Vec::new();
+                // borders of the groups it is inside: crossed, never followed
+                let mut rims: Vec<Rect> = Vec::new();
                 for n in &nodes {
                     let Some(r) = rect(&n.id) else { continue };
                     if n.id == e.from || n.id == e.to {
@@ -873,10 +875,14 @@ pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
                     if !n.container || !(ua.contains(&n.id.as_str()) || ub.contains(&n.id.as_str())) {
                         blocks.push(Rect { x: r.x - GRID, y: r.y - GRID, w: r.w + 2.0 * GRID, h: r.h + 2.0 * GRID });
                     } else {
-                        blocks.push(Rect { x: r.x, y: r.y, w: r.w, h: TITLE - 4.0 });
+                        // only the title text: the rest of the strip stays open, so a box in the
+                        // group's first row can still be reached from above
+                        let tw = (display_width(&n.label) * FONT * 0.62 + 30.0).min(r.w);
+                        blocks.push(Rect { x: r.x, y: r.y, w: tw, h: TITLE - 4.0 });
+                        rims.push(r);
                     }
                 }
-                match route_around(ra, rb, &blocks, &mut busy) {
+                match route_around(ra, rb, &blocks, &rims, &mut busy) {
                     Some(pts) => {
                         backward = true;
                         pts
@@ -908,7 +914,7 @@ const GRID: f64 = 8.0;
 /// the cheapest path on a grid that goes around `blocks`, leaves `a` and enters `b` square to a
 /// side, turns as little as it can and keeps off the cells earlier arrows took (`busy`). Returns
 /// its corners (border of `a` … border of `b`), or `None` when it is walled in.
-fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)>) -> Option<Vec<(f64, f64)>> {
+fn route_around(a: Rect, b: Rect, blocks: &[Rect], rims: &[Rect], busy: &mut HashSet<(i32, i32)>) -> Option<Vec<(f64, f64)>> {
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
     const DIRS: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
@@ -921,7 +927,18 @@ fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)
     let inside = |r: &Rect, p: (f64, f64)| p.0 > r.x && p.0 < r.right() && p.1 > r.y && p.1 < r.bottom();
     let free = |c: (i32, i32)| {
         let p = at(c);
-        c.0 >= 0 && c.1 >= 0 && c.0 < nx && c.1 < ny && !inside(&a, p) && !inside(&b, p) && !blocks.iter().any(|r| inside(r, p))
+        // the arrow's own boxes keep a cell of air too, like every other box
+        let pad = |r: &Rect| Rect { x: r.x - GRID, y: r.y - GRID, w: r.w + 2.0 * GRID, h: r.h + 2.0 * GRID };
+        c.0 >= 0 && c.1 >= 0 && c.0 < nx && c.1 < ny && !inside(&pad(&a), p) && !inside(&pad(&b), p) && !blocks.iter().any(|r| inside(r, p))
+    };
+    // closer than a cell to a group border: allowed (the arrow has to cross it) but dear
+    let on_rim = |c: (i32, i32)| {
+        let p = at(c);
+        rims.iter().any(|r| {
+            let near_x = p.0 > r.x - GRID && p.0 < r.right() + GRID;
+            let near_y = p.1 > r.y - GRID && p.1 < r.bottom() + GRID;
+            (near_x && ((p.1 - r.y).abs() < GRID || (p.1 - r.bottom()).abs() < GRID)) || (near_y && ((p.0 - r.x).abs() < GRID || (p.0 - r.right()).abs() < GRID))
+        })
     };
     // port cells: just outside a side of the box, away from its corners, with the direction
     // pointing away from the box
@@ -951,6 +968,7 @@ fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)
     }
     const TURN: u32 = 6;
     const BUSY: u32 = 3;
+    const RIM: u32 = 4;
     let mut dist: HashMap<((i32, i32), usize), u32> = HashMap::new();
     let mut prev: HashMap<((i32, i32), usize), ((i32, i32), usize)> = HashMap::new();
     let mut heap = BinaryHeap::new();
@@ -976,7 +994,7 @@ fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)
             if !free(n) {
                 continue;
             }
-            let step = 1 + if nd != d { TURN } else { 0 } + if busy.contains(&n) { BUSY } else { 0 };
+            let step = 1 + if nd != d { TURN } else { 0 } + if busy.contains(&n) { BUSY } else { 0 } + if on_rim(n) { RIM } else { 0 };
             let nc = cost + step;
             if dist.get(&(n, nd)).is_none_or(|&x| nc < x) {
                 dist.insert((n, nd), nc);
@@ -1122,6 +1140,18 @@ mod tests {
         assert!((t.1 - c.y).abs() < 0.5 || (t.0 - c.x).abs() < 0.5 || (t.0 - (c.x + c.w)).abs() < 0.5 || (t.1 - (c.y + c.h)).abs() < 0.5, "ends on c1");
     }
 
+    #[test]
+    fn arrows_reach_a_group_first_row_from_above() {
+        // the group's title strip only blocks the title: bin is entered straight from above, not
+        // by circling the group to come in from its side
+        let d = parse("flowchart TB\n  subgraph laptop[\"laptop\"]\n    b1[\"build the daemon in release mode\"]\n    b2[\"build the command line tool in release mode for the static musl target\"]\n    v[\"vault: tokens\"]\n  end\n  subgraph box[\"server\"]\n    bin[\"/opt/app/bin/{daemon,tool} binaries here\"]\n    cfg[\"/etc/app/app.toml 0640 root:app owner\"]\n    sec[\"/var/lib/app/secrets.toml 0600 app\"]\n    unit[\"app.service, user app\"]\n    nft[\"nft table app_egress\"]\n    run[\"/run/app/user.sock 0660 app:app-cli\"]\n    sbx[\"sandbox: -v app, -v socket\"]\n  end\n  b1 & b2 --> bin\n  v --> sec\n  bin & cfg & sec --> unit --> run --> sbx\n  nft -.-> unit\n");
+        let g = graph(&d, &[]);
+        let e = g.edges.iter().find(|e| e.from == "b2").unwrap();
+        let len: f64 = e.points.windows(2).map(|w| (w[1].0 - w[0].0).abs() + (w[1].1 - w[0].1).abs()).sum();
+        let (s, t) = (e.points[0], *e.points.last().unwrap());
+        assert!(len < ((s.0 - t.0).abs() + (s.1 - t.1).abs()) * 1.5 + 40.0, "detour: {:?}", e.points);
+    }
+
     fn inside(g: &Graph, n: &str, grp: &str) -> bool {
         let (n, c) = (g.node(n).unwrap(), g.node(grp).unwrap());
         n.x >= c.x && n.y >= c.y && n.x + n.w <= c.x + c.w && n.y + n.h <= c.y + c.h
@@ -1181,3 +1211,4 @@ mod tests {
         }
     }
 }
+
