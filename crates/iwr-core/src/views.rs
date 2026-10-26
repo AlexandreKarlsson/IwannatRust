@@ -394,7 +394,8 @@ impl ViewOptions {
     }
 }
 
-const FONT: f64 = 13.0;
+/// Font size of every text in a box (title, caption, details); the UI's CSS uses the same.
+pub const FONT: f64 = 13.0;
 
 /// Box size for the label only: details (signature, fields, badges) are shown by the UI on demand.
 /// A module used by this many others (in a view of at least `HUB_MIN_MODULES`) is a hub.
@@ -421,14 +422,14 @@ fn initials(name: &str, taken: &[String]) -> String {
 /// Label a node by `title` (a comment), with what it is (`caption`) in small underneath.
 fn titled(v: &mut VNode, title: String, caption: String) {
     let (w, h) = node_size(&title, &v.sublabel);
-    v.w = w.max(layout::text_width(&caption, CAPTION_FONT) + 28.0).min(320.0);
-    v.h = h + 14.0;
+    v.w = w.max(layout::text_width(&caption, FONT) + 28.0);
+    v.h = h + CAPTION_H;
     v.label = title;
     v.caption = caption;
 }
 
-/// Font size of [`VNode::caption`].
-pub const CAPTION_FONT: f64 = 10.5;
+/// Height a [`VNode::caption`] line adds under the title.
+pub const CAPTION_H: f64 = 16.0;
 
 /// Longest comment used as a label (same rule as `//` notes in the control flow).
 pub const NOTE_MAX: usize = 60;
@@ -445,7 +446,7 @@ pub fn short_doc_line(doc: Option<&str>) -> Option<String> {
 fn node_size(label: &str, _sublabel: &str) -> (f64, f64) {
     let w = layout::text_width(label, FONT) + 28.0;
     let lines = label.lines().count().max(1);
-    (w.clamp(60.0, 300.0), 16.0 + 16.0 * lines as f64)
+    (w.max(60.0), 16.0 + 16.0 * lines as f64)
 }
 
 fn kind_of_item(it: &Item) -> NodeKind {
@@ -900,8 +901,8 @@ fn cfg_vnode(p: &Project, fn_item: ItemId, n: &CfgNode, id: String, depth: usize
     };
     let sublabel = sublabel.lines().map(|l| crate::shorten(l, 44)).collect::<Vec<_>>().join("\n");
     let (w, h) = if n.kind == CfgNodeKind::Entry {
-        // the function name, in big: the title of the graph
-        ((layout::text_width(&label, ENTRY_FONT) + 44.0).max(120.0), 46.0)
+        // the function name, in bold: the title of the graph
+        ((layout::text_width(&label, FONT) + 44.0).max(120.0), 40.0)
     } else {
         node_size(&label, &sublabel)
     };
@@ -927,9 +928,6 @@ fn cfg_vnode(p: &Project, fn_item: ItemId, n: &CfgNode, id: String, depth: usize
         chips: vec![],
     }
 }
-
-/// Font size of the function name on the entry node of the control-flow view.
-pub const ENTRY_FONT: f64 = 22.0;
 
 /// The outermost collapsed loop that contains `n` (or `n` itself when it is visible).
 fn cfg_visible(cfg: &Cfg, collapsed: &HashSet<usize>, n: usize) -> usize {
@@ -1318,7 +1316,7 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
             None => (name, String::new()),
         };
         let (w, h) = node_size(&label, &sublabel);
-        let (w, h) = if caption.is_empty() { (w, h) } else { (w.max(layout::text_width(&caption, CAPTION_FONT) + 28.0).min(320.0), h + 14.0) };
+        let (w, h) = if caption.is_empty() { (w, h) } else { (w.max(layout::text_width(&caption, FONT) + 28.0), h + CAPTION_H) };
         let expandable = !items.is_empty();
         let expanded = expandable && (opts.expanded.contains(&nid));
         let mut node = VNode {

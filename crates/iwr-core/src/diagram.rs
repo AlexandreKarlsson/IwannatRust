@@ -572,7 +572,7 @@ fn node_size(n: &DNode) -> (f64, f64) {
         Shape::Pill => w += 12.0,
         _ => {}
     }
-    (w.clamp(56.0, 360.0), h)
+    (w.max(56.0), h)
 }
 
 fn kind_of(n: &DNode) -> NodeKind {

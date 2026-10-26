@@ -314,9 +314,9 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     } else {
         vec![]
     };
-    let detail_w = detail_lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * 6.6 + 16.0;
+    let detail_w = detail_lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * 7.8 + 16.0;
     let detail_w = detail_w.max(node.w);
-    let detail_h = 6.0 + 14.0 * detail_lines.len() as f64;
+    let detail_h = 6.0 + 16.0 * detail_lines.len() as f64;
     let fill_op = if container { 0.10 } else if node.kind == NodeKind::Block { 0.18 } else { 0.28 };
     let rx = match node.kind {
         NodeKind::Entry | NodeKind::Exit | NodeKind::Pill => node.h / 2.0,
@@ -330,10 +330,10 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     // diagram nodes: text centred, diamonds drawn as diamonds
     // control-flow entry: the function name as the graph's title
     let fn_title = node.kind == NodeKind::Entry && node.cfg_node.is_some();
-    let title_y = if fn_title { node.h / 2.0 + 7.5 } else { title_y };
+    let title_y = if fn_title { node.h / 2.0 + 4.5 } else { title_y };
     // a caption (module file under its doc label) takes the bottom line of the box
     let has_caption = !node.caption.is_empty() && !container;
-    let title_y = if has_caption && !multi { (node.h - 14.0) / 2.0 + 4.5 } else { title_y };
+    let title_y = if has_caption && !multi { (node.h - iwr_core::views::CAPTION_H) / 2.0 + 4.5 } else { title_y };
     let folded = node.kind == NodeKind::Loop && node.expandable && !node.expanded;
     let centered = (mode == Mode::Diagram && !container) || fn_title;
     let tx = if centered { node.w / 2.0 } else { 12.0 };
@@ -435,7 +435,7 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
                 }
             }
             if has_caption {
-                text { x: "{tx:.1}", y: "{node.h - 8.0:.1}", "text-anchor": "{anchor}", class: "cap", "{node.caption}" }
+                text { x: "{tx:.1}", y: "{node.h - 9.0:.1}", "text-anchor": "{anchor}", class: "cap", "{node.caption}" }
             }
             // hub chips: the hub's own on its top-right border, the hubs it uses along the bottom right
             for (i, c) in node.chips.iter().filter(|c| c.node != node.id).enumerate() {
@@ -447,9 +447,9 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
             if !detail_lines.is_empty() {
                 g { class: "detail",
                     rect { x: "0", y: "{node.h + 3.0:.1}", width: "{detail_w:.1}", height: "{detail_h:.1}", rx: "5", fill: "var(--panel)", stroke: "{color}", "stroke-width": "1", "fill-opacity": "0.96" }
-                    text { x: "8", y: "{node.h + 16.0:.1}", class: "sub",
+                    text { x: "8", y: "{node.h + 17.0:.1}", class: "sub",
                         for (i, l) in detail_lines.iter().enumerate() {
-                            tspan { x: "8", dy: if i == 0 { "0" } else { "14" }, "{l}" }
+                            tspan { x: "8", dy: if i == 0 { "0" } else { "16" }, "{l}" }
                         }
                     }
                 }

@@ -673,9 +673,9 @@ pub fn tree(root: &TreeNode, opts: &LayoutOptions) -> LayoutResult {
     out
 }
 
-/// Width for a text label in a node box (approximate monospace-ish metrics).
+/// Width for a text label in a node box (approximate metrics, a little wide so sans-serif bold fits).
 pub fn text_width(s: &str, font_px: f64) -> f64 {
-    s.lines().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * font_px * 0.6
+    s.lines().map(|l| l.chars().count()).max().unwrap_or(0) as f64 * font_px * 0.62
 }
 
 /// One piece of a drawn edge.

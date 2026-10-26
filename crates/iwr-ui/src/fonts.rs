@@ -49,9 +49,16 @@ pub fn family(id: &str) -> String {
     format!("iwr-f-{id}")
 }
 
-/// `@font-face` for every bundled font; the browser only downloads the ones in use.
+/// `@font-face` for every bundled font; the browser only downloads the ones in use. Wide fonts
+/// carry their `size-adjust` (`Font::size`).
 pub fn faces() -> String {
-    FILES.iter().filter_map(|(id, _)| Some(format!("@font-face {{ font-family:\"{}\"; src:url(\"{}\") format(\"woff2\"); font-display:swap; }}\n", family(id), url(id)?))).collect()
+    FILES
+        .iter()
+        .filter_map(|(id, _)| {
+            let size = iwr_core::config::font(id).map_or(100, |f| f.size);
+            Some(format!("@font-face {{ font-family:\"{}\"; src:url(\"{}\") format(\"woff2\"); font-display:swap; size-adjust:{size}%; }}\n", family(id), url(id)?))
+        })
+        .collect()
 }
 
 /// The CSS family (and its `@font-face` if it is a file) for a `[fonts]` value: a bundled font's

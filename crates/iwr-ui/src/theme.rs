@@ -348,7 +348,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .ftree .frow.other { color:var(--muted); }
 .ftree .fic { font-size:11px; width:28px; flex:none; }
 .ftree .fcount { margin-left:auto; color:var(--muted); font-size:10px; }
-.node .detail text { font-size:11px; }
+.node .detail text { font-size:13px; }
 .sidebar .mod { margin:6px 0 2px; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; cursor:pointer; border-radius:4px; padding:1px 4px; }
 .sidebar .mod:hover { background:var(--panel3); color:var(--text); }
 .sidebar .mod.scoped { background:var(--hl-bg); color:var(--hi); }
@@ -429,11 +429,11 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .node.hi .body { stroke:var(--hi) !important; stroke-width:3.5; filter: drop-shadow(0 0 8px rgba(251,191,36,.8)); }
 .node.dim { opacity:.35; }
 .node text { fill:var(--text); font-size:13px; pointer-events:none; }
-.node text.sub { fill:var(--muted); font-size:11px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.node text.sub { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .node text.cont { font-weight:700; }
-.node text.cap { fill:var(--muted); font-size:10.5px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.node text.cap { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .node.hi text.cap, .node.sel text.cap, .node:hover text.cap { fill:var(--text); }
-.node text.fn-title { font-size:22px; font-weight:800; letter-spacing:.2px; }
+.node text.fn-title { font-weight:700; }
 .node .expander circle { fill:var(--bg); stroke:var(--muted); stroke-width:1.2; }
 .node .expander:hover circle { stroke:var(--text); fill:var(--panel3); }
 .node .expander text { fill:var(--text); font-size:13px; font-weight:700; }
