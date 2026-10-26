@@ -86,27 +86,24 @@ fn added(text: &str, names: &HashSet<String>) -> Vec<String> {
     p.split('`').skip(1).step_by(2).filter(|w| !before.contains(w)).map(str::to_string).collect()
 }
 
-/// Play the recordings made in `lang` (`audio.ja:` lines): each part that has one gets it as its
-/// recording, with its cue times; the others (and the whole-script recording, in English) none, so
-/// TTS speaks them.
+/// Play the recordings `voice` made in `lang` (`audio.ja:`, `audio.en.am_adam:` lines): each part
+/// it recorded gets that recording, with its cue times; the others none, so TTS speaks them, never
+/// another voice. `""` (no voice named) keeps the parts' own English recordings and the
+/// whole-script one.
 pub fn use_voices(s: &mut Script, lang: &str, voice: &str) {
-    if lang != "en" {
+    let own = lang == "en" && voice.is_empty();
+    if !own {
         s.audio = None;
     }
     for part in &mut s.parts {
-        let mine = part.voices.iter().filter(|v| v.lang == lang && !v.audio.is_empty());
-        let v = mine.clone().find(|v| v.voice == voice).or_else(|| {
-            // that voice did not record this part: the part's own English recording, else another voice
-            if lang == "en" && part.audio.is_some() { None } else { mine.clone().next() }
-        });
-        match v {
+        match part.voices.iter().find(|v| v.lang == lang && v.voice == voice && !v.audio.is_empty()) {
             Some(v) => {
                 part.audio = Some(v.audio.clone());
                 for (i, c) in part.cues.iter_mut().enumerate() {
                     c.t = v.times.get(i).copied();
                 }
             }
-            None if lang == "en" => {}
+            None if own => {}
             None => {
                 part.audio = None;
                 for c in &mut part.cues {
@@ -129,6 +126,13 @@ pub fn recorded_voices(s: &Script, lang: &str) -> Vec<(String, usize)> {
     }
     out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     out
+}
+
+/// The parts (indexes) `voice` has no up-to-date recording of in `lang`: TTS speaks them. A
+/// recording whose text changed since is dropped by the loader, so it counts as missing too.
+pub fn missing_parts(s: &Script, lang: &str, voice: &str) -> Vec<usize> {
+    let has = |p: &crate::script::Part| p.voices.iter().any(|v| v.lang == lang && v.voice == voice && !v.audio.is_empty()) || (lang == "en" && voice.is_empty() && p.audio.is_some());
+    s.parts.iter().enumerate().filter(|(_, p)| !has(p)).map(|(i, _)| i).collect()
 }
 
 /// Every translatable text of a script and a glossary, through `f` (markdown cut into pieces).
@@ -313,8 +317,11 @@ mod tests {
         use_voices(&mut adam, "en", "am_adam");
         assert_eq!(adam.parts[0].audio.as_deref(), Some("01-a.am_adam.ogg"));
         assert_eq!(adam.parts[0].cues[1].t, Some(3.0));
-        // Adam did not record part B: another voice plays it
-        assert_eq!(adam.parts[1].audio.as_deref(), Some("02-b.af_heart.ogg"));
+        // Adam did not record part B: TTS speaks it, not another voice
+        assert_eq!(adam.parts[1].audio, None);
+        assert_eq!(adam.parts[1].cues[0].t, None);
+        assert_eq!(missing_parts(&s, "en", "am_adam"), [1]);
+        assert_eq!(missing_parts(&s, "en", "af_heart"), Vec::<usize>::new());
         // no voice asked: the part's own recording
         let mut own = s.clone();
         use_voices(&mut own, "en", "");

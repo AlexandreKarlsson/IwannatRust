@@ -534,8 +534,9 @@ cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS,
 and writes `NN-part.<voice>.ogg` + `NN-part.<voice>.times` (`01-welcome.am_adam.ogg`) next to each
 part file. **Every voice keeps its own files**: record the codecast with two voices and the player
 offers both (the *recorded voice* chip under its mode menu lists them with how many parts each
-covers; the pick is remembered; a part the picked voice did not record plays another voice's
-recording). The loader turns them into `audio.en.am_adam:` / `times.en.am_adam:` lines. Older
+covers; the pick is remembered). A part the picked voice did not record, or whose text changed
+since, is spoken by the browser voice, never by another recorded voice: the chip then shows
+`⚠ 7/9` and the list names the missing parts. The loader turns them into `audio.en.am_adam:` / `times.en.am_adam:` lines. Older
 recordings named `NN-part.ogg` (one per language) are renamed to their voice's name the next time
 `iwr voice` runs. Commit both: Opus at ~18 kbps
 (`--level 0.95`) is ~2.5 MB for 18 minutes, the browser plays it as is, and viewers need no model.

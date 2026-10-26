@@ -113,6 +113,45 @@ pub fn module_path_for_file(rel_path: &str) -> String {
     }
 }
 
+/// `[package] name` of every `Cargo.toml` below the root, keyed by its directory, so a crate
+/// whose folder is not its name (`files/config-handler` holding `z-config-handler`) gets its name.
+fn package_names(files: &[(String, String)]) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for (path, content) in files {
+        let Some(dir) = path.strip_suffix("Cargo.toml").and_then(|d| d.strip_suffix('/')) else { continue };
+        let mut in_package = false;
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_package = line == "[package]";
+            } else if in_package {
+                if let Some(v) = line.strip_prefix("name").map(str::trim_start).and_then(|r| r.strip_prefix('=')) {
+                    let v = v.trim().trim_matches('"');
+                    if !v.is_empty() {
+                        names.insert(dir.to_string(), v.to_string());
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Rename the first segment of a multi-crate module path after the crate's package name.
+fn crate_named(mpath: String, rel_path: &str, names: &HashMap<String, String>) -> String {
+    let parts: Vec<&str> = rel_path.split('/').collect();
+    let Some(i) = parts.iter().rposition(|p| *p == "src") else { return mpath };
+    if i == 0 {
+        return mpath;
+    }
+    let Some(name) = names.get(&parts[..i].join("/")) else { return mpath };
+    match mpath.split_once("::") {
+        Some((_, rest)) => format!("{name}::{rest}"),
+        None => name.clone(),
+    }
+}
+
 fn vis_of(v: &syn::Visibility) -> Visibility {
     match v {
         syn::Visibility::Public(_) => Visibility::Public,
@@ -132,6 +171,7 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
     let mut project = Project { name: name.to_string(), root: root.to_string(), ..Default::default() };
     let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], module_index: HashMap::new() };
     ctx.module_for("crate");
+    let names = package_names(&files);
 
     for (path, content) in files {
         let file_id = ctx.project.files.len();
@@ -149,7 +189,7 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
                 continue;
             }
         };
-        let mpath = module_path_for_file(&path);
+        let mpath = crate_named(module_path_for_file(&path), &path, &names);
         let mid = ctx.module_for(&mpath);
         if !path.split('/').any(|c| c == "src") && path.split('/').any(|c| c == "tests") {
             ctx.project.modules[mid].is_test = true;

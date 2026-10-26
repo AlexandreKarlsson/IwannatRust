@@ -864,6 +864,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .vchip .vlabel small { font-size:9.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
 .vchip .vlabel b { font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vchip .caret { color:var(--muted); font-size:10px; }
+.vchip .vwarn { flex:none; font-size:10.5px; font-weight:700; font-variant-numeric:tabular-nums; padding:1px 6px; border-radius:999px; color:#d97706; background:color-mix(in srgb, #f59e0b 14%, transparent); border:1px solid color-mix(in srgb, #f59e0b 45%, transparent); }
 .vpop-shade { position:fixed; inset:0; z-index:59; }
 .vpop { position:absolute; left:0; bottom:calc(100% + 8px); width:290px; z-index:60; padding:8px; border-radius:14px; background:color-mix(in srgb, var(--panel) 96%, transparent); border:1px solid var(--border); backdrop-filter:blur(14px); box-shadow:0 20px 44px -12px rgba(0,0,0,.55); animation:vpop-in .16s ease-out both; transform-origin:bottom left; }
 @keyframes vpop-in { from { opacity:0; transform:translateY(6px) scale(.97); } to { opacity:1; transform:none; } }
@@ -878,6 +879,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .vopt .vtext > span:not(.vcover) { font-size:11px; color:var(--muted); }
 .vopt .vcover { display:block; height:3px; border-radius:999px; background:var(--panel3); overflow:hidden; margin-top:2px; }
 .vopt .vcover i { display:block; height:100%; background:#22c55e; border-radius:999px; }
+.vopt.partial .vcover i { background:#f59e0b; }
+.vopt .vtext > span.vmiss { color:#d97706; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vopt .vcount { display:flex; flex-direction:column; align-items:flex-end; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.1; }
 .vopt .vcount small { font-size:9.5px; font-weight:400; color:var(--muted); }
 .vopt .vcheck { width:14px; color:var(--accent); font-weight:800; }

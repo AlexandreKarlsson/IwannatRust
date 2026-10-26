@@ -119,6 +119,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Codecast refs: `file:line[:c1-c2]` works on any file of the repository (Terraform, YAML…),
+  not only `.rs` files.
+- Module paths: a crate is named after its `[package] name` when its folder differs.
+- Recorded voice: a part the picked voice has no up-to-date recording of is spoken by the browser
+  voice instead of another recorded voice; the voice chip warns (`⚠ 7/9`) and the voice list names
+  the missing parts.
 - Control flow: a group of `let`s reads *define a, b, c +2*, a group of assignments *update x, y*;
   the code moves to the hover details, so a group can hold up to 8 statements. The guide's step
   title follows.

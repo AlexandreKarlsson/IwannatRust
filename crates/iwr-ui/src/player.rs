@@ -1121,14 +1121,26 @@ fn VoicePicker() -> Element {
     let n = s.parts.len();
     let label = |id: &str| if id.is_empty() { "Original".to_string() } else { iwr_core::voice::voice_label(id).0 };
     let cur_name = label(&cur);
+    // parts the voice has no up-to-date recording of: browser TTS speaks them
+    let missing = |id: &str| -> Vec<String> { iwr_core::i18n::missing_parts(&s, &lang, id).into_iter().map(|i| s.parts[i].name.clone()).collect() };
+    let names = |m: &[String]| if m.len() > 3 { format!("{}, +{} more", m[..3].join(", "), m.len() - 3) } else { m.join(", ") };
+    let cur_missing = missing(&cur);
+    let chip_tip = if cur_missing.is_empty() {
+        format!("Pick the recorded voice ({} recorded)", voices.len())
+    } else {
+        format!("{cur_name} is missing {} of {n} part(s) (not recorded, or the text changed since): the browser voice speaks {}. Pick the recorded voice ({} recorded)", cur_missing.len(), names(&cur_missing), voices.len())
+    };
     rsx! {
         div { class: "vpick",
-            button { class: if audio_on { "vchip on" } else { "vchip" }, title: "Pick the recorded voice ({voices.len()} recorded)",
+            button { class: if audio_on { "vchip on" } else { "vchip" }, title: "{chip_tip}",
                 onclick: move |_| { let v = *open.read(); open.set(!v); },
                 Avatar { id: cur.clone() }
                 span { class: "vlabel",
                     small { if audio_on { "recorded voice" } else { "recording off" } }
                     b { "{cur_name}" }
+                }
+                if audio_on && !cur_missing.is_empty() {
+                    span { class: "vwarn", "⚠ {n - cur_missing.len()}/{n}" }
                 }
                 span { class: "caret", if *open.read() { "▴" } else { "▾" } }
             }
@@ -1143,13 +1155,19 @@ fn VoicePicker() -> Element {
                           let about = if id.is_empty() { "the codecast's own recording".to_string() } else { format!("{} {}", if female { "♀" } else { "♂" }, crate::generate::accent(&id)) };
                           let featured = iwr_core::voice::FEATURED.contains(&id.as_str());
                           let pct = count * 100 / n.max(1);
+                          let gaps = missing(&id);
+                          let gap_text = names(&gaps);
                           rsx! {
-                            button { class: if sel { "vopt sel" } else { "vopt" },
+                            button { class: match (sel, gaps.is_empty()) { (true, true) => "vopt sel", (true, false) => "vopt sel partial", (false, true) => "vopt", (false, false) => "vopt partial" },
+                                title: if gaps.is_empty() { String::new() } else { format!("Missing or out of date: {} — the browser voice speaks them", gaps.join(", ")) },
                                 onclick: move |_| { state.set_rec_voice(&id); open.set(false); },
                                 Avatar { id: id.clone(), size: 34 }
                                 span { class: "vtext",
                                     b { "{name}" if featured { span { class: "star", "★" } } }
                                     span { "{about}" }
+                                    if !gaps.is_empty() {
+                                        span { class: "vmiss", "⚠ TTS for {gap_text}" }
+                                    }
                                     span { class: "vcover", i { style: "width:{pct}%" } }
                                 }
                                 span { class: "vcount", "{count}/{n}" small { "parts" } }

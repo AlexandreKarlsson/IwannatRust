@@ -191,6 +191,22 @@ fn module_paths() {
 }
 
 #[test]
+fn crate_named_after_its_package() {
+    let files = vec![
+        ("pkgs/config-handler/Cargo.toml".to_string(), "[package]\nname = \"z-config-handler\"\n\n[dependencies]\nname = \"x\"\n".to_string()),
+        ("pkgs/config-handler/src/main.rs".to_string(), "mod poll;\nfn main() { poll::run(); }\n".to_string()),
+        ("pkgs/config-handler/src/poll.rs".to_string(), "pub fn run() {}\n".to_string()),
+        ("pkgs/plain/src/lib.rs".to_string(), "pub fn f() {}\n".to_string()),
+    ];
+    let p = iwr_core::analyze_sources("ws", "", files);
+    let paths: Vec<&str> = p.modules.iter().map(|m| m.path.as_str()).collect();
+    assert!(paths.contains(&"z-config-handler"), "{paths:?}");
+    assert!(paths.contains(&"z-config-handler::poll"), "{paths:?}");
+    assert!(paths.contains(&"plain"), "{paths:?}");
+    assert!(!paths.contains(&"config-handler"), "{paths:?}");
+}
+
+#[test]
 fn block_tree() {
     use iwr_core::model::BlockKind;
     let p = project();
@@ -240,6 +256,15 @@ fn script_roundtrip_and_refs() {
     let r = script::resolve(&p, "src/main.rs:3:5-9").unwrap();
     assert_eq!((r.span.line_start, r.span.col_start, r.span.col_end), (3, 5, 9));
     assert!(script::resolve(&p, "crate::nope").is_none());
+    // line refs into a non-Rust file
+    let tf = iwr_core::analyze_sources("ws", "", vec![
+        ("src/main.rs".to_string(), "fn main() {}\n".to_string()),
+        ("infra/main.tf".to_string(), "locals {\n  name = \"x\"\n}\n".to_string()),
+    ]);
+    let r = script::resolve(&tf, "infra/main.tf:2:3-6").unwrap();
+    assert_eq!((r.span.line_start, r.span.col_start, r.span.col_end), (2, 3, 6));
+    assert!(script::resolve(&tf, "infra/main.tf:1-3").is_some());
+    assert!(script::resolve(&tf, "infra/nope.tf:1-3").is_none());
     assert!(script::resolve(&p, "crate::main/b999").is_none());
     let bad = script::check(&p, &script::parse("@ nowhere:crate::main\n! crate::nope\nx"));
     assert_eq!(bad.len(), 2);
