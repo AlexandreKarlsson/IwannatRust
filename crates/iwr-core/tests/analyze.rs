@@ -269,6 +269,10 @@ fn script_roundtrip_and_refs() {
     assert!(script::resolve(&tf, "infra/main.tf:1-3").is_some());
     assert!(script::resolve(&tf, "infra/nope.tf:1-3").is_none());
     assert!(script::resolve(&p, "crate::main/b999").is_none());
+    // the first cue of a part sets the stage
+    let notes = script::stage_notes(&script::parse("# T\n## Bare\nx\n## View only\n@ arch\nx\n## Lit\n@ arch\n! main\nx\n## Big\n@ arch\n+ view\nx\n"));
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[0].starts_with("Bare:") && notes[1].starts_with("View only:"));
     let bad = script::check(&p, &script::parse("@ nowhere:crate::main\n! crate::nope\nx"));
     assert_eq!(bad.len(), 2);
     // built-in guide becomes a valid script

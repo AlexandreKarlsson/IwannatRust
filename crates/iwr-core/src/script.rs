@@ -1401,6 +1401,25 @@ pub fn speakable(say: &str) -> String {
     crate::speech::spoken(say, &crate::speech::builtin_pronounce())
 }
 
+/// Parts whose first cue does not set the stage: no `@` view, or nothing lit, enlarged or shown
+/// beside it (`!`, `=`, `+`, `|`, a tour). The audio starts and the screen stays as the viewer left
+/// it, which feels broken. For `iwr check`.
+pub fn stage_notes(s: &Script) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in &s.parts {
+        let Some(c) = p.cues.first() else { continue };
+        if c.tour.is_some() {
+            continue;
+        }
+        if c.show.is_none() {
+            out.push(format!("{}: the first cue sets no view; start with an `@` line (`@ arch` is a good opening)", p.name));
+        } else if c.hl.as_ref().is_none_or(|h| h.is_empty()) && c.code.is_none() && c.focus.is_none() && c.side.as_deref().is_none_or(str::is_empty) {
+            out.push(format!("{}: the first cue only picks a view; light something (`!`, `+ view`, `+ zoom`, `|`) so the screen moves when the audio starts", p.name));
+        }
+    }
+    out
+}
+
 /// Words in spoken text that a voice stumbles on and that belong in a `^` popup instead: hyphenated
 /// words (`gw-config-server`, `Wi-Fi`), paths (`/srv/gw`, `src/main.rs`) and HTTP requests
 /// (`GET /config`). For `iwr check`. Code blocks are skipped.

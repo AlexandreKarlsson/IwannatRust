@@ -227,6 +227,9 @@ fn main() -> Result<()> {
             for stem in &loaded.stale {
                 println!("  note: {}: text changed since its recording, TTS speaks it until `iwr voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
             }
+            for n in iwr_core::script::stage_notes(&s) {
+                println!("  note: {n}");
+            }
             let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
             for p in &s.parts {
                 for (i, c) in p.cues.iter().enumerate() {

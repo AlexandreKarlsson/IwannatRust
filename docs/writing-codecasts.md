@@ -153,36 +153,44 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
 2. **Parts are subjects**, with titles a listener would pick from a menu (*How a request flows*,
    *Where errors go*, *The scheduler*), 4–12 of them. First the big picture, then deeper; for a
    listener new to Rust, one part on the language mechanism the code shows best (ownership, traits).
-3. **One view per part.** Ten cues on one function, moving only the glow, beat jumping between views.
+3. **Set the stage on the first cue.** The audio starts with it, so the screen must move with it:
+   give the part's first cue its `@` view *and* something to look at, a `!` glow, a `+ view` /
+   `+ zoom` layout or a `|` side panel. A first cue that only names the view the viewer is already
+   on (the app opens on the architecture) changes nothing, and a voice talking over a still screen
+   feels broken. Set everything the part needs from that first cue: panels left from the viewer's
+   own clicking are not your layout. The Welcome part opens best on `@ arch` with the crates lit
+   (`! crate_a crate_b`) and the view enlarged (`+ view`): the whole map, before any detail.
+   `iwr check` notes every part whose first cue does not set the stage.
+4. **One view per part.** Ten cues on one function, moving only the glow, beat jumping between views.
    Change `@` only when the subject really moves, two or three times per part at most.
-4. **Link the parts.** End each with a hand-over ("Next, let's see what executing a task means."),
+5. **Link the parts.** End each with a hand-over ("Next, let's see what executing a task means."),
    begin the next by picking it up. The listener should never wonder why the view changed.
-5. **One idea per cue**, one or two sentences, ≤ 30 words each (the listener sees the caption).
+6. **One idea per cue**, one or two sentences, ≤ 30 words each (the listener sees the caption).
    Connect cues naturally: *First, … Then … Notice … Otherwise … Finally …*
-6. **Point at code**: `=` on the exact token you are talking about (the `?`, the `.await`, a
+7. **Point at code**: `=` on the exact token you are talking about (the `?`, the `.await`, a
    condition). At least one per part that walks through code.
-7. **Say what it does and why**, not what it is called: "The scheduler picks the heaviest task
+8. **Say what it does and why**, not what it is called: "The scheduler picks the heaviest task
    each round" beats "`next_task` returns an `Option<Task>`".
-8. **Name the Rust mechanism** the reader may not know (`?` propagation, trait dispatch, ownership
+9. **Name the Rust mechanism** the reader may not know (`?` propagation, trait dispatch, ownership
    moves, recursion base case), one sentence, in place. Use the real words (crate, impl, trait,
    closure…): the player's glossary then offers a "What is a …?" question by itself.
-9. **Add your own `?`** when the answer is specific to this project ("Why does deploy never run?"),
+10. **Add your own `?`** when the answer is specific to this project ("Why does deploy never run?"),
    one or two per part, with an answer of two to four sentences readable aloud. Recurring project
    vocabulary goes in `codecast/glossary.md`, not repeated in cues.
-10. **Every ref must exist**: ids from the brief, never invented line numbers. Prefer block refs
+11. **Every ref must exist**: ids from the brief, never invented line numbers. Prefer block refs
     (`fn/bN`) over line refs; they survive edits.
-11. **Write code as code**: `parse_all`, `Task::weight`, `&tasks`, `Option<Task>` are spoken as
+12. **Write code as code**: `parse_all`, `Task::weight`, `&tasks`, `Option<Task>` are spoken as
     "parse all", "Task weight", "a reference to tasks", "Option of Task", and the caption shows the
     real token. Never spell for the voice ("parse underscore all"). Backticks are optional for single
     names. Fix a word the voice gets wrong with `pronounce: written = spoken`
     in the header, and list acronyms to read letter by letter with `spell: IP, CoAP, HTTP`.
     Version numbers (`1.5.0`, `v0.12`) are read in one breath: "1 point 5 point 0".
-12. **Avoid code in the script.** The player already shows the code; point at it with `@` and `=`
+13. **Avoid code in the script.** The player already shows the code; point at it with `@` and `=`
     and say what it does in plain words. Name a function or type when the listener needs the
     name, but never write expressions, signatures or snippets into a cue: read aloud they become
     word soup ("a reference to self dot tasks dot iter of"). No fenced code blocks for code either;
     example blocks are for data (`| json:`, `| md:`), not source.
-13. **Say it in words, show it with `^`.** Spoken text has no dashes, no paths, no endpoints and
+14. **Say it in words, show it with `^`.** Spoken text has no dashes, no paths, no endpoints and
     no HTTP verbs. A voice reads `gw-config-server` as "G W dash config dash server", `/srv/gw` as
     "slash serve slash G W", `GET /config/wifi` as a shout; a translation model breaks them further.
     Say what the thing is ("the config server", "the data disk", "it asks for its wifi file") and
@@ -190,10 +198,10 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
     never says it. Hyphenated English words too: "well formed", "read only", "brand new", "64"
     instead of "sixty-four". Name a function only when the listener needs it, and then in a `^` line
     rather than in the sentence. `iwr check` notes every word that breaks this rule.
-14. **Say where before what.** When a cue lights up a control or a panel (`+ search`, `+ files`),
+15. **Say where before what.** When a cue lights up a control or a panel (`+ search`, `+ files`),
     start with its place: "At the top right, the search box…", "On the left, the files…".
-15. **Zoom on big pages.** A long file or a wide graph: `!` the part, then `+ zoom`, and `+` after.
-16. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
+16. **Zoom on big pages.** A long file or a wide graph: `!` the part, then `+ zoom`, and `+` after.
+17. **Be a host, not a textbook.** A light touch of humour tied to the code keeps a listener awake:
     short, kind, and no puns that need spelling.
 
 ## Diagrams (when the code has no picture)
@@ -286,6 +294,8 @@ The shop sends this little parcel. Each item says what and how many.
 
 ## Welcome
 @ arch
++ view
+! crate::parser crate::scheduler crate::storage
 Welcome to the demo task runner. It reads a list of tasks from text, stores them, and runs them in priority order.
 ! crate::parser
 The parser turns text lines into tasks. It is the first thing the program touches, and the first place things can go wrong.
@@ -294,6 +304,7 @@ That is the whole map. Now let's follow the program as it runs.
 
 ## How a run works
 @ flow:crate::run
+! crate::run
 Everything starts in main, which only calls run. So run is where the story is, and we will stay here for a while.
 ! crate::run/b1
 = src/main.rs:49:41-41
@@ -312,7 +323,8 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 - Directory form: `index.md` has `# Title` and a `- [Part](NN-file.md)` list in playing order; each
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
-- First cue of every part sets `@`; no part longer than twelve cues.
+- First cue of every part sets the stage: `@` plus a `!`, `+` or `|` (Welcome: `@ arch`, crates
+  lit, `+ view`); `iwr check` prints no "first cue" note. No part longer than twelve cues.
 - Data the code sends, reads or stores is shown with an example block, not described.
 - Each big idea has one metaphor; jargon comes after the plain words.
 - Every module has a `//!`, loops and key `if`s have a short `//` (if you may edit the code).
