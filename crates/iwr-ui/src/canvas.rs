@@ -9,10 +9,10 @@ use iwr_core::layout::{self, Seg};
 use iwr_core::views::{EdgeKind, Graph, Mode, NodeKind, VEdge, VNode};
 use std::rc::Rc;
 
-/// Arrow head polygon at the end of the drawn edge.
-fn arrow(segs: &[Seg]) -> Option<String> {
+/// Arrow head polygon at the end of the drawn edge, sized to the line's width.
+fn arrow(segs: &[Seg], width: f64) -> Option<String> {
     let ((x2, y2), (ux, uy)) = layout::edge_end(segs)?;
-    let s = 8.0;
+    let s = 7.0 + width * 1.2;
     let p1 = (x2 - ux * s - uy * s * 0.55, y2 - uy * s + ux * s * 0.55);
     let p2 = (x2 - ux * s + uy * s * 0.55, y2 - uy * s - ux * s * 0.55);
     Some(format!("{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", x2, y2, p1.0, p1.1, p2.0, p2.1))
@@ -190,7 +190,7 @@ pub fn Canvas() -> Element {
                     // labels last: above the boxes, where they were placed not to cover any
                     for ((e, class), spot) in g.edges.iter().zip(&edge_classes).zip(spots.iter()) {
                         if let (Some(l), Some((x, y))) = (&e.label, spot) {
-                            EdgeLabel { key: "l{e.id}", label: l.clone(), kind: e.kind, x: *x, y: *y, class: class.clone() }
+                            EdgeLabel { key: "l{e.id}", label: l.clone(), color: theme::edge_color(e.kind, &e.from), x: *x, y: *y, class: class.clone() }
                         }
                     }
                 }
@@ -488,24 +488,36 @@ fn Chip(chip: iwr_core::views::Chip, x: f64, y: f64, r: f64) -> Element {
 
 #[component]
 fn Edge(edge: VEdge, segs: Vec<Seg>, class: String) -> Element {
-    let (color, dash, width) = theme::edge_style(edge.kind);
+    let (_, dash, width) = theme::edge_style(edge.kind);
+    let color = theme::edge_color(edge.kind, &edge.from);
     // counted edges (architecture) get thicker with use, up to about twice the base width
     let width = if edge.weight > 1 { width + (edge.weight as f64).log2().min(4.0) * 0.45 } else { width };
-    let d = layout::edge_path(&segs);
-    let head = arrow(&segs);
+    let head = arrow(&segs, width);
     let tail = if edge.both {
         let rev: Vec<Seg> = segs.iter().rev().map(|s| match *s {
             Seg::Line(a, b) => Seg::Line(b, a),
             Seg::Quad(a, c, b) => Seg::Quad(b, c, a),
             Seg::Cubic(a, c1, c2, b) => Seg::Cubic(b, c2, c1, a),
         }).collect();
-        arrow(&rev)
+        arrow(&rev, width)
     } else {
         None
     };
+    // the line stops inside the head, so its round cap never blunts the tip
+    let mut line = segs.clone();
+    let back = 4.0 + width;
+    if head.is_some() {
+        if let Some(Seg::Line(a, b)) = line.last_mut() {
+            let len = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+            if len > back * 2.0 {
+                *b = (b.0 - (b.0 - a.0) / len * back, b.1 - (b.1 - a.1) / len * back);
+            }
+        }
+    }
+    let d = layout::edge_path(&line);
     rsx! {
         g { class: "{class}",
-            path { d: "{d}", fill: "none", stroke: "{color}", "stroke-width": "{width}", "stroke-dasharray": "{dash}", "stroke-linejoin": "round", "stroke-linecap": "round", opacity: "0.9" }
+            path { d: "{d}", fill: "none", stroke: "{color}", "stroke-width": "{width}", "stroke-dasharray": "{dash}", "stroke-linejoin": "round", "stroke-linecap": "round", opacity: "0.95" }
             if let Some(pts) = head {
                 polygon { points: "{pts}", fill: "{color}" }
             }
@@ -518,8 +530,7 @@ fn Edge(edge: VEdge, segs: Vec<Seg>, class: String) -> Element {
 
 /// An edge's label, drawn above the boxes at the spot `Graph::label_spots` found for it.
 #[component]
-fn EdgeLabel(label: String, kind: EdgeKind, x: f64, y: f64, class: String) -> Element {
-    let (color, _, _) = theme::edge_style(kind);
+fn EdgeLabel(label: String, color: String, x: f64, y: f64, class: String) -> Element {
     let w = iwr_core::views::edge_label_width(&label);
     rsx! {
         g { class: "{class}",

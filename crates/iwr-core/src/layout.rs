@@ -708,6 +708,9 @@ impl Seg {
     }
 }
 
+/// Straight run an edge keeps before it meets its box, so the arrow head arrives square to the side.
+pub const STUB: f64 = 12.0;
+
 /// How an edge route is drawn. Layered routes bend only between layers: every step is a cubic
 /// whose ends follow the layout axis (`sideways` = left to right), a straight line when aligned.
 /// `backward` routes (around the side) keep their corners; three points make one soft curve.
@@ -728,6 +731,8 @@ pub fn edge_segments(points: &[(f64, f64)], backward: bool, sideways: bool) -> V
         for i in 1..n - 1 {
             let (c, next) = (points[i], points[i + 1]);
             let r = 8.0f64.min(dist(points[i - 1], c) / 2.0).min(dist(c, next) / 2.0);
+            // the last corner leaves the arrow head a straight run into the box
+            let r = if i == n - 2 { r.min((dist(c, next) - STUB).max(0.0)) } else { r };
             let (a, b) = (toward(c, cur, r), toward(c, next, r));
             segs.push(Seg::Line(cur, a));
             segs.push(Seg::Quad(a, c, b));
@@ -739,27 +744,40 @@ pub fn edge_segments(points: &[(f64, f64)], backward: bool, sideways: bool) -> V
     if n == 3 {
         return vec![Seg::Quad(points[0], points[1], points[2])];
     }
-    points
-        .windows(2)
-        .map(|w| {
-            let (a, b) = (w[0], w[1]);
-            if sideways {
-                if (a.1 - b.1).abs() < 0.5 {
-                    return Seg::Line(a, b);
-                }
-                let dir = if b.0 >= a.0 { 1.0 } else { -1.0 };
-                let d = (b.0 - a.0).abs().max(20.0) * 0.5;
-                Seg::Cubic(a, (a.0 + dir * d, a.1), (b.0 - dir * d, b.1), b)
-            } else {
-                if (a.0 - b.0).abs() < 0.5 {
-                    return Seg::Line(a, b);
-                }
-                let dir = if b.1 >= a.1 { 1.0 } else { -1.0 };
-                let d = (b.1 - a.1).abs().max(20.0) * 0.5;
-                Seg::Cubic(a, (a.0, a.1 + dir * d), (b.0, b.1 - dir * d), b)
+    let mut segs = Vec::new();
+    for (i, w) in points.windows(2).enumerate() {
+        let (a, b) = (w[0], w[1]);
+        let last = i == n - 2;
+        if sideways {
+            if (a.1 - b.1).abs() < 0.5 {
+                segs.push(Seg::Line(a, b));
+                continue;
             }
-        })
-        .collect()
+            let dir = if b.0 >= a.0 { 1.0 } else { -1.0 };
+            // the last step ends square to the box: a short straight run before the arrow head
+            let stub = if last { STUB.min((b.0 - a.0).abs() / 3.0) } else { 0.0 };
+            let e = (b.0 - dir * stub, b.1);
+            let d = (e.0 - a.0).abs().max(20.0) * 0.5;
+            segs.push(Seg::Cubic(a, (a.0 + dir * d, a.1), (e.0 - dir * d, e.1), e));
+            if stub > 0.0 {
+                segs.push(Seg::Line(e, b));
+            }
+        } else {
+            if (a.0 - b.0).abs() < 0.5 {
+                segs.push(Seg::Line(a, b));
+                continue;
+            }
+            let dir = if b.1 >= a.1 { 1.0 } else { -1.0 };
+            let stub = if last { STUB.min((b.1 - a.1).abs() / 3.0) } else { 0.0 };
+            let e = (b.0, b.1 - dir * stub);
+            let d = (e.1 - a.1).abs().max(20.0) * 0.5;
+            segs.push(Seg::Cubic(a, (a.0, a.1 + dir * d), (e.0, e.1 - dir * d), e));
+            if stub > 0.0 {
+                segs.push(Seg::Line(e, b));
+            }
+        }
+    }
+    segs
 }
 
 /// SVG path data of [`edge_segments`].

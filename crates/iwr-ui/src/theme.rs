@@ -131,6 +131,54 @@ pub fn edge_style(k: EdgeKind) -> (&'static str, &'static str, f64) {
     }
 }
 
+/// An edge's own shade of its kind's colour, picked from the box it leaves, so arrows side by
+/// side tell apart and the ones from one box match. Sketch arrows (plain grey) get a full hue;
+/// the others only drift a little so the legend still reads.
+pub fn edge_color(kind: EdgeKind, from: &str) -> String {
+    let (base, _, _) = edge_style(kind);
+    let seed = from.bytes().fold(0x811c9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    let (h, s, l) = hex_to_hsl(base);
+    let sketch = matches!(kind, EdgeKind::Arrow | EdgeKind::Line | EdgeKind::Dotted | EdgeKind::DottedLine | EdgeKind::Thick | EdgeKind::ThickLine);
+    let (h, s, l) = if sketch {
+        (((seed % 360) as f64 * 137.508) % 360.0, 0.55, 0.66)
+    } else {
+        let shift = [-14.0, -7.0, 0.0, 7.0, 14.0][(seed % 5) as usize];
+        let lift = [-0.05, 0.0, 0.05][((seed / 5) % 3) as usize];
+        ((h + shift).rem_euclid(360.0), s, (l + lift).clamp(0.35, 0.8))
+    };
+    hsl_to_hex(h, s, l)
+}
+
+fn hex_to_hsl(hex: &str) -> (f64, f64, f64) {
+    let v = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0x94a3b8);
+    let (r, g, b) = (((v >> 16) & 255) as f64 / 255.0, ((v >> 8) & 255) as f64 / 255.0, (v & 255) as f64 / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d < 1e-9 {
+        return (0.0, 0.0, l);
+    }
+    let s = d / (1.0 - (2.0 * l - 1.0).abs());
+    let h = if max == r { ((g - b) / d).rem_euclid(6.0) } else if max == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 };
+    (h * 60.0, s, l)
+}
+
+fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let (r, g, b) = match (h / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    let to = |v: f64| ((v + m).clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", to(r), to(g), to(b))
+}
+
 pub fn edge_kind_label(k: EdgeKind) -> &'static str {
     match k {
         EdgeKind::Call => "call",

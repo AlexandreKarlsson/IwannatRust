@@ -930,15 +930,17 @@ fn route_around(a: Rect, b: Rect, blocks: &[Rect], busy: &mut HashSet<(i32, i32)
         let cell = |p: (f64, f64)| (((p.0 - x0) / GRID).round() as i32, ((p.1 - y0) / GRID).round() as i32);
         let xs = ((r.x + GRID) / GRID).ceil() as i32..=((r.right() - GRID) / GRID).floor() as i32;
         let ys = ((r.y + GRID) / GRID).ceil() as i32..=((r.bottom() - GRID) / GRID).floor() as i32;
+        // two cells out, so the last run before an arrow head is long enough to stay straight
+        let out = 2.0 * GRID;
         for k in xs {
             let x = k as f64 * GRID;
-            v.push((cell((x, r.bottom() + GRID)), 1));
-            v.push((cell((x, r.y - GRID)), 3));
+            v.push((cell((x, r.bottom() + out)), 1));
+            v.push((cell((x, r.y - out)), 3));
         }
         for k in ys {
             let y = k as f64 * GRID;
-            v.push((cell((r.right() + GRID, y)), 0));
-            v.push((cell((r.x - GRID, y)), 2));
+            v.push((cell((r.right() + out, y)), 0));
+            v.push((cell((r.x - out, y)), 2));
         }
         v.into_iter().filter(|(c, _)| free(*c)).collect()
     };
