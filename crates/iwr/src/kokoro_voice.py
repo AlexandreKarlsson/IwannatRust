@@ -13,6 +13,10 @@ Progress: `@ready` once the model is loaded, `@cue P I N` when cue I (1-based) o
 Each cue is synthesized alone (cached by text + voice + speed), so its start time is exact and
 editing one cue only re-synthesizes that cue; `fresh` synthesizes every cue again.
 
+Each part opens on `LEAD` seconds of silence: Kokoro speaks from the first sample, and an audio
+output waking up (a suspended sink, Bluetooth) swallows its first few hundred ms. The first cue
+still starts at 0, so seeking to it plays the silence too.
+
 Japanese (`lang` "ja"): espeak cannot read kana or kanji, so the text goes through misaki's
 Japanese G2P (pyopenjtalk) and Kokoro speaks the phonemes; Latin runs inside (code, names) are
 phonemized as English by espeak.
@@ -27,6 +31,8 @@ import sys
 import numpy as np
 import soundfile as sf
 from kokoro_onnx import Kokoro
+
+LEAD = 0.5
 
 
 def japanese(kokoro):
@@ -59,7 +65,8 @@ def main():
     sr = 24000
     gap = np.zeros(int(job["gap"] * sr), dtype=np.float32)
     for p, part in enumerate(job["parts"]):
-        chunks, times, t = [], [], 0.0
+        lead = np.zeros(int(LEAD * sr), dtype=np.float32)
+        chunks, times, t = [lead], [], LEAD
         second = part.get("second") or []
         for i, text in enumerate(part["cues"]):
             other = i < len(second) and second[i]
@@ -83,10 +90,10 @@ def main():
             else:
                 audio = np.zeros(int(0.5 * sr), dtype=np.float32)
             print(f'@cue {p} {i + 1} {len(part["cues"])}', file=sys.stderr, flush=True)
-            times.append(round(t, 2))
+            times.append(round(t, 2) if i else 0.0)
             chunks += [audio, gap]
             t += (len(audio) + len(gap)) / sr
-        audio = np.concatenate(chunks) if chunks else gap
+        audio = np.concatenate(chunks)
         # written aside then moved: a cancelled job never leaves half a file
         sf.write(part["out"] + ".part", audio, sr, format="OGG", subtype="OPUS", compression_level=job["level"])
         os.replace(part["out"] + ".part", part["out"])
