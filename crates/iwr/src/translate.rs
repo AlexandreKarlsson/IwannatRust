@@ -1,14 +1,14 @@
-//! Offline translation for codecasts played in another language (`iwr translate`,
-//! `/api/translate`, `iwr export --lang`).
+//! Offline translation for codecasts played in another language (`codecast translate`,
+//! `/api/translate`, `codecast export --lang`).
 //!
 //! Argos Translate models run in a Python sidecar (`ctranslate2` + `sentencepiece`) set up on first
-//! use under `~/.cache/iwr/translate` (`IWR_TRANSLATE` overrides), one model per language,
+//! use under the user's cache (`~/.cache/codecast/translate`, [`crate::python`]; `CODECAST_TRANSLATE` overrides), one model per language,
 //! downloaded when first asked for. Every translation is cached there (`<lang>.json`), so a
 //! codecast is translated once and only edited text goes to the model again. Nothing is written
 //! next to the codecast.
 //!
 //! The model's output is rough. An author can translate the pieces with another tool instead:
-//! `iwr translate --pieces` prints them as JSON, and the filled-in file saved as
+//! `codecast translate --pieces` prints them as JSON, and the filled-in file saved as
 //! `translations/<lang>.json` next to the codecast wins over the model, piece by piece.
 
 use crate::codecast;
@@ -95,7 +95,7 @@ fn pieces(script: &Path, project: &iwr_core::Project) -> Result<Vec<String>> {
     Ok(iwr_core::i18n::texts(&s, &iwr_core::glossary::merge(&g), &iwr_core::i18n::names(project)))
 }
 
-/// `iwr translate --pieces`: the pieces as a JSON object to translate with another tool, valued
+/// `codecast translate --pieces`: the pieces as a JSON object to translate with another tool, valued
 /// with the author's translations so far (empty when there is none). No model is used.
 pub fn print_pieces(script: &Path, path: &Path, lang: &str) -> Result<()> {
     if iwr_core::i18n::lang(lang).is_none() || lang == "en" {
@@ -115,7 +115,7 @@ pub fn print_pieces(script: &Path, path: &Path, lang: &str) -> Result<()> {
     Ok(())
 }
 
-/// `iwr translate`: translate a codecast and print it, to read the result before playing it.
+/// `codecast translate`: translate a codecast and print it, to read the result before playing it.
 pub fn run(script: &Path, path: &Path, lang: &str) -> Result<()> {
     let p = iwr_core::analyze_path(path)?;
     let map = codecast_map(script, &p, lang)?;
@@ -127,23 +127,20 @@ pub fn run(script: &Path, path: &Path, lang: &str) -> Result<()> {
     print!("{}", iwr_core::script::to_text(&s));
     eprintln!("{} piece(s) translated to {}; cached in {}", map.len(), lang, home()?.display());
     if !own.is_file() {
-        eprintln!("machine translation is rough: for a better one, translate `iwr translate --pieces` with another tool into {}", own.display());
+        eprintln!("machine translation is rough: for a better one, translate `codecast translate --pieces` with another tool into {}", own.display());
     }
     Ok(())
 }
 
 fn home() -> Result<PathBuf> {
-    let home = match std::env::var_os("IWR_TRANSLATE") {
-        Some(h) => PathBuf::from(h),
-        None => std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))).context("no HOME")?.join("iwr/translate"),
-    };
+    let home = crate::python::home("CODECAST_TRANSLATE", "translate")?;
     std::fs::create_dir_all(&home)?;
     Ok(home)
 }
 
 /// The sidecar's Python, in a venv with `ctranslate2` and `sentencepiece`.
 fn setup(home: &Path) -> Result<PathBuf> {
-    let run = |cmd: &mut Command, what: &str| -> Result<()> {
+    let mut run = |cmd: &mut Command, what: &str| -> Result<()> {
         eprintln!("{}…", what);
         let st = cmd.stderr(Stdio::inherit()).stdout(Stdio::null()).status().with_context(|| what.to_string())?;
         if !st.success() {
@@ -151,13 +148,7 @@ fn setup(home: &Path) -> Result<PathBuf> {
         }
         Ok(())
     };
-    let py = home.join("venv/bin/python");
-    if !py.is_file() {
-        run(Command::new("python3").args(["-m", "venv"]).arg(home.join("venv")), "creating a Python venv for translation")?;
-    }
-    if !Command::new(&py).args(["-c", "import ctranslate2, sentencepiece"]).stderr(Stdio::null()).status()?.success() {
-        run(Command::new(home.join("venv/bin/pip")).args(["install", "-q", "ctranslate2", "sentencepiece"]), "installing ctranslate2 and sentencepiece")?;
-    }
+    let py = crate::python::venv(home, &["ctranslate2", "sentencepiece"], "import ctranslate2, sentencepiece", &mut run)?;
     std::fs::write(home.join("translate_sidecar.py"), SIDECAR)?;
     Ok(py)
 }

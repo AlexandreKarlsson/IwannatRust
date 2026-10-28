@@ -394,7 +394,7 @@ fn script_directory_assembly_and_part_audio() {
     assert_eq!(s.cue_count(), 3);
     // the part list does not become cues
     assert!(!text.contains("03-end.md"));
-    // `iwr voice` times: given to the cues in order, a cue's own `[t]` wins
+    // `codecast voice` times: given to the cues in order, a cue's own `[t]` wins
     let parts = vec![PartFile { stem: "01-a".into(), text: "## A\none\n[9] two\nthree\n".into(), audio: Some("01-a.mp3".into()), times: vec![0.0, 2.5, 5.25], voices: vec![] }];
     let s = script::parse(&script::assemble("# T\n", &parts));
     assert_eq!(s.parts[0].cues.iter().map(|c| c.t).collect::<Vec<_>>(), [Some(0.0), Some(9.0), Some(5.25)]);

@@ -21,6 +21,6 @@ Any other line is spoken text. It completes the cue: pending is taken out with `
 ? What does mem take do?
   `std::mem::take` swaps a value with its default and gives you the old one. Here it hands the finished cue to the list and leaves an empty cue in pending, in one move, without cloning and without a second variable. It is the idiom for "pop the current thing and start over".
 @ flow:iwr-core::script::check
-Writers make mistakes, so check walks the parsed script and verifies every ref against the Project: items, blocks, lines, files, and diagram node ids. iwr check prints whatever does not resolve.
+Writers make mistakes, so check walks the parsed script and verifies every ref against the Project: items, blocks, lines, files, and diagram node ids. codecast check prints whatever does not resolve.
 ! iwr-core::script::check/b9 iwr-core::script::check/b10 iwr-core::script::check/b11 iwr-core::script::check/b12
 The at sign is sticky, so a small Track remembers which view is current. While a diagram is shown, the bang refs are node ids, not code. Which brings us to diagrams.

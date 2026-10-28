@@ -158,7 +158,7 @@ impl State {
                     let mut s = (*src).clone();
                     let mut g = (*glossary).clone();
                     iwr_core::i18n::apply(&mut s, &mut g, &names, &|t| map.get(t).cloned());
-                    // parts recorded in this language (`iwr voice --lang`) play their recording
+                    // parts recorded in this language (`codecast voice --lang`) play their recording
                     let voice = state.recording_voice(&s, &lang);
                     iwr_core::i18n::use_voices(&mut s, &lang, &voice);
                     state.glossary_tr.set(Some(Rc::new(g)));
@@ -1038,7 +1038,7 @@ pub fn PlayerBar() -> Element {
                         if has_recording { option { value: "audio", selected: voice == Voice::Audio, "🎧 recording" } }
                         option { value: "read", selected: voice == Voice::Read, "📖 read" }
                     }
-                    select { class: "theme-select", "data-spot": "lang", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline, rough for now: better translated with another tool, see iwr translate --pieces), recordings are English only",
+                    select { class: "theme-select", "data-spot": "lang", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline, rough for now: better translated with another tool, see codecast translate --pieces), recordings are English only",
                         onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                         for l in iwr_core::i18n::LANGS {
                             option { value: l.code, "{l.name}" }

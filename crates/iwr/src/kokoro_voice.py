@@ -1,4 +1,4 @@
-"""Kokoro TTS for `iwr voice`: reads a job (JSON) on stdin, writes one audio file per part.
+"""Kokoro TTS for `codecast voice`: reads a job (JSON) on stdin, writes one audio file per part.
 Progress goes to stderr as `@` lines the CLI reads; anything else there is a log line.
 
 Job: {"model", "voices", "voice", "voice2", "pitch2", "speed", "lang", "gap", "level", "cache", "fresh",

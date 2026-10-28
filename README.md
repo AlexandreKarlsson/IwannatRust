@@ -24,7 +24,7 @@ knows it is busy. IwannatRust reads the code and gives every project:
   lights up what it is talking about, underlines code, zooms in, and answers questions. It is
   spoken by a recorded voice or the browser, or you read it.
 - 👥 **The same explanation for everyone**: newcomers, reviewers, a handover, someone learning
-  Rust. The authors write it once, or have an AI write it from `iwr brief`, and `iwr check` keeps
+  Rust. The authors write it once, or have an AI write it from `codecast brief`, and `codecast check` keeps
   every reference in sync with the code.
 
 A project without a codecast still gets one: the built-in tour, written from its code.
@@ -34,7 +34,7 @@ A project without a codecast still gets one: the built-in tour, written from its
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install dioxus-cli --version 0.7.10 --locked
-scripts/iwr build                  # web UI + CLI, one binary
+scripts/iwr build                  # web UI + CLI, one binary: target/release/codecast
 scripts/iwr serve examples/demo    # opens http://127.0.0.1:4321
 ```
 
@@ -54,20 +54,20 @@ shows) and [codecast/](codecast/), IwannatRust's own tour (`scripts/iwr self`).
 | **Code view** | The file as nested blocks (one per item, one per step), next to the source; hover either side and both light up. |
 | **Seven views** | Call tree, control flow, architecture, branch tree, structure, types & traits, error flow. |
 | **Codecasts** | Markdown scripts: `@` view, `!` highlight (items, steps, files, folders), `=` underline, `+` enlarge a panel, light up a control or zoom, `?` questions, mermaid sketches, side notes, popups. |
-| **Voice** | Kokoro recordings (`iwr voice`, or the *Generate* page), browser TTS, or silent reading; offline translation. |
+| **Voice** | Kokoro recordings (`codecast voice`, or the *Generate* page), browser TTS, or silent reading; offline translation. |
 | **Look** | 32 themes, 31 fonts; a `codecast.toml` sets the author's defaults. |
-| **Sharing** | `iwr export` writes a static site that works from any host or sub-path. |
+| **Sharing** | `codecast export` writes a static site that works from any host or sub-path. |
 
 <img src="images/shot-code.png" alt="Code view: nested blocks next to the source" width="100%">
 
 ## Commands
 
 ```
-iwr serve  PATH          interactive UI, live reload on save
-iwr export PATH -o DIR   static site
-iwr brief  PATH          the code as compact text, for an AI (or you) to write a codecast
-iwr check  codecast.md   every reference must resolve
-iwr voice  codecast/     record the codecast with Kokoro
+codecast serve  PATH          interactive UI, live reload on save
+codecast export PATH -o DIR   static site
+codecast brief  PATH          the code as compact text, for an AI (or you) to write a codecast
+codecast check  codecast.md   every reference must resolve
+codecast voice  codecast/     record the codecast with Kokoro
 ```
 
 `scripts/iwr` with no argument lists everything. Full list: [docs/cli.md](docs/cli.md).

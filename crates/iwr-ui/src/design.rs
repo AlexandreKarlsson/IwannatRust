@@ -1,6 +1,6 @@
 //! The codecast design editor on the Settings page: the author builds the codecast's
 //! `codecast.toml` (theme, fonts, colours, voice, language) with a live preview, then saves it next
-//! to the script (`iwr serve`) or downloads it (static export).
+//! to the script (`codecast serve`) or downloads it (static export).
 
 use crate::icons::Icon;
 use crate::State;
@@ -132,7 +132,7 @@ pub fn DesignEditor() -> Element {
             draft.set(c);
         }
     });
-    // recorded voices with a name (`iwr voice`), in English: what `rec_voice` can name
+    // recorded voices with a name (`codecast voice`), in English: what `rec_voice` can name
     let recorded: Vec<(String, usize)> = state.script_src.read().as_ref().map(|s| iwr_core::i18n::recorded_voices(s, "en")).unwrap_or_default().into_iter().filter(|(v, _)| !v.is_empty()).collect();
     let mut voices = use_signal(Vec::<String>::new);
     use_future(move || async move {
@@ -178,7 +178,7 @@ pub fn DesignEditor() -> Element {
                     span { class: "tip", role: "tooltip",
                         b { "codecast.toml" }
                         " is a small file next to the script. It sets the theme, fonts, colours, voice and language viewers of this codecast start with; with lock on, they keep them. "
-                        "Pick everything here with a live preview, then save it (iwr serve) or download it. Without the file, viewers keep their own settings."
+                        "Pick everything here with a live preview, then save it (codecast serve) or download it. Without the file, viewers keep their own settings."
                     }
                 }
             }

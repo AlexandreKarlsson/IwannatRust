@@ -13,10 +13,10 @@
 //! ! crate::run/b1 crate::run  highlight refs       (sticky; `!` alone clears)
 //! = src/main.rs:49:18-44      underline code       (this cue only)
 //! [9.4]                       start time in seconds (audio mode)
-//! times: 0 4.2 9.8            start times of the part's cues in order (written by `iwr voice`); `[t]` wins
-//! audio.ja: 01-welcome.ja.ogg recording of this part in another language (`iwr voice --lang ja`),
+//! times: 0 4.2 9.8            start times of the part's cues in order (written by `codecast voice`); `[t]` wins
+//! audio.ja: 01-welcome.ja.ogg recording of this part in another language (`codecast voice --lang ja`),
 //! times.ja: 0 3.1 8.7         with its cue times; played when the codecast is played in that language
-//! audio.en.am_adam: …         a recording by one Kokoro voice (`iwr voice` writes one per voice):
+//! audio.en.am_adam: …         a recording by one Kokoro voice (`codecast voice` writes one per voice):
 //! times.en.am_adam: …         the listener picks the voice in the player
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
 //! sp: Why line by line?       a cue said by the second voice (a question, a remark)
@@ -728,7 +728,7 @@ pub struct PartFile {
     pub text: String,
     /// sibling recording with the same stem (`01-welcome.mp3`), if any
     pub audio: Option<String>,
-    /// cue start times of that recording (sibling `01-welcome.times`, written by `iwr voice`)
+    /// cue start times of that recording (sibling `01-welcome.times`, written by `codecast voice`)
     pub times: Vec<f64>,
     /// recordings in other languages or by other voices (`01-welcome.ja.ogg` + `01-welcome.ja.times`,
     /// `01-welcome.am_adam.ogg` + `.times`)
@@ -1040,7 +1040,7 @@ pub const UI_SPOTS: &[(&str, &str)] = &[
     ("search", "the search box"),
     ("codecast", "the button that starts or stops a codecast"),
     ("tour", "the full tour button"),
-    ("generate", "the Generate page button (iwr serve only)"),
+    ("generate", "the Generate page button (codecast serve only)"),
     ("help", "the help button: the tutorial"),
     ("settings", "the settings button"),
     ("sidebar-tabs", "the files / items tabs of the sidebar"),
@@ -1504,7 +1504,7 @@ pub fn speakable(say: &str) -> String {
 
 /// Parts whose first cue does not set the stage: no `@` view, or nothing lit, enlarged or shown
 /// beside it (`!`, `=`, `+`, `|`, a tour). The audio starts and the screen stays as the viewer left
-/// it, which feels broken. For `iwr check`.
+/// it, which feels broken. For `codecast check`.
 pub fn stage_notes(s: &Script) -> Vec<String> {
     let mut out = Vec::new();
     for p in &s.parts {
@@ -1523,7 +1523,7 @@ pub fn stage_notes(s: &Script) -> Vec<String> {
 
 /// Words in spoken text that a voice stumbles on and that belong in a `^` popup instead: hyphenated
 /// words (`gw-config-server`, `Wi-Fi`), paths (`/srv/gw`, `src/main.rs`) and HTTP requests
-/// (`GET /config`). For `iwr check`. Code blocks are skipped.
+/// (`GET /config`). For `codecast check`. Code blocks are skipped.
 pub fn hard_to_say(say: &str) -> Vec<String> {
     const VERBS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
     let text = plain(say);

@@ -1,7 +1,7 @@
 ## The command line and the server
 @ calls:iwr::main
 ! iwr::main
-The iwr binary is one match over subcommands, and the call tree shows what each one reaches: serve, analyze, export, brief, guide, speak, check, summary.
+The codecast binary (the iwr crate) is one match over subcommands, and the call tree shows what each one reaches: serve, analyze, export, brief, guide, speak, check, summary.
 ! iwr::main/b1
 = crates/iwr/src/main.rs:107:15-26
 clap parses the arguments into a Cli value; the derive on the enum is the whole argument parser.

@@ -161,7 +161,7 @@ pub struct State {
     pub settings_open: Signal<bool>,
     /// the Generate page (record the codecast's voice with Kokoro)
     pub generate_open: Signal<bool>,
-    /// every part and its recordings, from `/api/voice` (`iwr serve` only)
+    /// every part and its recordings, from `/api/voice` (`codecast serve` only)
     pub voice_status: Signal<Option<Rc<iwr_core::voice::VoiceStatus>>>,
     /// the server's running (or last) recording
     pub voice_job: Signal<Option<iwr_core::voice::VoiceJob>>,
@@ -173,7 +173,7 @@ pub struct State {
     /// seconds per cue in silent reading mode
     pub read_delay: Signal<f64>,
     // ---- language
-    /// is an `iwr serve` behind the page (else a static export)?
+    /// is an `codecast serve` behind the page (else a static export)?
     pub live: Signal<bool>,
     /// language the codecast plays in (`en` = as written; see `iwr_core::i18n::LANGS`)
     pub lang: Signal<String>,

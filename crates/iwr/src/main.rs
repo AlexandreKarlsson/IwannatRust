@@ -3,15 +3,16 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod codecast;
+mod python;
 mod serve;
 mod translate;
 mod voice;
 
-/// The codecast writing guide, embedded so `iwr brief --guide` works from any directory.
+/// The codecast writing guide, embedded so `codecast brief --guide` works from any directory.
 const WRITING_GUIDE: &str = include_str!("../../../docs/writing-codecasts.md");
 
 #[derive(Parser)]
-#[command(name = "iwr", version, about = "IwannatRust: visualize how Rust code works")]
+#[command(name = "codecast", version, about = "IwannatRust: visualize how Rust code works")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -230,7 +231,7 @@ fn main() -> Result<()> {
             }
             bad.extend(codecast::check_config(&script));
             for stem in &loaded.stale {
-                println!("  note: {}: text changed since its recording, TTS speaks it until `iwr voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
+                println!("  note: {}: text changed since its recording, TTS speaks it until `codecast voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
             }
             for n in iwr_core::script::stage_notes(&s) {
                 println!("  note: {n}");

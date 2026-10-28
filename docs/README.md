@@ -6,6 +6,6 @@
 - [Commenting your code](commenting.md): how `//!`, `///` and `//` comments become box titles, flow labels and block names
 - [CLI](cli.md): every command and the HTTP API of `serve`
 - [Architecture](architecture.md): crates, pipeline, UI modules
-- [Model reference](model.md): the JSON of `iwr analyze` / `/api/project`
+- [Model reference](model.md): the JSON of `codecast analyze` / `/api/project`
 - [Embedding](embedding.md): static export, docs sites
 - [Development](development.md): build, test, visual QA, the tutorial's recording, adding a view

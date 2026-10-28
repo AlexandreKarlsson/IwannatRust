@@ -11,7 +11,7 @@ use crate::State;
 use dioxus::prelude::*;
 use iwr_core::script::{self, PartFile, Voiced};
 
-/// The voice the tutorial was recorded with (`iwr voice assets/tutorial --path examples/demo`).
+/// The voice the tutorial was recorded with (`codecast voice assets/tutorial --path examples/demo`).
 const VOICE: &str = "af_heart";
 
 const INDEX: &str = include_str!("../assets/tutorial/index.md");

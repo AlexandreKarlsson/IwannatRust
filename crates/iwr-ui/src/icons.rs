@@ -1,5 +1,5 @@
 //! Icons: small PNG silhouettes embedded in the wasm and served as data URIs, so
-//! they work both from `iwr serve` and from a static export under any sub-path.
+//! they work both from `codecast serve` and from a static export under any sub-path.
 //! Black on transparent; themes recolour them with the `--icon-filter` CSS variable.
 
 use dioxus::prelude::*;

@@ -1,4 +1,4 @@
-"""Offline translation for iwr: reads a job (JSON) on stdin, prints the translations (JSON list).
+"""Offline translation for codecast: reads a job (JSON) on stdin, prints the translations (JSON list).
 
 Job: {"home": "/abs/cache/dir", "lang": "ja", "texts": ["English text", ...]}
 
@@ -25,7 +25,7 @@ CJK = {"ja", "zh", "ko"}
 
 def fetch(url):
     # the default urllib User-Agent is refused (403)
-    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "iwr"}))
+    return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "codecast"}))
 
 
 def model_dir(home, lang):

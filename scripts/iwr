@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BIN="$ROOT/target/release/iwr"
+BIN="$ROOT/target/release/codecast"
 DEMO="$ROOT/examples/demo"
 export PATH="$HOME/.cargo/bin:$PATH"
 

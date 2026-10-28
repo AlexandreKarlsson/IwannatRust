@@ -18,5 +18,5 @@ pronounce: serde = sir-day
 - [Views and layout](06-views-and-layout.md) — one builder per view, and the Sugiyama layout that positions every box, in five steps
 - [The codecast format](07-the-codecast-format.md) — how a markdown script becomes parts and cues, and how check verifies every ref
 - [Diagrams](08-diagrams.md) — a mermaid block the player draws, moves and reveals; a feature explaining itself
-- [The command line and the server](09-the-command-line.md) — brief, check, serve: what the iwr binary does and how the file watcher works
+- [The command line and the server](09-the-command-line.md) — brief, check, serve: what the codecast binary does and how the file watcher works
 - [The player](10-the-player.md) — apply_cue and apply_directives: the contract between a script and the screen

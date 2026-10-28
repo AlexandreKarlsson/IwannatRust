@@ -17,7 +17,7 @@
 //! sample: 49 57 52 31 00 05 …    example bytes, decoded into each field's value
 //! ```
 //!
-//! Never fails: lines it cannot read go to [`Layout::errors`] (`iwr check` lists them).
+//! Never fails: lines it cannot read go to [`Layout::errors`] (`codecast check` lists them).
 
 use serde::{Deserialize, Serialize};
 

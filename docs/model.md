@@ -1,6 +1,6 @@
 # Model reference
 
-`iwr analyze --pretty` / `GET /api/project` return a `Project`. Ids are indexes into the arrays. Lines/cols are 1-based. Enums serialize as `snake_case`.
+`codecast analyze --pretty` / `GET /api/project` return a `Project`. Ids are indexes into the arrays. Lines/cols are 1-based. Enums serialize as `snake_case`.
 
 ```
 Project { name, root, files[], modules[], items[], calls[], type_rels[], main?, external_crates[], diagnostics[] }

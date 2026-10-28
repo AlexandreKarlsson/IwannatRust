@@ -1,4 +1,4 @@
-//! The Generate page: record the codecast's voice with Kokoro through `iwr serve` (`/api/voice`).
+//! The Generate page: record the codecast's voice with Kokoro through `codecast serve` (`/api/voice`).
 //! Pick a language, a voice (previewed on click), the delivery and the parts, then follow the
 //! recording; the job runs on the server, so it survives leaving the page or reloading it.
 
@@ -283,7 +283,7 @@ pub fn GeneratePage() -> Element {
                         h3 { "Nothing to record yet" }
                         p { "{problem}" }
                         pre { class: "gen-tree", "codecast/\n├── index.md          title + the parts, in order\n├── 01-welcome.md     one ## part per file\n└── 02-pipeline.md" }
-                        p { class: "gen-muted", "Then run iwr serve again, or record from the terminal with " code { "iwr voice codecast/" } "." }
+                        p { class: "gen-muted", "Then run codecast serve again, or record from the terminal with " code { "codecast voice codecast/" } "." }
                     }
                 } else {
                     div { class: "gen-coverage", title: "{voice_name}: {n_rec} recorded · {n_stale} changed since · {n_missing} missing · {n_own} hand-made",
@@ -306,14 +306,14 @@ pub fn GeneratePage() -> Element {
                             Icon { name: "info", size: 16 }
                             div {
                                 b { "First run sets Kokoro up" }
-                                span { " — a Python venv and the ~90 MB model, downloaded once into ~/.cache/iwr/kokoro. Needs python3 and curl; takes a minute or two." }
+                                span { " — a Python environment (through uv, fetched if missing) and the ~90 MB model, downloaded once into ~/.cache/codecast/kokoro. Needs an internet connection; takes a minute or two." }
                             }
                         }
                     }
 
                     // ---- 1. language
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } p { class: "gen-warn", "⚠ The offline translation is rough for now. For a good one, translate with another tool (DeepL, an LLM…): " code { "iwr translate codecast/ --lang ja --pieces > ja.json" } ", fill in the values, save it as " code { "codecast/translations/ja.json" } "; those pieces win over the model." } } }
+                        div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } p { class: "gen-warn", "⚠ The offline translation is rough for now. For a good one, translate with another tool (DeepL, an LLM…): " code { "codecast translate codecast/ --lang ja --pieces > ja.json" } ", fill in the values, save it as " code { "codecast/translations/ja.json" } "; those pieces win over the model." } } }
                         div { class: "gen-langs",
                             for l in v::VOICE_LANGS.iter().copied() {
                                 { let done = parts.iter().filter(|p| p.recorded_in(l.code)).count();

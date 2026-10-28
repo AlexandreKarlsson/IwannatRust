@@ -1,7 +1,7 @@
 # User guide
 
 ```sh
-iwr serve path/to/project      # opens http://127.0.0.1:4321
+codecast serve path/to/project      # opens http://127.0.0.1:4321
 ```
 
 ## First start
@@ -81,7 +81,7 @@ Questions appear under the text: click one to pause, read the answer, and carry 
 the parts. Voice: a recording, browser TTS (rate in settings), or silent reading (seconds per cue in
 settings).
 
-Scripts can also be written by an AI or by hand and loaded with `iwr serve --script`, or `load…` in
+Scripts can also be written by an AI or by hand and loaded with `codecast serve --script`, or `load…` in
 the player bar. See [codecast.md](codecast.md) for the format, the brief and the player.
 
 ## Keyboard
@@ -109,21 +109,21 @@ A codecast may ship its own look and defaults (`codecast.toml`: theme, colours, 
 language). They are applied when you first open it, or when its author changes them; what you
 change afterwards is kept. A locked codecast greys out the theme, font, voice and language controls. Authors design that file in
 the *Codecast design* section: *Create the codecast configuration* opens the editor; pick the theme, fonts (upload a font file for the box
-titles), colours, voice and language, see them at once, then *save codecast.toml* (with `iwr
+titles), colours, voice and language, see them at once, then *save codecast.toml* (with `codecast
 serve`) or download it.
 
 ## Generate the voice
 
-With `iwr serve` and a `codecast/` directory, **generate** in the top bar (its badge counts the
+With `codecast serve` and a `codecast/` directory, **generate** in the top bar (its badge counts the
 parts without an up-to-date English recording) opens a page that records the codecast with Kokoro,
-like `iwr voice`: pick the language (other languages are translated from the English parts; the
+like `codecast voice`: pick the language (other languages are translated from the English parts; the
 offline translation is rough for now, so translate with another tool first: see
 [codecast.md § Translating with another tool](codecast.md#translating-with-another-tool)), a
 voice (▶ plays a sample), the speed, the pause between cues and the compression, then the parts
 (by default the ones missing or changed since their recording). A progress bar follows every cue
 with the time left; *Cancel* keeps the parts already written. The recording runs in the server, so
 you can leave the page (the top-bar button shows a ring meanwhile); when it ends the player loads
-the new recordings. The first run installs Kokoro (~90 MB) under `~/.cache/iwr/kokoro`.
+the new recordings. The first run installs Kokoro (~90 MB) under `~/.cache/codecast/kokoro`.
 `?page=generate` (or `?page=settings`) in the URL opens the page directly.
 
 Every voice keeps its own recordings, so you can record the codecast with several. The player then
@@ -135,4 +135,4 @@ Recordings of parts whose file was renamed or deleted are removed along the way.
 
 ## Live reload
 
-`iwr serve` watches `.rs` files and `Cargo.toml`; the UI reloads the model within ~2 s of a save.
+`codecast serve` watches `.rs` files and `Cargo.toml`; the UI reloads the model within ~2 s of a save.

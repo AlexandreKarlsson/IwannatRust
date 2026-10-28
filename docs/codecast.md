@@ -8,14 +8,14 @@ independently ("Architecture", "Error handling", …). Any LLM, or a person, can
 **brief**. No API key, no provider, no JSON. Scripts are markdown files: they read fine on GitHub.
 
 ```
-iwr brief  <path> [--fn P] [--no-body] [--no-overview]   # what the AI reads
-iwr guide  <path> [--fn P]  > codecast.md                 # the built-in walkthrough, as a script
-iwr check  codecast.md --path <path>                      # every ref must resolve (also: iwr check codecast/)
-iwr serve  <path> --script codecast.md [--audio voice.mp3] # play it (also load… in the player bar)
-iwr export <path> --script codecast.md [--audio voice.mp3] # bundled in the static site
+codecast brief  <path> [--fn P] [--no-body] [--no-overview]   # what the AI reads
+codecast guide  <path> [--fn P]  > codecast.md                 # the built-in walkthrough, as a script
+codecast check  codecast.md --path <path>                      # every ref must resolve (also: codecast check codecast/)
+codecast serve  <path> --script codecast.md [--audio voice.mp3] # play it (also load… in the player bar)
+codecast export <path> --script codecast.md [--audio voice.mp3] # bundled in the static site
 ```
 
-`iwr serve <path>` and `iwr export <path>` pick up a codecast next to the project automatically:
+`codecast serve <path>` and `codecast export <path>` pick up a codecast next to the project automatically:
 a `codecast/` directory, else `codecast.md`, else the legacy `codecast.txt`.
 
 ## Layout: one file or a directory
@@ -42,7 +42,7 @@ codecast/
 ```
 
 A part file may start with its own `# heading`; after the title in `index.md`, further `#` lines are
-ignored. `iwr check codecast/` validates the whole directory;
+ignored. `codecast check codecast/` validates the whole directory;
 [examples/demo/codecast/](../examples/demo/codecast/) is one.
 
 ## Look and defaults: `codecast.toml`
@@ -92,20 +92,20 @@ its id, nothing to ship. Settings → Appearance shows them all, drawn in themse
 | Text (whole interface) | `montserrat`, `josefin-sans`, `zt-otez`, `glametrix`, `timeburner`, `ovaline`, `steiner`, `cambai` |
 
 None is monospace: `code` takes an installed font's name or a file. A font of your own goes in
-`codecast/fonts/…` (check its licence allows redistribution); `iwr serve` serves it, `iwr export`
+`codecast/fonts/…` (check its licence allows redistribution); `codecast serve` serves it, `codecast export`
 copies it to `codecast/` in the site. Box sizes are computed for a regular sans-serif: a very wide
 display font can run past its box. An installed font's name only works on machines that have it.
 
 **From the Settings page.** In *Codecast design*, the *Create the codecast configuration* button (*Edit…* once a file exists; the ⓘ next to it explains the file) opens an editor that builds the file without writing TOML:
 the theme and the fonts picked from the same galleries as Appearance (plus *your own font
 file…* to copy one into `codecast/fonts/`), language, voice, browser voice (from the browser's
-list), rate, tour, glossary, lock, and, folded under *Custom colours*, a colour picker per theme variable. Every change previews at once. Under `iwr serve`, *save
+list), rate, tour, glossary, lock, and, folded under *Custom colours*, a colour picker per theme variable. Every change previews at once. Under `codecast serve`, *save
 codecast.toml* writes it next to the script (rewriting the file: hand-written comments are
 lost); in a static site, *download codecast.toml* hands you the file to put there. Saving and
-uploading need a codecast next to the project, and only the page served by `iwr serve` on a
+uploading need a codecast next to the project, and only the page served by `codecast serve` on a
 loopback address may do it.
 
-**Checks.** `iwr check` (and `serve` / `export` at start) report unknown keys, unknown themes,
+**Checks.** `codecast check` (and `serve` / `export` at start) report unknown keys, unknown themes,
 languages and voices, a rate out of range, colours that are not colours, unknown colour names, and
 font files that are missing or outside the codecast directory.
 
@@ -182,8 +182,8 @@ stop without a page. Same in the built-in tour (`g`): the crate doc from the wel
 module's on its stop. Paths and `<placeholders>` are read as "gw slash data slash node".
 
 `@` / `!` / `=` / `|` lines written just above the tour line, and `?` questions just below it,
-go to its first cue. Write your own cues around it to introduce and hand over. `iwr check` reports
-unknown tour names; `iwr speak` prints the generated text (it reads the project next to the script,
+go to its first cue. Write your own cues around it to introduce and hand over. `codecast check` reports
+unknown tour names; `codecast speak` prints the generated text (it reads the project next to the script,
 or `--path`).
 
 ## Questions
@@ -193,7 +193,7 @@ Two sources, kept apart:
 - **Written in the script**: a `? Question text` line followed by indented answer lines. The block
   belongs to the cue just above it (or, when it comes after `@` / `!` / `=` lines, to the next cue).
   Indented `@` `!` `=` lines inside the block are applied while the answer is shown, so an answer can
-  point at the code it talks about. `iwr check` flags questions without an answer.
+  point at the code it talks about. `codecast check` flags questions without an answer.
 - **The built-in Rust glossary** (`crates/iwr-core/glossary.md`, ~30 entries: crate, module, impl,
   trait, enum, match, Option, Result, question mark, ownership, borrow, clone, derive, closure,
   iterator, generics…). When a cue's text says a term (whole word, case-insensitive, plural tolerated),
@@ -223,7 +223,7 @@ before it (`[4.5] sp: …`), and its caption is indented with a coloured bar. Cl
   voice of the language (same region first), else the main voice with a higher pitch.
 - **Which recording plays**: Settings → *Recorded voice* or the player's voice chip; the author
   sets the first one with `rec_voice` in `codecast.toml` (a pair for a two-voice recording).
-- **Recording**: `iwr voice` records a codecast that has `sp:` lines with a pair of Kokoro voices,
+- **Recording**: `codecast voice` records a codecast that has `sp:` lines with a pair of Kokoro voices,
   every part of it: `--voice2 am_michael` (default: a voice of the other gender in the language).
   On the Generate page the *Voices* card has two slots, main and second: click a slot then a
   voice, or drag a voice onto a slot; ⇄ swaps them, ✕ goes back to the default second voice.
@@ -262,14 +262,14 @@ Supported: `graph LR|TD` (`flowchart` too), nodes `id[box]` `id(round)` `id([pil
 round green, pill purple, diamond yellow, store teal; groups are grey boxes behind their members.
 Emoji are plain label text. Several blocks in a part: `@ diagram:2`, or `@ diagram:<title>`. Node
 ids are letters, digits and `_`; an edge between two glowing nodes glows too. The *Diagram* tab
-appears in the top bar while a codecast has shown one. `iwr check` reports lines it cannot read,
+appears in the top bar while a codecast has shown one. `codecast check` reports lines it cannot read,
 `@ diagram` without a block, and `!` refs that are not node ids while a diagram is shown.
 
 **Moving things.** A `>` line above a cue moves a node from that cue on: `> alice bus` puts
 `alice` into group `bus` (or next to `bus` when it is a plain node), `> alice` brings it back
 to the top level. One move per line, several lines per cue. Moves are sticky inside a part and
 replayed from its first cue, so stepping back undoes them; the player glides nodes to their new
-place and re-lays the groups out around them. `iwr check` verifies the names.
+place and re-lays the groups out around them. `codecast check` verifies the names.
 
 **Appearing and disappearing.** A node written `copy[📄 copy]:::hidden` is not drawn until a
 `> +copy` line shows it; `> -alice` hides one (a hidden group takes its members along), and
@@ -316,7 +316,7 @@ Formats: the number types, `ascii`, `hex` (default). The `sample:` line (several
 pairs, spaces, `0x` and `:` tolerated) fills the strip and the *value* column: `len = 5`,
 `body = "hello"`. Without a sample the strip shows the shape, variable fields as dotted cells.
 The panel draws the bytes as a coloured strip with offsets and each field's name, then a table
-(field, offset, size, value, description); hovering a byte or a row lights both. `iwr check`
+(field, offset, size, value, description); hovering a byte or a row lights both. `codecast check`
 reports unreadable lines, sizes that do not add up to the sample, and `|` lines naming no block.
 
 ## Charts
@@ -336,7 +336,7 @@ Markers sit in braces inside a cue's text and are never spoken: `Caching cut it 
 out of the text and keeps their place as a fraction of it (`Cue::marks`), so speech, captions,
 recordings' text hashes and translations see plain sentences. While playing, a marker fires when
 the voice reaches it (TTS word boundaries, else the time spoken; a recording's time into the cue);
-a cue reached by hand shows all of its markers. `iwr check` reports chart errors, markers naming
+a cue reached by hand shows all of its markers. `codecast check` reports chart errors, markers naming
 rows no chart of the part has, and markers in a part without a chart.
 
 ## Panels, spots and the file tree
@@ -361,7 +361,7 @@ the buttons.
 | Spot | Is |
 |------|----|
 | `brand` · `panel-button` · `views` · `split` · `search` | the app's name, the sidebar button, the Code tab and the views, the source button, the search box |
-| `codecast` · `tour` · `generate` · `help` · `settings` | the buttons of the top bar (`generate` only with `iwr serve`) |
+| `codecast` · `tour` · `generate` · `help` · `settings` | the buttons of the top bar (`generate` only with `codecast serve`) |
 | `sidebar-tabs` | the files / items tabs (shows the sidebar) |
 | `player` · `caption` · `parts` · `questions` | the player bar, its text, its parts, the questions under the text |
 | `voice` · `lang` · `plan-button` | the voice picker, the language picker, the plan button |
@@ -418,7 +418,7 @@ Popups are not part of the spoken text: they are not read, not translated, and n
 recording, so adding or editing one never makes a recording out of date. For a longer listing (a
 folder tree, a request with headers, a table of rules) use the [side panel](#side-panel).
 
-`iwr check` notes every word of a cue or answer that belongs in a popup instead: hyphenated words
+`codecast check` notes every word of a cue or answer that belongs in a popup instead: hyphenated words
 (`gw-config-server`, `Wi-Fi`, `well-formed`), paths (`/data/config.db`, `src/main.rs`) and HTTP
 requests (`GET /config/wifi`).
 
@@ -458,38 +458,38 @@ Common initials are spelled out without any line: `ID`, `IP`, `UID`, `URL`, `API
 only: "the id" in prose stays a word).
 
 ```
-iwr speak codecast/            # the whole codecast as it will be spoken, to review the TTS text
+codecast speak codecast/            # the whole codecast as it will be spoken, to review the TTS text
 ```
 
-`iwr check` prints a note for a code token whose spoken form still looks like code.
+`codecast check` prints a note for a code token whose spoken form still looks like code.
 
 ## Languages
 
 A codecast is written once, in English, and played in another language by picking it in the
-player bar (or Settings, or `?lang=ja` in the URL). Nothing is translated on disk by iwr: when a language
+player bar (or Settings, or `?lang=ja` in the URL). Nothing is translated on disk by codecast: when a language
 is picked, the player sends every text a viewer reads or hears (cues, generated tours, questions
 and answers, part names, `plan:` lines, side notes, glossary questions) to be translated, and plays
 the result. Directives, refs, diagrams and code stay as written.
 
 - **Your own translation first.** `translations/<lang>.json` next to the codecast, made with
   another tool, wins over the model piece by piece (see below); recommended for now.
-- **Offline model.** `iwr serve` translates with an [Argos Translate](https://github.com/argosopentech/argos-translate)
-  model (CTranslate2, CPU), set up on first use under `~/.cache/iwr/translate` (Python venv,
+- **Offline model.** `codecast serve` translates with an [Argos Translate](https://github.com/argosopentech/argos-translate)
+  model (CTranslate2, CPU), set up on first use under `~/.cache/codecast/translate` (Python venv,
   ~250 MB per language). Translations are cached there: a codecast is translated once, then only
-  edited text. `iwr translate codecast/ --lang ja` does the same from the command line and prints
+  edited text. `codecast translate codecast/ --lang ja` does the same from the command line and prints
   the result, to read it (or warm the cache) before playing.
-- **Static site.** `iwr export --lang ja,fr` writes `translations/<lang>.json`; without it the
+- **Static site.** `codecast export --lang ja,fr` writes `translations/<lang>.json`; without it the
   player says so and plays in English.
 - **Code survives.** Code-looking words (`parse_file`, `crate::run`) and project names with a
   capital, `_` or digit (`Project`) are wrapped in backticks before translation, which the model
   copies through; plain lowercase names (`run`, `files`) are prose unless the script backticks them.
 - **Voice.** The browser speaks it with a voice of that language (Chrome has Japanese), or a
-  recording: `iwr voice codecast/ --lang ja` translates each part the same way and records it with
+  recording: `codecast voice codecast/ --lang ja` translates each part the same way and records it with
   Kokoro (`jf_alpha` by default; Japanese phonemes by misaki, installed on first use; code and
   other Latin words read as English) into `NN-part.ja.jf_alpha.ogg` + `.times`, meant to be
   committed next to the English ones. The loader turns them into `audio.ja.jf_alpha:` / `times.ja.jf_alpha:` lines;
   the player plays them in Japanese, TTS speaks the parts without one. The times hash the English
-  cues: edit the English text and the Japanese recording goes stale (`iwr check` says so) until
+  cues: edit the English text and the Japanese recording goes stale (`codecast check` says so) until
   recorded again. Kokoro also speaks `fr`, `es`, `it`, `pt`.
 - Glossary questions are still found from the English text, then shown translated. The player's
   own buttons stay English.
@@ -499,7 +499,7 @@ the result. Directives, refs, diagrams and code stay as written.
 > ⚠ **The offline translation does not work very well for now.** Argos models are small: terms
 > get mistranslated, sentences come out stiff, Japanese especially. For a codecast people will
 > watch, translate it with another tool (DeepL, Google Translate, an LLM such as Claude) and give
-> iwr the result.
+> codecast the result.
 
 The player translates *pieces* (a cue, an answer, a table cell…), looked up by their English text.
 Your own translations go in `translations/<lang>.json` next to the codecast (in the `codecast/`
@@ -509,7 +509,7 @@ to the offline model. With every piece translated, the model is not even install
 
 1. Dump the pieces (no model needed):
    ```
-   iwr translate codecast/ --lang ja --pieces > ja.json
+   codecast translate codecast/ --lang ja --pieces > ja.json
    ```
    Every key is an English piece, in reading order; the values are empty (or your translation so
    far, so run it again after editing the script: new pieces show up empty).
@@ -518,9 +518,9 @@ to the offline model. With every piece translated, the model is not even install
    `backticks` exactly as is. Answer with the JSON only."* With DeepL or a CAT tool, translate the
    file as JSON (keys locked). Keep the backticks: they protect code, which is put back unchanged.
 3. Save the result as `codecast/translations/ja.json`, check it with
-   `iwr translate codecast/ --lang ja` (prints the translated codecast), then play it with
-   `iwr serve`, record it with `iwr voice codecast/ --lang ja`, or export it with
-   `iwr export --lang ja`. Commit the file with the codecast.
+   `codecast translate codecast/ --lang ja` (prints the translated codecast), then play it with
+   `codecast serve`, record it with `codecast voice codecast/ --lang ja`, or export it with
+   `codecast export --lang ja`. Commit the file with the codecast.
 
 Write for translation either way: short sentences, one idea each, code in backticks.
 
@@ -530,7 +530,7 @@ Write for translation either way: short sentences, one idea each, code in backti
 |-----|-------|---------|
 | item path | fn, method, struct, enum, trait, impl (`crate::` optional; unique suffix OK) | `crate::run`, `Task::weight`, `parse_all` |
 | module path | module (scopes module views, glows the module box) | `crate::storage`, `storage` |
-| `<item>/b<n>` | block *n* of that function, ids as printed by `iwr brief` | `crate::run/b5` |
+| `<item>/b<n>` | block *n* of that function, ids as printed by `codecast brief` | `crate::run/b5` |
 | `<file>` | a whole file (`@ code:src/parser.rs` opens it in the Code view) | `src/parser.rs` |
 | `<folder>/` | a folder of the file tree (`!` only; exact path or unique suffix; the `/` keeps a module of the same name from winning) | `src/storage/`, `storage/` |
 | `<file>:<l>[-<l>]` | source lines | `src/main.rs:49-52` |
@@ -543,11 +543,11 @@ view to that module; `@ errors` keeps the current scope.
 A ref resolves to a span, and every view highlights what intersects it: the block and its lines in the
 Code view, the matching statement nodes in Control flow / Branch tree, the item's node in Call tree,
 Types, Error flow, the module box in Architecture. The script never names UI nodes. Unknown refs are
-skipped (`iwr check` lists them).
+skipped (`codecast check` lists them).
 
 ## Brief
 
-`iwr brief` prints the project as compact text (~4 chars per token): modules with docs, types with fields
+`codecast brief` prints the project as compact text (~4 chars per token): modules with docs, types with fields
 or variants, traits with implementors, then each function's signature, facts and body as block lines:
 
 ```
@@ -563,8 +563,8 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 `b<n> <kind> <label> ＋defined used → callee`. Demo crate: ~2.3k tokens with bodies, ~600 without.
 `--fn crate::run` prints one function plus the signatures of what it calls and who calls it.
 
-**Writing one:** give an agent `iwr brief <path> --guide` (the writing guide from
-[writing-codecasts.md](writing-codecasts.md) followed by the brief), then `iwr check` its output.
+**Writing one:** give an agent `codecast brief <path> --guide` (the writing guide from
+[writing-codecasts.md](writing-codecasts.md) followed by the brief), then `codecast check` its output.
 
 ## Player
 
@@ -574,7 +574,7 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 | 🎧 recording | by time: cue with the largest `[t] ≤` position | `audio:` lines (per part or whole script), `--audio`, or a file picked in *load…*; with per-part recordings the tour continues into the next part's file |
 | 📖 read | prev / next, or autoplay (seconds per cue in settings, default 4) | |
 
-**Generated recording (the default way to voice a codecast).** `iwr voice codecast/` speaks every
+**Generated recording (the default way to voice a codecast).** `codecast voice codecast/` speaks every
 cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS, CPU, ~4× real time)
 and writes `NN-part.<voice>.ogg` + `NN-part.<voice>.times` (`01-welcome.am_adam.ogg`) next to each
 part file. **Every voice keeps its own files**: record the codecast with two voices and the player
@@ -583,16 +583,19 @@ covers; the pick is remembered). A part the picked voice did not record, or whos
 since, is spoken by the browser voice, never by another recorded voice: the chip then shows
 `⚠ 7/9` and the list names the missing parts. The loader turns them into `audio.en.am_adam:` / `times.en.am_adam:` lines. Older
 recordings named `NN-part.ogg` (one per language) are renamed to their voice's name the next time
-`iwr voice` runs. Commit both: Opus at ~18 kbps
+`codecast voice` runs. Commit both: Opus at ~18 kbps
 (`--level 0.95`) is ~2.5 MB for 18 minutes, the browser plays it as is, and viewers need no model.
 The `.times` file holds each cue's start time and a hash of its spoken text; the loader turns it
 into the part's `times:` line (cue start times in order, a cue's own `[t]` wins), so the `.md` files
 stay as written and the player opens in 🎧 mode. When a part's text no longer matches its hashes
 the loader leaves its recording out and the player speaks that part with browser TTS, then goes
-back to the recordings; `serve` and `iwr check` name such parts. Clips are cached per cue: after an
+back to the recordings; `serve` and `codecast check` name such parts. Clips are cached per cue: after an
 edit only changed cues are synthesized again.
 First run sets up a Python venv (`kokoro-onnx`) and downloads the int8 model (~120 MB) under
-`~/.cache/iwr/kokoro` (`IWR_KOKORO` overrides). Parts with a generated tour line are skipped; a
+`~/.cache/codecast/kokoro` (`%LOCALAPPDATA%\codecast` on Windows, `~/Library/Caches/codecast` on
+macOS; `CODECAST_KOKORO` overrides). Nothing needs installing first: the venv is made by
+[uv](https://docs.astral.sh/uv/), the one on `PATH` or one downloaded into the cache, and uv fetches
+a Python when there is none. Parts with a generated tour line are skipped; a
 hand-made `NN-part.mp3` stays and plays when no voice is picked. `--force` re-records parts that
 are up to date. When the text of a part changes, the Generate page lists its out-of-date recordings
 by voice and offers to record them again (same voice, speed, pause and compression) or delete them,
@@ -606,4 +609,4 @@ project's codecast, or the built-in walkthrough when there is none; `codecast fr
 details panel starts the walkthrough at a function. The tutorial (`?` button) is a codecast too.
 Keys: `←` `→` step, `space` play/pause, `Esc` close.
 
-`iwr serve` re-reads the script file (or directory) and `glossary.md` on every page load, so edit and refresh.
+`codecast serve` re-reads the script file (or directory) and `glossary.md` on every page load, so edit and refresh.

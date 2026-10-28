@@ -2,8 +2,8 @@
 //!
 //! A script is written in English. To play it in Japanese, the player collects every piece of text
 //! a viewer reads or hears ([`texts`]: cues, questions and answers, part names, plan lines, side
-//! notes, glossary questions), has them translated (offline model behind `iwr serve`, or a map
-//! baked by `iwr export --lang`), and puts them back ([`apply`]). Directives, refs, diagrams and
+//! notes, glossary questions), has them translated (offline model behind `codecast serve`, or a map
+//! baked by `codecast export --lang`), and puts them back ([`apply`]). Directives, refs, diagrams and
 //! glossary terms stay as they are, so a translated script plays exactly like the English one.
 //!
 //! Code must survive translation: before a piece is sent, code-looking words and the project's

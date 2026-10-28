@@ -14,7 +14,7 @@ One cue is one spoken line of a codecast, with the directive lines written above
 
 ## brief
 ask: What is the brief?
-The brief is the compact text print of a project that `iwr brief` produces: modules, types, and every function with its signature and its body as block lines. A writer, human or model, reads it to write a codecast without opening the source.
+The brief is the compact text print of a project that `codecast brief` produces: modules, types, and every function with its signature and its body as block lines. A writer, human or model, reads it to write a codecast without opening the source.
 
 ## ref
 aliases: refs

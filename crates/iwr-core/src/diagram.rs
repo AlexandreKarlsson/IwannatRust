@@ -78,7 +78,7 @@ pub struct Diagram {
     pub horizontal: bool,
     pub nodes: Vec<DNode>,
     pub edges: Vec<DEdge>,
-    /// lines the parser did not understand (`iwr check` reports them)
+    /// lines the parser did not understand (`codecast check` reports them)
     pub errors: Vec<String>,
     /// the block as written (kept for [`crate::script::to_text`])
     pub source: String,
@@ -128,7 +128,7 @@ pub enum Op {
     Show(String),
     /// `> -a`: hide a node (and, for a group, its members)
     Hide(String),
-    /// a `>` line as written that could not be read (`iwr check` reports it)
+    /// a `>` line as written that could not be read (`codecast check` reports it)
     Bad(String),
 }
 
@@ -690,7 +690,7 @@ impl<'a> Ctx<'a> {
 
 /// Lay the diagram out as a [`Graph`]: node ids are the mermaid ids, groups are containers.
 /// `ops` are the `>` lines played so far (in order); names they mention that do not exist are
-/// ignored (`iwr check` reports them).
+/// ignored (`codecast check` reports them).
 pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
     let mut g = Graph { mode: Some(Mode::Diagram), ..Default::default() };
     if d.nodes.is_empty() {

@@ -626,7 +626,7 @@ pub fn spoken(text: &str, pron: &Pronounce) -> String {
     out.replace(" ,", ",").replace(",,", ",").replace(",.", ".")
 }
 
-/// Code tokens whose spoken form still looks like code (nothing matched): for `iwr check`.
+/// Code tokens whose spoken form still looks like code (nothing matched): for `codecast check`.
 pub fn unspoken(text: &str, pron: &Pronounce) -> Vec<String> {
     segments(text, pron).into_iter().filter_map(|s| if let Segment::Code { code, say } = s { if say.contains("::") || say.contains('_') || say.is_empty() { Some(code) } else { None } } else { None }).collect()
 }

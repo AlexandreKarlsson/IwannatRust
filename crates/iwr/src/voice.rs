@@ -1,10 +1,10 @@
-//! `iwr voice`: record a `codecast/` directory with Kokoro TTS (open-weight, runs on the CPU).
+//! `codecast voice`: record a `codecast/` directory with Kokoro TTS (open-weight, runs on the CPU).
 //!
 //! Each part file `NN-name.md` gets `NN-name.ogg` (Opus, ~18 kbps: small enough to commit) and
 //! `NN-name.times` (the start time and text hash of every cue). The loader turns the times into the
 //! part's `times:` line, so the player's recording mode follows the cues and the `.md` files stay as
 //! written; a part whose text changed since is spoken by TTS until it is recorded again. Kokoro runs in a Python
-//! sidecar (`kokoro-onnx`) set up on first use under `~/.cache/iwr/kokoro` (`IWR_KOKORO` overrides).
+//! sidecar (`kokoro-onnx`) set up on first use under the user's cache (`~/.cache/codecast/kokoro`, [`crate::python`]; `CODECAST_KOKORO` overrides).
 //!
 //! `--lang ja` (any codecast language Kokoro has voices for: ja, fr, es, it, pt) records the part
 //! translated the way the player translates it ([`crate::translate`], same cache) into
@@ -15,7 +15,7 @@
 //! A codecast with `sp:` lines is recorded by a pair of voices (`--voice2`, default
 //! [`v::second_voice`]): `NN-name.af_heart+am_fenrir.ogg`, the second voice saying those lines.
 //!
-//! The UI's Generate page runs the same recording through `iwr serve` ([`record`] with a progress
+//! The UI's Generate page runs the same recording through `codecast serve` ([`record`] with a progress
 //! callback and a cancel flag), shows every part's state ([`status`]) and previews voices ([`preview`]).
 
 use crate::codecast;
@@ -77,10 +77,10 @@ pub enum Event {
 }
 
 fn header(o: &Opts) -> String {
-    format!("# iwr voice: kokoro {} speed {} lang {} gap {} opus {}", o.voice, o.speed, o.lang, o.gap, o.level)
+    format!("# codecast voice: kokoro {} speed {} lang {} gap {} opus {}", o.voice, o.speed, o.lang, o.gap, o.level)
 }
 
-/// `iwr voice`: record, telling progress on stderr.
+/// `codecast voice`: record, telling progress on stderr.
 pub fn run(dir: &Path, o: &Opts) -> Result<()> {
     let mut plan = Vec::new();
     record(dir, o, &AtomicBool::new(false), &mut |e| match e {
@@ -94,7 +94,7 @@ pub fn run(dir: &Path, o: &Opts) -> Result<()> {
 /// Record the parts that need it (or `o.only`), reporting each step; stops when `cancel` is set.
 pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(Event)) -> Result<()> {
     if !dir.is_dir() {
-        bail!("iwr voice records a codecast/ directory (one audio file per part file); {} is not one", dir.display());
+        bail!("codecast voice records a codecast/ directory (one audio file per part file); {} is not one", dir.display());
     }
     let project = o.path.clone().or_else(|| dir.canonicalize().ok()?.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
     // a codecast language: translate each part, record it with a voice of that language
@@ -190,7 +190,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
     })
 }
 
-/// Give a recording `iwr voice` made under the older one-per-language name (`01-welcome.ogg`,
+/// Give a recording `codecast voice` made under the older one-per-language name (`01-welcome.ogg`,
 /// `01-welcome.ja.ogg`) its voice's name (`01-welcome.am_adam.ogg`), so that recording another
 /// voice keeps it. Hand-made recordings (no `.times`) stay as they are.
 fn migrate(dir: &Path, stem: &str, lang: &str, report: &mut dyn FnMut(Event)) -> Result<()> {
@@ -240,7 +240,7 @@ type PartDone<'a> = dyn FnMut(usize, &[f64], f64) -> Result<u64> + 'a;
 /// times, duration)` stores what goes with a written part and answers its size in KB. Killed when
 /// `cancel` is set.
 fn sidecar(home: &Path, job: serde_json::Value, cancel: &AtomicBool, report: &mut dyn FnMut(Event), done: &mut PartDone) -> Result<()> {
-    let mut child = Command::new(home.join("venv/bin/python")).arg(home.join("kokoro_voice.py")).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().context("starting the kokoro sidecar")?;
+    let mut child = Command::new(crate::python::python(home)).arg(home.join("kokoro_voice.py")).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().context("starting the kokoro sidecar")?;
     child.stdin.take().context("sidecar stdin")?.write_all(job.to_string().as_bytes())?;
     let stderr = child.stderr.take().context("sidecar stderr")?;
     let (tx, rx) = std::sync::mpsc::channel();
@@ -302,15 +302,12 @@ fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>,
 }
 
 fn home() -> Result<PathBuf> {
-    Ok(match std::env::var_os("IWR_KOKORO") {
-        Some(h) => PathBuf::from(h),
-        None => std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))).context("no HOME")?.join("iwr/kokoro"),
-    })
+    crate::python::home("CODECAST_KOKORO", "kokoro")
 }
 
 /// Is Kokoro set up (venv and model files), so that recording starts at once?
 pub fn ready() -> bool {
-    home().is_ok_and(|h| h.join("venv/bin/python").is_file() && h.join(MODEL).is_file() && h.join(VOICES).is_file())
+    home().is_ok_and(|h| crate::python::python(&h).is_file() && h.join(MODEL).is_file() && h.join(VOICES).is_file())
 }
 
 /// The sidecar's directory, with a Python venv (`kokoro-onnx`, `soundfile`; `misaki[ja]` for
@@ -327,14 +324,9 @@ fn setup(japanese: bool, report: &mut dyn FnMut(Event)) -> Result<PathBuf> {
         }
         Ok(())
     };
-    if !home.join("venv/bin/python").is_file() {
-        run(Command::new("python3").args(["-m", "venv"]).arg(home.join("venv")), "creating a Python venv for kokoro")?;
-    }
-    if !Command::new(home.join("venv/bin/python")).args(["-c", "import kokoro_onnx, soundfile"]).stderr(Stdio::null()).status()?.success() {
-        run(Command::new(home.join("venv/bin/pip")).args(["install", "-q", "kokoro-onnx", "soundfile"]), "installing kokoro-onnx")?;
-    }
-    if japanese && !Command::new(home.join("venv/bin/python")).args(["-c", "from misaki import ja"]).stderr(Stdio::null()).status()?.success() {
-        run(Command::new(home.join("venv/bin/pip")).args(["install", "-q", "misaki[ja]"]), "installing misaki (Japanese phonemes)")?;
+    crate::python::venv(&home, &["kokoro-onnx", "soundfile"], "import kokoro_onnx, soundfile", &mut run)?;
+    if japanese {
+        crate::python::venv(&home, &["misaki[ja]"], "from misaki import ja", &mut run)?;
     }
     for f in [MODEL, VOICES] {
         if !home.join(f).is_file() {
@@ -387,7 +379,7 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
                 p.recordings.push(Recording { lang, state: "own".into(), file: audio, kb, ..Default::default() });
                 continue;
             };
-            // `# iwr voice: kokoro VOICE speed SPEED …`, `# duration SECONDS`
+            // `# codecast voice: kokoro VOICE speed SPEED …`, `# duration SECONDS`
             let words: Vec<&str> = times_text.lines().next().unwrap_or_default().split_whitespace().collect();
             let after = |k: &str| words.iter().position(|w| *w == k).and_then(|i| words.get(i + 1)).map(|s| s.to_string());
             let duration = times_text.lines().find_map(|l| l.strip_prefix("# duration ")).and_then(|d| d.trim().parse().ok());
@@ -417,7 +409,7 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
     st
 }
 
-/// Files `iwr voice` made (a `.times` with its header, and the recording beside it) for part
+/// Files `codecast voice` made (a `.times` with its header, and the recording beside it) for part
 /// stems that no part file has any more.
 fn orphans(dir: &Path, entries: &[PathBuf], stems: &[String]) -> Vec<String> {
     let mut out = Vec::new();

@@ -1,4 +1,4 @@
-//! `iwr serve`: analyze the project, serve the UI + JSON API, re-analyze on file changes.
+//! `codecast serve`: analyze the project, serve the UI + JSON API, re-analyze on file changes.
 
 use anyhow::{Context, Result};
 use axum::{
@@ -72,7 +72,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             }
         }
         for stem in &loaded.stale {
-            eprintln!("script: {}: text changed since its recording, spoken by TTS (re-record: iwr voice {}{})", stem, s.display(), crate::codecast::lang_arg(stem));
+            eprintln!("script: {}: text changed since its recording, spoken by TTS (re-record: codecast voice {}{})", stem, s.display(), crate::codecast::lang_arg(stem));
         }
         for b in crate::codecast::check_config(s) {
             eprintln!("script: {}", b);
@@ -145,7 +145,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
         let url = format!("http://{addr}");
         eprintln!("IwannatRust serving {} at {}", path.display(), url);
         if Assets::get("index.html").is_none() {
-            eprintln!("warning: web UI not built. Run `dx build --release` in crates/iwr-ui (or ./build.sh) and rebuild iwr.");
+            eprintln!("warning: web UI not built. Run `dx build --release` in crates/iwr-ui (or ./build.sh) and rebuild codecast.");
         }
         if open_browser {
             let _ = open::that(&url);
@@ -285,7 +285,7 @@ async fn api_translate(State(s): State<AppState>, AxPath(lang): AxPath<String>, 
     }
 }
 
-/// Every part of the codecast and its recordings (`iwr voice`), for the Generate page.
+/// Every part of the codecast and its recordings (`codecast voice`), for the Generate page.
 async fn api_voice_status(State(s): State<AppState>) -> Response {
     let script = s.script.clone();
     match tokio::task::spawn_blocking(move || crate::voice::status(script.as_deref())).await {

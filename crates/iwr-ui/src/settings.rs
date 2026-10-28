@@ -126,7 +126,7 @@ impl State {
         self.tts_voice2.set(s.tts_voice2);
     }
 
-    /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `iwr serve`, `codecast.json`
+    /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `codecast serve`, `codecast.json`
     /// in an export) and apply it.
     pub async fn load_config(&mut self) {
         let (c, base) = match fetch_config("/api/config").await {
@@ -536,7 +536,7 @@ pub fn SettingsPage() -> Element {
                                 }
                             }
                         }
-                        Row { title: "Language", desc: "translated when played, offline (iwr serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (iwr translate --pieces, see the docs)".to_string(),
+                        Row { title: "Language", desc: "translated when played, offline (codecast serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (codecast translate --pieces, see the docs)".to_string(),
                             select { class: "theme-select", disabled: locked, value: "{lang}",
                                 onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                                 for l in iwr_core::i18n::LANGS {

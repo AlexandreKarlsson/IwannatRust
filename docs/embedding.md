@@ -3,7 +3,7 @@
 ## Static export
 
 ```sh
-iwr export path/to/project -o site/
+codecast export path/to/project -o site/
 ```
 
 `site/` = `index.html` + `assets/*.js|wasm` + `project.json`. Relative paths only, so it works from any static host and any sub-path (`/docs/viz/`). The UI detects the missing `/api/version` and loads `project.json` once (no live reload).
@@ -26,7 +26,7 @@ URL hash state (`#mode=control_flow&root=<item path>&step=<n>`) is not implement
 
 Only `iwr-core` is needed: it exposes `analyze_path`, `views::build`, `guide::build` and serializable types. A plugin can either
 
-1. shell out to `iwr export` and copy the folder into the site, or
+1. shell out to `codecast export` and copy the folder into the site, or
 2. link `iwr-core` and render its own front end from `Project` / `Graph`.
 
 Nothing in the core references the CLI, axum or Dioxus.

@@ -16,7 +16,7 @@ pub struct Loaded {
     pub dir: PathBuf,
     /// the project's own glossary (`glossary.md` next to the script), if any
     pub glossary: Option<String>,
-    /// part files whose `iwr voice` recording was left out because their text changed since
+    /// part files whose `codecast voice` recording was left out because their text changed since
     /// (`01-welcome`, or `01-welcome.ja` for a recording in another language)
     pub stale: Vec<String>,
 }
@@ -91,7 +91,7 @@ pub fn load(path: &Path) -> Result<Loaded> {
         }
         let glossary = std::fs::read_to_string(glossary_path(path)).ok();
         // a generated recording plays only while its cues still say what was recorded; else the
-        // part is spoken by TTS until `iwr voice` runs again
+        // part is spoken by TTS until `codecast voice` runs again
         let pron = pronounce(&script::parse(&script::assemble(&index, &parts)), glossary.as_deref());
         let mut stale = Vec::new();
         for pf in parts.iter_mut() {
@@ -100,7 +100,7 @@ pub fn load(path: &Path) -> Result<Loaded> {
             if !times.is_empty() && pf.audio.is_some() {
                 if hashes.iter().eq(times.iter().map(|(_, h)| h)) {
                     pf.times = times.iter().map(|(t, _)| *t).collect();
-                    // made by `iwr voice` before recordings were named by voice: listed under its voice
+                    // made by `codecast voice` before recordings were named by voice: listed under its voice
                     let made_by = std::fs::read_to_string(path.join(format!("{}.times", pf.stem))).ok().and_then(|t| header_voice(&t));
                     if let (Some(voice), Some(audio)) = (made_by, pf.audio.clone()) {
                         pf.voices.push(script::Voiced { lang: "en".into(), voice, audio, times: pf.times.clone() });
@@ -169,9 +169,9 @@ pub fn variants(entries: &[PathBuf], stem: &str) -> Vec<(String, String)> {
     out
 }
 
-/// The voice a `.times` file written by `iwr voice` was recorded with (its header line).
+/// The voice a `.times` file written by `codecast voice` was recorded with (its header line).
 pub fn header_voice(times: &str) -> Option<String> {
-    let words: Vec<&str> = times.lines().next()?.strip_prefix("# iwr voice: ")?.split_whitespace().collect();
+    let words: Vec<&str> = times.lines().next()?.strip_prefix("# codecast voice: ")?.split_whitespace().collect();
     words.iter().position(|w| *w == "kokoro").and_then(|i| words.get(i + 1)).map(|s| s.to_string())
 }
 
@@ -193,7 +193,7 @@ pub fn lang_arg(stem: &str) -> String {
     }
 }
 
-/// A `.times` file written by `iwr voice`: one `start-seconds text-hash` line per cue, `#` comments.
+/// A `.times` file written by `codecast voice`: one `start-seconds text-hash` line per cue, `#` comments.
 pub fn read_times(path: &Path) -> Vec<(f64, String)> {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     text.lines()
@@ -208,7 +208,7 @@ pub fn read_times(path: &Path) -> Vec<(f64, String)> {
 /// A cue as it will be spoken, and whether the second voice says it (`sp:`).
 pub type Spoken = (String, bool);
 
-/// A part file's cues as they will be spoken, and why it cannot be recorded by `iwr voice`, if so
+/// A part file's cues as they will be spoken, and why it cannot be recorded by `codecast voice`, if so
 /// (generated tours expand at load time, after `times:` is given out).
 pub fn part_spoken(text: &str, pron: &[(String, String)]) -> (Vec<Spoken>, Option<&'static str>) {
     let s = script::parse(text);
@@ -294,7 +294,7 @@ pub fn pronounce(s: &script::Script, glossary: Option<&str>) -> Vec<(String, Str
 #[cfg(test)]
 mod tutorial_tests {
     /// The UI ships the tutorial with its recording: editing a sentence without recording it
-    /// again (`iwr voice crates/iwr-ui/assets/tutorial --path examples/demo`) fails here.
+    /// again (`codecast voice crates/iwr-ui/assets/tutorial --path examples/demo`) fails here.
     #[test]
     fn tutorial_recording_matches_its_text() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");

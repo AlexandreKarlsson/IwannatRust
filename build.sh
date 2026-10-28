@@ -9,4 +9,4 @@ fi
 rm -rf target/dx/iwr-ui/release/web/public
 ( cd crates/iwr-ui && dx build --release )
 cargo build --release -p iwr
-echo "built: target/release/iwr"
+echo "built: target/release/codecast"

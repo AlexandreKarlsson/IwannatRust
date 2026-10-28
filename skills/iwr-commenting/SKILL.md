@@ -1,6 +1,6 @@
 ---
 name: iwr-commenting
-description: Comment Rust (.rs) code so IwannatRust (iwr) shows comments as box titles and flow labels. Use when writing or commenting Rust in an iwr project (has codecast/) or before writing a codecast. Not for other languages.
+description: Comment Rust (.rs) code so IwannatRust (`codecast`) shows comments as box titles and flow labels. Use when writing or commenting Rust in an iwr project (has codecast/) or before writing a codecast. Not for other languages.
 ---
 
 # Commenting Rust for IwannatRust
@@ -52,5 +52,5 @@ pub fn run_all(mut budget: u32) {
 ```
 
 Check (`scripts/iwr` inside an iwr checkout):
-- `iwr brief <path> --no-body`: items show a quoted title; `(no //! doc)` marks missing module docs.
-- `iwr summary <path> | grep '^step'`: titled steps show your text; `Loop`/`Call …` means the title was lost.
+- `codecast brief <path> --no-body`: items show a quoted title; `(no //! doc)` marks missing module docs.
+- `codecast summary <path> | grep '^step'`: titled steps show your text; `Loop`/`Call …` means the title was lost.

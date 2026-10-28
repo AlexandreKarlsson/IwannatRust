@@ -15,7 +15,7 @@ graph LR
 ! part block cue
 Sometimes the best explanation is not in the code: a metaphor, a protocol, a physical effect. So a part can draw. This picture is itself one: a mermaid block in the part file, and cues that talk about it.
 ! block dparse model
-The block goes through diagram parse, a small tolerant parser for mermaid flowcharts: shapes, arrows, labels, groups. Lines it cannot read become errors for iwr check, not crashes.
+The block goes through diagram parse, a small tolerant parser for mermaid flowcharts: shapes, arrows, labels, groups. Lines it cannot read become errors for codecast check, not crashes.
 ! cue ops dgraph
 The greater-than lines of the cues are ops: move a node into a group, show it, hide it. The player replays the ops of a part from its first cue, so stepping back undoes them.
 > +token

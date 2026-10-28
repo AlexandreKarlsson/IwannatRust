@@ -6,6 +6,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The CLI is now called `codecast` (`codecast serve .`, `codecast check codecast/`, `codecast voice`).
+  `iwr` still works for now: it says so and runs `codecast`.
+- Voice and translation run the same on Linux, macOS and Windows and need nothing installed first:
+  their Python environment is made by [uv](https://docs.astral.sh/uv/) (the one on `PATH`, or one
+  downloaded into the cache, which fetches Python too). The cache moved to the platform's cache
+  directory (`~/.cache/codecast`, `~/Library/Caches/codecast`, `%LOCALAPPDATA%\codecast`); an
+  existing `~/.cache/iwr` is moved there. `CODECAST_KOKORO` / `CODECAST_TRANSLATE` replace the
+  `IWR_…` variables, which are still read.
+
 ### Added
 
 - Agent Skill `iwr-commenting` (`skills/`): teaches AI agents to comment Rust code so it reads

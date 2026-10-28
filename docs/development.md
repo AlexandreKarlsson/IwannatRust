@@ -16,7 +16,7 @@ cargo install dioxus-cli --version 0.7.10 --locked     # provides `dx` (in ~/.ca
 
 ```sh
 scripts/iwr build                            # or ./build.sh: dx build --release (UI) + cargo build --release -p iwr
-./target/release/iwr serve examples/demo
+./target/release/codecast serve examples/demo
 ```
 
 Core-only iteration (no wasm): `cargo run -p iwr -- summary examples/demo` prints items, calls, relations, block trees, view sizes and guide steps.
@@ -42,14 +42,14 @@ placeholders (`{dir}`, `{file}`, `{fn}`, `{fn_line}`, `{fn_b1}`, filled by `iwr_
 spoken text never names the project) and their `af_heart` recordings. After editing a sentence:
 
 ```sh
-./target/release/iwr voice crates/iwr-ui/assets/tutorial --path examples/demo
+./target/release/codecast voice crates/iwr-ui/assets/tutorial --path examples/demo
 ```
 
 then rebuild (the recordings are UI assets). New parts go in `PARTS` (`crates/iwr-ui/src/tutorial.rs`).
 
 ## Visual QA
 
-Headless Chrome against a running `iwr serve` is the fastest loop (`scripts/iwr shot`, or drive it
+Headless Chrome against a running `codecast serve` is the fastest loop (`scripts/iwr shot`, or drive it
 over the DevTools protocol: click, press keys, screenshot each cue, read classes). A fresh
 `--user-data-dir` shows the first-start dialog. Selectors: `.node` (svg nodes), `.iblk`/`.blk` (code
 view blocks), `.sidebar .mod` (module headers), `.main.focus-*` / `.spot-on` / `.main.zoomed`

@@ -168,13 +168,13 @@ is read wrongly, fix it in the codecast with a `pronounce: written = spoken` lin
 ## Checklist
 
 1. Every file starts with a `//!` title line, then a blank `//!`, then a short paragraph.
-   `iwr brief <path>` marks the modules that have none with `(no //! doc)`.
+   `codecast brief <path>` marks the modules that have none with `(no //! doc)`.
 2. Every public type and function has a `///` title line.
 3. Every function longer than a screen has a `//` title for each paragraph, and for each early
    `break` / `return`.
 4. Titles: one line, ≤ 60 characters, saying what the code is *for*.
 5. The crate root, and one or two key modules, have a page doc (headings, a table).
-6. Look at it: `iwr serve <path>`, then open Architecture, Types, and Flow for your main function.
+6. Look at it: `codecast serve <path>`, then open Architecture, Types, and Flow for your main function.
    A box showing a raw name instead of your sentence means its comment broke a rule above.
 
 ## For AI agents

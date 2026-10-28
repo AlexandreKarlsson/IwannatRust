@@ -1,16 +1,16 @@
-//! Generated codecast voice (`iwr voice`, the UI's Generate page): the Kokoro voices, the
+//! Generated codecast voice (`codecast voice`, the UI's Generate page): the Kokoro voices, the
 //! languages they speak, and the JSON the server and the page exchange (status of every part,
 //! a generation request, the progress of a running job).
 
 use serde::{Deserialize, Serialize};
 
-/// The voice `iwr voice` uses unless told otherwise.
+/// The voice `codecast voice` uses unless told otherwise.
 pub const DEFAULT_VOICE: &str = "af_heart";
 
 /// A language Kokoro can record a codecast in.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VoiceLang {
-    /// what `iwr voice --lang` takes: Kokoro's (`en-us`, `en-gb`) for English, else a codecast language (`ja`)
+    /// what `codecast voice --lang` takes: Kokoro's (`en-us`, `en-gb`) for English, else a codecast language (`ja`)
     pub arg: &'static str,
     /// the codecast language its recordings are for (`en`, `ja`): `NN-part.ogg` or `NN-part.ja.ogg`
     pub code: &'static str,
@@ -111,7 +111,7 @@ pub struct Recording {
     /// codecast language: `en`, `ja`
     pub lang: String,
     /// `recorded` (plays), `stale` (the text changed since: TTS speaks the part), `own` (a
-    /// recording `iwr voice` did not make: kept unless replacing is asked for)
+    /// recording `codecast voice` did not make: kept unless replacing is asked for)
     pub state: String,
     /// the Kokoro voice it was made with (none: a hand-made recording)
     #[serde(default)]
@@ -176,7 +176,7 @@ pub struct VoiceStatus {
     /// recordings whose text changed since, by language and voice
     #[serde(default)]
     pub stale: Vec<StaleGroup>,
-    /// files `iwr voice` made for parts that are gone (renamed or deleted part files)
+    /// files `codecast voice` made for parts that are gone (renamed or deleted part files)
     #[serde(default)]
     pub orphans: Vec<String>,
     /// a second voice speaks in the codecast (`sp:` lines): it is recorded by a pair of voices
@@ -191,7 +191,7 @@ pub struct StaleGroup {
     /// codecast language: `en`, `ja`
     pub lang: String,
     pub voice: String,
-    /// as `iwr voice` was told: `en-us`, `en-gb`, `ja`
+    /// as `codecast voice` was told: `en-us`, `en-gb`, `ja`
     pub arg: String,
     pub speed: f32,
     pub gap: f32,
@@ -231,7 +231,7 @@ pub struct VoiceRequest {
     pub lang: String,
     pub gap: f32,
     pub level: f32,
-    /// replace recordings `iwr voice` did not make
+    /// replace recordings `codecast voice` did not make
     #[serde(default)]
     pub force: bool,
     /// part stems to record (each one, up to date or not); empty = every part that needs it

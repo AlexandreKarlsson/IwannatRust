@@ -1,13 +1,17 @@
 [package]
 name = "iwr"
-description = "IwannatRust CLI: analyze a cargo project and serve the interactive visualizer"
+description = "IwannatRust CLI (`codecast`): analyze a cargo project and serve the interactive visualizer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "iwr"
+name = "codecast"
 path = "src/main.rs"
+
+[[bin]]
+name = "iwr"
+path = "src/bin/iwr.rs"
 
 [dependencies]
 iwr-core = { workspace = true, features = ["fs"] }
@@ -22,3 +26,4 @@ rust-embed = { version = "8", features = ["debug-embed"] }
 mime_guess = "2"
 open = "5"
 anyhow = "1"
+dirs = "6"

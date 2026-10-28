@@ -2,10 +2,10 @@
 
 A **codecast** is a short spoken tour of a Rust project. The IwannatRust player performs it on top of
 its views: switching diagrams, glowing the block being talked about, underlining code. Input: the
-**brief** (`iwr brief <path>`). Output: a **script** in the markdown format below, as one `codecast.md`
+**brief** (`codecast brief <path>`). Output: a **script** in the markdown format below, as one `codecast.md`
 or a `codecast/` directory (`index.md` with title + part list, one `NN-part-name.md` per part, optional
 `glossary.md`, optional `codecast.toml` for the theme, fonts, voice and language the viewer starts
-with — see [codecast.md](codecast.md#look-and-defaults-codecasttoml)). Validate with `iwr check <script> --path <path>`, hear-check with `iwr speak <script>`.
+with — see [codecast.md](codecast.md#look-and-defaults-codecasttoml)). Validate with `codecast check <script> --path <path>`, hear-check with `codecast speak <script>`.
 
 ## Format
 
@@ -68,7 +68,7 @@ and what each comment turns into on screen: [commenting.md](commenting.md).
 `//` block. Write intent, not code: `// Find the next biggest value`, not `// loop over v`.
 One comment titles one paragraph of plain statements (up to the next blank line).
 `//!` rule: first sentence says what the module is *for*; blank `//!` line; then details.
-`iwr brief` marks modules without one: `(no //! doc)`.
+`codecast brief` marks modules without one: `(no //! doc)`.
 
 ```rust
 //! Pick tasks in priority order.
@@ -127,7 +127,7 @@ module's on its stop. Paths and `<placeholders>` are read as "gw slash data slas
 Directives above the line and `?` questions below it attach to its first cue. Write your own cue
 before it (why we look) and after it (hand-over). Use them for the
 inventory parts (map, data, errors) and write by hand what needs judgement: why, how parts connect.
-`flow_tour` is only as good as the function's `//` comments. `iwr speak` prints the generated text; `iwr check` flags unknown tours.
+`flow_tour` is only as good as the function's `//` comments. `codecast speak` prints the generated text; `codecast check` flags unknown tours.
 
 ## Voice: explain it to a curious twelve-year-old
 
@@ -188,7 +188,7 @@ Exactly, and the next line starts fresh.
    feels broken. Set everything the part needs from that first cue: panels left from the viewer's
    own clicking are not your layout. The Welcome part opens best on `@ arch` with the crates lit
    (`! crate_a crate_b`) and the view enlarged (`+ view`): the whole map, before any detail.
-   `iwr check` notes every part whose first cue does not set the stage.
+   `codecast check` notes every part whose first cue does not set the stage.
 4. **One view per part.** Ten cues on one function, moving only the glow, beat jumping between views.
    Change `@` only when the subject really moves, two or three times per part at most.
 5. **Link the parts.** End each with a hand-over ("Next, let's see what executing a task means."),
@@ -225,7 +225,7 @@ Exactly, and the next line starts fresh.
     put the exact name in a `^` line above the cue: the viewer sees it in a popup card, the voice
     never says it. Hyphenated English words too: "well formed", "read only", "brand new", "64"
     instead of "sixty-four". Name a function only when the listener needs it, and then in a `^` line
-    rather than in the sentence. `iwr check` notes every word that breaks this rule.
+    rather than in the sentence. `codecast check` notes every word that breaks this rule.
 15. **Say where before what.** When a cue lights up a control or a panel (`+ search`, `+ files`),
     start with its place: "At the top right, the search box…", "On the left, the files…".
 16. **Zoom on big pages.** A long file or a wide graph: `!` the part, then `+ zoom`, and `+` after.
@@ -412,13 +412,13 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 
 ## Checklist
 
-- `iwr check` prints "all refs resolve"; every `?` has an indented answer.
+- `codecast check` prints "all refs resolve"; every `?` has an indented answer.
 - A few `sp:` lines let a second voice ask or sum up (one every three to six cues, never two in a row).
 - Directory form: `index.md` has `# Title` and a `- [Part](NN-file.md)` list in playing order; each
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
 - First cue of every part sets the stage: `@` plus a `!`, `+` or `|` (Welcome: `@ arch`, crates
-  lit, `+ view`); `iwr check` prints no "first cue" note. No part longer than twelve cues.
+  lit, `+ view`); `codecast check` prints no "first cue" note. No part longer than twelve cues.
 - Data the code sends, reads or stores is shown with an example block, not described.
 - A number that changed or a share of a whole is a chart revealed with `{+id}` markers, not a list of figures.
 - Each big idea has one metaphor; jargon comes after the plain words.
@@ -426,5 +426,5 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 - Inventory parts may use tours (`architecture_tour`, `types_tour`, `errors_tour`…) instead of hand-written cue lists.
 - Cues talk about the code, they do not quote it: names at most, no expressions or snippets.
 - No dashes, paths, endpoints or HTTP verbs in cues, answers, part names or `plan:` lines; exact
-  names go in `^` popups. `iwr check` prints no "hard to say" note.
-- `iwr speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.
+  names go in `^` popups. `codecast check` prints no "hard to say" note.
+- `codecast speak` reads well: no "underscore", no "colon colon"; odd words have a `pronounce:` line, acronyms a `spell:` one.
