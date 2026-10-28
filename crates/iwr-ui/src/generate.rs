@@ -187,6 +187,18 @@ pub fn GeneratePage() -> Element {
     let mut previewing = use_signal(|| None::<(String, bool)>);
     let mut message = use_signal(String::new);
     let show_log = use_signal(|| false);
+    // the voice slot a click on a voice fills: 1 the main voice, 2 the second one
+    let mut slot = use_signal(|| 1u8);
+    // the voice being dragged onto a slot
+    let mut dragging = use_signal(|| None::<&'static str>);
+    // Firefox starts a drag only when it carries data
+    use_hook(|| {
+        document::eval(
+            r#"if (!window.__iwrVoiceDrag) { window.__iwrVoiceDrag = true;
+                 document.addEventListener("dragstart", (e) => { const v = e.target.closest && e.target.closest("[data-voice]");
+                   if (v) { e.dataTransfer.setData("text/plain", v.dataset.voice); e.dataTransfer.effectAllowed = "copy"; } }, true); }"#,
+        );
+    });
 
     let status = state.voice_status.read().clone();
     let Some(status) = status else {
@@ -197,12 +209,15 @@ pub fn GeneratePage() -> Element {
     let code = lang.code;
     let parts = &status.parts;
     let recordable: Vec<&PartStatus> = parts.iter().filter(|p| p.skip.is_none()).collect();
-    let auto: HashSet<String> = parts.iter().filter(|p| needs(p, code, &r.voice)).map(|p| p.stem.clone()).collect();
+    // a codecast with `sp:` lines is recorded by a pair of voices: `af_heart+am_fenrir`
+    let voice2 = r.voice2.clone().unwrap_or_else(|| v::second_voice(&r.voice).to_string());
+    let key = if status.second { v::pair(&r.voice, Some(&voice2)) } else { r.voice.clone() };
+    let auto: HashSet<String> = parts.iter().filter(|p| needs(p, code, &key)).map(|p| p.stem.clone()).collect();
     let sel: HashSet<String> = picked.read().clone().unwrap_or_else(|| auto.clone());
     let n_sel = recordable.iter().filter(|p| sel.contains(&p.stem)).count();
     let cues_sel: usize = recordable.iter().filter(|p| sel.contains(&p.stem)).map(|p| p.cues).sum();
     // what the picked voice has recorded in the picked language
-    let mine = |p: &PartStatus| p.recording(code, &r.voice).cloned();
+    let mine = |p: &PartStatus| p.recording(code, &key).cloned();
     let own = |p: &PartStatus| p.recordings.iter().any(|x| x.lang == code && x.state == "own");
     let count = |state: &str| parts.iter().filter(|p| mine(p).is_some_and(|x| x.state == state)).count();
     let (n_rec, n_stale) = (count("recorded"), count("stale"));
@@ -212,7 +227,7 @@ pub fn GeneratePage() -> Element {
     let audio: f64 = parts.iter().filter_map(mine).filter(|x| x.state == "recorded").filter_map(|x| x.duration).sum();
     let kb: u64 = parts.iter().filter_map(mine).map(|x| x.kb).sum();
     let running = job.as_ref().is_some_and(|j| j.running);
-    let (voice_name, _) = v::voice_label(&r.voice);
+    let (voice_name, _) = v::voice_label(&key);
 
     let n_auto = auto.len();
     // record the ticked parts; `retranslate` / `fresh` skip the translation / cue clip caches
@@ -299,7 +314,7 @@ pub fn GeneratePage() -> Element {
                                   let pct = done * 100 / n;
                                   rsx! {
                                     button { class: if l.arg == lang.arg { "gen-lang sel" } else { "gen-lang" }, disabled: running,
-                                        onclick: move |_| { stop_preview(); picked.set(None); req.with_mut(|r| { r.lang = l.arg.into(); r.voice = l.default_voice.into(); }); },
+                                        onclick: move |_| { stop_preview(); picked.set(None); req.with_mut(|r| { r.lang = l.arg.into(); r.voice = l.default_voice.into(); r.voice2 = None; }); },
                                         span { class: "name", "{l.name}" }
                                         span { class: "bar", i { style: "width:{pct}%" } }
                                         span { class: "sub", "{done}/{recordable.len()} parts" }
@@ -311,19 +326,73 @@ pub fn GeneratePage() -> Element {
 
                     // ---- 2. voice
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "2" } div { h3 { "Voice" } p { "Click ▶ to hear a sample. Every voice keeps its own recordings: listeners pick one in the player." } } }
+                        div { class: "gen-step", span { "2" } div { h3 { "Voices" } p { "Click a slot, then a voice, or drag a voice onto a slot. ▶ plays a sample. Every voice (or pair) keeps its own recordings: listeners pick one in the player." } } }
+                        div { class: "gen-slots",
+                            for n in [1u8, 2] {
+                                { let (id, auto_pick) = if n == 1 { (r.voice.clone(), false) } else { (voice2.clone(), r.voice2.is_none()) };
+                                  let (name, _) = v::voice_label(&id);
+                                  let same = n == 2 && id == r.voice;
+                                  let active = *slot.read() == n;
+                                  let off = n == 2 && !status.second;
+                                  let title = if n == 1 { "Main voice" } else { "Second voice" };
+                                  let note = match (n, off, same, auto_pick) {
+                                      (1, ..) => "says every line".to_string(),
+                                      (_, true, _, _) => "says the sp: lines: this codecast has none yet".to_string(),
+                                      (_, _, true, _) => "the sp: lines, same voice spoken higher".to_string(),
+                                      (_, _, _, true) => "the sp: lines (picked for you)".to_string(),
+                                      _ => "says the sp: lines".to_string(),
+                                  };
+                                  let class = format!("gen-slot{}{}", if active { " active" } else { "" }, if off { " off" } else { "" });
+                                  rsx! {
+                                    div { class: "{class}",
+                                        onclick: move |_| if !running { slot.set(n) },
+                                        ondragover: move |e| e.prevent_default(),
+                                        ondrop: move |e| {
+                                            e.prevent_default();
+                                            if let Some(id) = dragging.take() {
+                                                if !running {
+                                                    req.with_mut(|r| if n == 1 { r.voice = id.into() } else { r.voice2 = Some(id.into()) });
+                                                }
+                                            }
+                                        },
+                                        span { class: "slot-n", "{n}" }
+                                        div { class: "avatar", style: "--h:{hue(&id)}", "{name.chars().next().unwrap_or('?')}" }
+                                        div { class: "who",
+                                            div { class: "slot-title", "{title}" }
+                                            div { class: "vname", "{name}" if same { " ↑" } }
+                                            div { class: "vtags", "{note}" }
+                                        }
+                                        if n == 2 && !auto_pick {
+                                            button { class: "slot-x", title: "pick for me", disabled: running,
+                                                onclick: move |e| { e.stop_propagation(); req.with_mut(|r| r.voice2 = None); }, "✕" }
+                                        }
+                                    }
+                                } }
+                            }
+                            button { class: "gen-swap", title: "swap the two voices", disabled: running,
+                                onclick: { let v2 = voice2.clone(); move |_| { let v2 = v2.clone(); req.with_mut(|r| { let v1 = std::mem::replace(&mut r.voice, v2); r.voice2 = Some(v1); }); } },
+                                "⇄" }
+                        }
                         div { class: "gen-voices",
                             for id in v::voices_for(&lang) {
                                 { let (name, female) = v::voice_label(id);
                                   let featured = v::FEATURED.contains(&id);
                                   let sel = r.voice == id;
-                                  let has = parts.iter().filter(|p| p.recording(code, id).is_some_and(|x| x.state == "recorded")).count();
+                                  let sel2 = voice2 == id;
+                                  let has = parts.iter().filter(|p| p.recordings.iter().any(|x| x.lang == code && x.state == "recorded" && x.voice.as_deref().is_some_and(|w| v::split_pair(w).0 == id))).count();
                                   let pv = previewing.read().clone().filter(|(p, _)| p == id);
                                   let h = hue(id);
                                   let initial = name.chars().next().unwrap_or('?');
                                   rsx! {
-                                    div { class: if sel { "gen-voice sel" } else { "gen-voice" }, onclick: move |_| if !running { req.with_mut(|r| r.voice = id.into()) },
+                                    div { class: if sel { "gen-voice sel" } else if sel2 { "gen-voice sel2" } else { "gen-voice" },
+                                        draggable: !running, "data-voice": id,
+                                        ondragstart: move |_| dragging.set(Some(id)),
+                                        ondragend: move |_| dragging.set(None),
+                                        onclick: move |_| if !running { req.with_mut(|r| if *slot.peek() == 1 { r.voice = id.into() } else { r.voice2 = Some(id.into()) }) },
                                         div { class: "avatar", style: "--h:{h}", "{initial}" }
+                                        if sel || sel2 {
+                                            span { class: "vslot", if sel && sel2 { "1·2" } else if sel { "1" } else { "2" } }
+                                        }
                                         div { class: "who",
                                             div { class: "vname", "{name}" if featured { span { class: "star", title: "one of the best Kokoro voices", "★" } } }
                                             div { class: "vtags", if female { "♀ " } else { "♂ " } "{accent(id)}"
@@ -400,7 +469,7 @@ pub fn GeneratePage() -> Element {
                         div { class: "gen-parts",
                             for (i, p) in parts.iter().enumerate() {
                                 { let rec = mine(p);
-                                  let others: Vec<String> = p.recordings.iter().filter(|x| x.lang == code && x.state == "recorded").filter_map(|x| x.voice.clone()).filter(|x| *x != r.voice).collect();
+                                  let others: Vec<String> = p.recordings.iter().filter(|x| x.lang == code && x.state == "recorded").filter_map(|x| x.voice.clone()).filter(|x| *x != key).collect();
                                   let own = own(p);
                                   let stem = p.stem.clone();
                                   let sel = sel.clone();

@@ -1,8 +1,11 @@
 """Kokoro TTS for `iwr voice`: reads a job (JSON) on stdin, writes one audio file per part.
 Progress goes to stderr as `@` lines the CLI reads; anything else there is a log line.
 
-Job: {"model", "voices", "voice", "speed", "lang", "gap", "level", "cache", "fresh",
-      "parts": [{"out": "/abs/01-welcome.ogg", "cues": ["spoken text", ...]}]}
+Job: {"model", "voices", "voice", "voice2", "pitch2", "speed", "lang", "gap", "level", "cache", "fresh",
+      "parts": [{"out": "/abs/01-welcome.ogg", "cues": ["spoken text", ...], "second": [false, ...]}]}
+`voice2` says the cues marked in `second` (the script's `sp:` lines), `pitch2` times higher: a
+language with one voice gets a second one by speaking it slower by `pitch2`, then playing it
+faster by as much (same length, higher voice).
 Output is Ogg Opus; `level` is libsndfile's compression level (0.95 ≈ 18 kbps, clear speech).
 Progress: `@ready` once the model is loaded, `@cue P I N` when cue I (1-based) of N of part P
 (0-based) is done, `@part {"out", "times": [0.0, 4.2, ...], "duration"}` when a part's file is written.
@@ -57,16 +60,25 @@ def main():
     gap = np.zeros(int(job["gap"] * sr), dtype=np.float32)
     for p, part in enumerate(job["parts"]):
         chunks, times, t = [], [], 0.0
+        second = part.get("second") or []
         for i, text in enumerate(part["cues"]):
-            key = hashlib.sha256(f'{job["voice"]}|{job["speed"]}|{job["lang"]}|{text}'.encode()).hexdigest()[:24]
+            other = i < len(second) and second[i]
+            voice = job.get("voice2", job["voice"]) if other else job["voice"]
+            pitch = job.get("pitch2", 1.0) if other else 1.0
+            tag = f"|{pitch}" if pitch != 1.0 else ""
+            key = hashlib.sha256(f'{voice}|{job["speed"]}|{job["lang"]}{tag}|{text}'.encode()).hexdigest()[:24]
             clip = os.path.join(job["cache"], key + ".wav")
             if os.path.exists(clip) and not job.get("fresh"):
                 audio, _ = sf.read(clip, dtype="float32")
             elif text.strip():
+                speed = job["speed"] / pitch
                 if g2p:
-                    audio, sr = kokoro.create(g2p(text), voice=job["voice"], speed=job["speed"], is_phonemes=True)
+                    audio, sr = kokoro.create(g2p(text), voice=voice, speed=speed, is_phonemes=True)
                 else:
-                    audio, sr = kokoro.create(text, voice=job["voice"], speed=job["speed"], lang=job["lang"])
+                    audio, sr = kokoro.create(text, voice=voice, speed=speed, lang=job["lang"])
+                if pitch != 1.0:
+                    n = int(len(audio) / pitch)
+                    audio = np.interp(np.arange(n) * pitch, np.arange(len(audio)), audio).astype(np.float32)
                 sf.write(clip, audio, sr)
             else:
                 audio = np.zeros(int(0.5 * sr), dtype=np.float32)

@@ -74,6 +74,10 @@ pub struct State {
     pub voice: Signal<player::Voice>,
     /// the Kokoro voice whose recordings play (`""`: the one that recorded the most parts)
     pub rec_voice: Signal<String>,
+    /// the browser voices the viewer picked (part of a name; `""`: the codecast's, else automatic):
+    /// the main one, and the one of the `sp:` lines
+    pub tts_voice: Signal<String>,
+    pub tts_voice2: Signal<String>,
     /// recording given from outside the script (`--audio` or a picked file); `audio:` lines win over it
     pub audio_url: Signal<Option<String>>,
     /// where relative `audio:` names resolve (`/api/codecast/` live, `codecast/` in an export)
@@ -381,6 +385,8 @@ fn App() -> Element {
         playing: Signal::new(false),
         voice: Signal::new(player::Voice::Tts),
         rec_voice: Signal::new(String::new()),
+        tts_voice: Signal::new(String::new()),
+        tts_voice2: Signal::new(String::new()),
         audio_url: Signal::new(None),
         audio_base: Signal::new("/api/codecast/".into()),
         config: Signal::new(Rc::new(Default::default())),

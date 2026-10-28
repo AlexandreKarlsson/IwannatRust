@@ -95,7 +95,7 @@ pub fn load(path: &Path) -> Result<Loaded> {
         let pron = pronounce(&script::parse(&script::assemble(&index, &parts)), glossary.as_deref());
         let mut stale = Vec::new();
         for pf in parts.iter_mut() {
-            let hashes: Vec<String> = part_spoken(&pf.text, &pron).0.iter().map(|s| text_hash(s)).collect();
+            let hashes = hashes(&part_spoken(&pf.text, &pron).0);
             let times = read_times(&path.join(format!("{}.times", pf.stem)));
             if !times.is_empty() && pf.audio.is_some() {
                 if hashes.iter().eq(times.iter().map(|(_, h)| h)) {
@@ -205,9 +205,12 @@ pub fn read_times(path: &Path) -> Vec<(f64, String)> {
         .collect()
 }
 
+/// A cue as it will be spoken, and whether the second voice says it (`sp:`).
+pub type Spoken = (String, bool);
+
 /// A part file's cues as they will be spoken, and why it cannot be recorded by `iwr voice`, if so
 /// (generated tours expand at load time, after `times:` is given out).
-pub fn part_spoken(text: &str, pron: &[(String, String)]) -> (Vec<String>, Option<&'static str>) {
+pub fn part_spoken(text: &str, pron: &[(String, String)]) -> (Vec<Spoken>, Option<&'static str>) {
     let s = script::parse(text);
     let cues: Vec<_> = s.parts.iter().flat_map(|p| &p.cues).collect();
     let skip = if s.parts.len() > 1 {
@@ -217,7 +220,13 @@ pub fn part_spoken(text: &str, pron: &[(String, String)]) -> (Vec<String>, Optio
     } else {
         None
     };
-    (cues.iter().map(|c| iwr_core::speech::spoken(&c.say, pron)).collect(), skip)
+    (cues.iter().map(|c| (iwr_core::speech::spoken(&c.say, pron), c.second())).collect(), skip)
+}
+
+/// The hashes a `.times` file keeps of a part's cues: a line given to the other voice is stale
+/// too. A line of the main voice hashes its text alone, as before there was a second voice.
+pub fn hashes(spoken: &[Spoken]) -> Vec<String> {
+    spoken.iter().map(|(t, second)| if *second { text_hash(&format!("sp:{}", t)) } else { text_hash(t) }).collect()
 }
 
 /// Stable short hash of a cue's spoken text (FNV-1a), to tell when a `.times` file is stale.

@@ -19,6 +19,7 @@
 //! audio.en.am_adam: …         a recording by one Kokoro voice (`iwr voice` writes one per voice):
 //! times.en.am_adam: …         the listener picks the voice in the player
 //! Spoken sentence.            every plain line is one cue; the directives above attach to it
+//! sp: Why line by line?       a cue said by the second voice (a question, a remark)
 //! ? What is a crate?          a question the listener can click (pauses the codecast)
 //!   The answer, indented.     answer lines; may hold their own `@` `!` `=` directives
 //! ```
@@ -239,12 +240,32 @@ pub struct Cue {
     /// `{+v2 !v2}` chart markers taken out of the text, with where they sat (see [`crate::chart`])
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<crate::chart::CueMark>,
+    /// who says it: 0 the main voice, 1 the second voice (a line written `sp: …`)
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub speaker: u8,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 impl Cue {
-    /// Set the text from a script line: chart markers go to `marks`.
+    /// Set the text from a script line: `sp:` gives it to the second voice, chart markers go
+    /// to `marks`.
     fn set_say(&mut self, raw: &str) {
+        let raw = match raw.strip_prefix("sp:") {
+            Some(rest) => {
+                self.speaker = 1;
+                rest.trim_start()
+            }
+            None => raw,
+        };
         (self.say, self.marks) = crate::chart::split_say(raw);
+    }
+
+    /// Does the second voice say it?
+    pub fn second(&self) -> bool {
+        self.speaker == 1
     }
 }
 
@@ -320,6 +341,11 @@ pub struct Question {
 impl Script {
     pub fn cue_count(&self) -> usize {
         self.parts.iter().map(|p| p.cues.len()).sum()
+    }
+
+    /// Does a second voice speak in it (`sp:` lines)?
+    pub fn has_second_voice(&self) -> bool {
+        self.parts.iter().flat_map(|p| &p.cues).any(Cue::second)
     }
 }
 
@@ -631,6 +657,7 @@ pub fn to_text(s: &Script) -> String {
                 out.push_str(&format!("+ {}\n", f).replace("+ \n", "+\n"));
             }
             let say = flatten(&crate::chart::join_say(&c.say, &c.marks));
+            let say = if c.second() { format!("sp: {}", say) } else { say };
             match (&c.tour, c.t) {
                 (Some(tour), _) => out.push_str(&format!("{}\n", tour)),
                 (None, Some(t)) => out.push_str(&format!("[{}] {}\n", t, say)),
@@ -1348,6 +1375,9 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
         t.side.clear();
         for (i, c) in part.cues.iter().enumerate() {
             let at = format!("{} / cue {}", part.name, i + 1);
+            if c.second() && c.say.trim().is_empty() {
+                bad.push(format!("{}: `sp:` without text", at));
+            }
             if let Some(show) = &c.show {
                 t.show(p, part, &at, show, &mut bad);
             }

@@ -61,8 +61,44 @@ pub fn voices_for(l: &VoiceLang) -> impl Iterator<Item = &'static str> + '_ {
     VOICES.iter().copied().filter(move |v| v.chars().next() == letter)
 }
 
-/// `af_heart` → (`Heart`, female?).
+/// How much higher the second voice speaks when it is the first voice again (a language with
+/// one Kokoro voice): Kokoro speaks it slower by this factor, then it is played faster by it.
+pub const SECOND_PITCH: f32 = 1.12;
+
+/// The voice that says the `sp:` lines when none is given: one of the other gender in the same
+/// language, else another one, else `first` itself (then spoken higher, see [`SECOND_PITCH`]).
+pub fn second_voice(first: &str) -> &'static str {
+    let lang = first.chars().next();
+    let female = first.as_bytes().get(1) == Some(&b'f');
+    let same: Vec<&'static str> = VOICES.iter().copied().filter(|v| v.chars().next() == lang && *v != first).collect();
+    let other = |v: &&str| (v.as_bytes().get(1) == Some(&b'f')) != female;
+    same.iter().copied().find(|v| FEATURED.contains(v) && other(v)).or_else(|| same.iter().copied().find(other)).or_else(|| same.first().copied()).unwrap_or_else(|| VOICES.iter().copied().find(|v| *v == first).unwrap_or(DEFAULT_VOICE))
+}
+
+/// The id of a recording made with two voices: `af_heart+am_michael` (the second one says the
+/// `sp:` lines); one voice stays `af_heart`.
+pub fn pair(first: &str, second: Option<&str>) -> String {
+    match second {
+        Some(s) => format!("{}+{}", first, s),
+        None => first.to_string(),
+    }
+}
+
+/// `af_heart+am_michael` → (`af_heart`, `Some("am_michael")`).
+pub fn split_pair(id: &str) -> (&str, Option<&str>) {
+    match id.split_once('+') {
+        Some((a, b)) => (a, Some(b)),
+        None => (id, None),
+    }
+}
+
+/// `af_heart` → (`Heart`, female?); a pair `af_heart+am_michael` → (`Heart & Michael`, the first's).
 pub fn voice_label(id: &str) -> (String, bool) {
+    if let (a, Some(b)) = split_pair(id) {
+        let (na, f) = voice_label(a);
+        let nb = if a == b { "higher".to_string() } else { voice_label(b).0 };
+        return (format!("{} & {}", na, nb), f);
+    }
     let name = id.split_once('_').map(|(_, n)| n).unwrap_or(id);
     let mut c = name.chars();
     let name = c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default();
@@ -121,6 +157,9 @@ impl PartStatus {
 
 /// Is this a Kokoro voice id (`am_adam`), as opposed to a language code in a file name?
 pub fn is_voice_id(s: &str) -> bool {
+    if let (a, Some(b)) = split_pair(s) {
+        return is_voice_id(a) && is_voice_id(b);
+    }
     VOICES.contains(&s) || (s.len() > 3 && s.as_bytes().get(2) == Some(&b'_') && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
 }
 
@@ -140,6 +179,9 @@ pub struct VoiceStatus {
     /// files `iwr voice` made for parts that are gone (renamed or deleted part files)
     #[serde(default)]
     pub orphans: Vec<String>,
+    /// a second voice speaks in the codecast (`sp:` lines): it is recorded by a pair of voices
+    #[serde(default)]
+    pub second: bool,
 }
 
 /// The out-of-date recordings of one voice in one language, and how they were made, to make
@@ -181,6 +223,9 @@ pub struct CleanRequest {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct VoiceRequest {
     pub voice: String,
+    /// the voice of the `sp:` lines (none: [`second_voice`])
+    #[serde(default)]
+    pub voice2: Option<String>,
     pub speed: f32,
     /// a [`VoiceLang::arg`]
     pub lang: String,
@@ -202,7 +247,7 @@ pub struct VoiceRequest {
 
 impl Default for VoiceRequest {
     fn default() -> Self {
-        Self { voice: DEFAULT_VOICE.into(), speed: 1.0, lang: "en-us".into(), gap: 0.4, level: 0.95, force: false, parts: vec![], retranslate: false, fresh: false }
+        Self { voice: DEFAULT_VOICE.into(), voice2: None, speed: 1.0, lang: "en-us".into(), gap: 0.4, level: 0.95, force: false, parts: vec![], retranslate: false, fresh: false }
     }
 }
 

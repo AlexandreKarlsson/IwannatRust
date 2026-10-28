@@ -102,6 +102,10 @@ enum Cmd {
         /// Kokoro voice (af_heart, af_bella, am_michael, bf_emma, bm_george, …)
         #[arg(long, default_value = voice::DEFAULT_VOICE)]
         voice: String,
+        /// Kokoro voice of the `sp:` lines (default: one of the other gender in the language;
+        /// the same voice spoken higher when the language has only one) → NN-part.<voice>+<voice2>.ogg
+        #[arg(long)]
+        voice2: Option<String>,
         #[arg(long, default_value_t = 1.0)]
         speed: f32,
         /// Kokoro language (en-us, en-gb), or a codecast language to translate into and record:
@@ -199,7 +203,8 @@ fn main() -> Result<()> {
             for p in &s.parts {
                 println!("\n## {}", p.name);
                 for c in &p.cues {
-                    println!("{}", iwr_core::speech::spoken(&c.say, &pron));
+                    let who = if c.second() { "sp: " } else { "" };
+                    println!("{}{}", who, iwr_core::speech::spoken(&c.say, &pron));
                     for q in &c.questions {
                         println!("  ? {}", iwr_core::speech::spoken(&q.ask, &pron));
                         println!("    {}", iwr_core::speech::spoken(&q.answer, &pron));
@@ -208,7 +213,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Voice { script, voice, speed, lang, path, gap, level, force, retranslate, fresh } => voice::run(&script, &voice::Opts { voice, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh }),
+        Cmd::Voice { script, voice, voice2, speed, lang, path, gap, level, force, retranslate, fresh } => voice::run(&script, &voice::Opts { voice, voice2, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh }),
         Cmd::Translate { script, lang, path, pieces } => if pieces { translate::print_pieces(&script, &path, &lang) } else { translate::run(&script, &path, &lang) },
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;

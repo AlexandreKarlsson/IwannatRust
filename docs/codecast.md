@@ -55,6 +55,8 @@ theme = "forest"          # one of the 32 built-in themes (list below)
 lang = "en"               # language the codecast plays in (en, ja, fr, de, es, it, …)
 voice = "tts"             # tts (browser voice), audio (the recording), read (silent, on a timer)
 tts_voice = "Samantha"    # browser voice whose name contains this, when the browser has one
+tts_voice2 = "Daniel"     # browser voice of the `sp:` lines (default: another voice of the language)
+rec_voice = "af_heart+am_fenrir"  # recorded voice played first (default: the one with the most parts)
 rate = 1.1                # speech rate, 0.5..2
 tour = true               # play every part in a row
 glossary = false          # "What is a…?" questions from the built-in Rust glossary
@@ -131,6 +133,7 @@ audio: 02-running.mp3                    optional recording of this part only
 [12.5] run starts by parsing the input.  optional start time in seconds (recording mode)
 ! crate::run/b5 crate::run/b6
 Every task is saved, in a loop.
+sp: What if one fails?                   second voice: a cue said by another voice (see Two voices)
 // comment lines are ignored
 architecture_tour                        generated cues, e.g. every module with its `//!` doc (see Tours)
 ? What is a crate?                       question offered under this cue (click → pause, answer, resume)
@@ -138,7 +141,7 @@ architecture_tour                        generated cues, e.g. every module with 
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `+` [enlarge a panel or light up a part of the app](#panels-spots-and-the-file-tree), `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
+Roughly 10 tokens of directives per sentence. Directives: `sp:` ([second voice](#two-voices)), a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `+` [enlarge a panel or light up a part of the app](#panels-spots-and-the-file-tree), `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -206,6 +209,28 @@ then the answer. Script questions come first, then glossary matches, four chips 
 While an answer is shown the codecast is paused; the answer is spoken (TTS mode) and the player
 resumes by itself when it ends, or on *continue* / `space` / `Esc`. In recording mode the recording
 pauses and plays on again afterwards.
+
+## Two voices
+
+A cue written `sp: …` is said by a second voice, so a codecast can be a conversation: one voice
+explains, the other asks, doubts or sums up. Directives above it attach as usual, `[t]` goes
+before it (`[4.5] sp: …`), and its caption is indented with a coloured bar. Clicked questions
+(`?` lines, glossary) are asked by the second voice and answered by the main one.
+
+- **Browser TTS**: the viewer picks both voices in Settings → Codecast (*Browser voice*, *Second
+  browser voice*, ▶ to hear each), among the browser's voices of the language. Without a pick,
+  `tts_voice` / `tts_voice2` from `codecast.toml` (the design editor sets them), else another
+  voice of the language (same region first), else the main voice with a higher pitch.
+- **Which recording plays**: Settings → *Recorded voice* or the player's voice chip; the author
+  sets the first one with `rec_voice` in `codecast.toml` (a pair for a two-voice recording).
+- **Recording**: `iwr voice` records a codecast that has `sp:` lines with a pair of Kokoro voices,
+  every part of it: `--voice2 am_michael` (default: a voice of the other gender in the language).
+  On the Generate page the *Voices* card has two slots, main and second: click a slot then a
+  voice, or drag a voice onto a slot; ⇄ swaps them, ✕ goes back to the default second voice.
+  Files are named by the pair, `01-welcome.af_heart+am_fenrir.ogg`; the player lists the pair as
+  *Heart & Fenrir*. A language with one voice (French: `ff_siwis`), or `--voice2` equal to
+  `--voice`, gets the same voice spoken 12 % higher (synthesized slower, played faster: same
+  length). Moving a line to or from the second voice makes its part out of date.
 
 ## Diagrams
 
@@ -572,7 +597,7 @@ hand-made `NN-part.mp3` stays and plays when no voice is picked. `--force` re-re
 are up to date. When the text of a part changes, the Generate page lists its out-of-date recordings
 by voice and offers to record them again (same voice, speed, pause and compression) or delete them,
 and deletes the recordings of parts whose file is gone. Answers to questions are still
-spoken by browser TTS. Options: `--voice af_heart` (Kokoro voice name), `--speed`, `--lang en-us`, `--gap 0.4`.
+spoken by browser TTS. Options: `--voice af_heart` (Kokoro voice name), `--voice2` (the [second voice](#two-voices)), `--speed`, `--lang en-us`, `--gap 0.4`.
 
 Parts are buttons in the player bar. With **full tour** ticked (default; also 📍 / `t` in the top bar) playing
 continues with the next part until the script ends; unticked, it stops at the end of each part (`next part ▶`).

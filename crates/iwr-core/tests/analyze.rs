@@ -245,7 +245,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None, marks: vec![] });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None, marks: vec![], speaker: 0 });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -565,6 +565,34 @@ fn script_popups() {
     assert_eq!(cues[1].questions[0].pop, ["/data/config.db"]);
     assert_eq!(cues[1].questions[0].answer.trim(), "In the config database.");
     assert_eq!(script::parse(&script::to_text(&s)), s);
+}
+
+#[test]
+fn script_second_voice() {
+    use iwr_core::script;
+    let text = "## Parser\n@ arch\nThe parser reads line by line.\nsp: Why line by line?\n[4.5] sp:Because?\nBecause a line is one task.\n";
+    let s = script::parse(text);
+    let cues = &s.parts[0].cues;
+    assert_eq!(cues.iter().map(|c| c.speaker).collect::<Vec<_>>(), [0, 1, 1, 0]);
+    assert_eq!(cues[1].say, "Why line by line?");
+    assert_eq!(cues[2].t, Some(4.5));
+    assert_eq!(cues[2].say, "Because?");
+    assert!(s.has_second_voice());
+    assert!(!script::parse("## A\nOne voice.\n").has_second_voice());
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+}
+
+#[test]
+fn script_second_voice_ids() {
+    use iwr_core::voice as v;
+    assert_eq!(v::second_voice("af_heart"), "am_fenrir");
+    assert_eq!(v::second_voice("jf_alpha"), "jm_kumo");
+    // one French voice: itself, spoken higher
+    assert_eq!(v::second_voice("ff_siwis"), "ff_siwis");
+    assert!(v::is_voice_id("af_heart+am_michael"));
+    assert_eq!(v::split_pair("af_heart+am_michael"), ("af_heart", Some("am_michael")));
+    assert_eq!(v::voice_label("af_heart+am_michael").0, "Heart & Michael");
+    assert_eq!(v::voice_label("ff_siwis+ff_siwis").0, "Siwis & higher");
 }
 
 #[test]

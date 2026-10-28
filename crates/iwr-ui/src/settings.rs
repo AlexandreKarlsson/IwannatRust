@@ -50,6 +50,11 @@ pub struct Saved {
     /// the recorded voice to play, when a codecast has several
     #[serde(default)]
     pub rec_voice: String,
+    /// browser voices picked by name: the main one, the one of the `sp:` lines
+    #[serde(default)]
+    pub tts_voice: String,
+    #[serde(default)]
+    pub tts_voice2: String,
 }
 
 async fn fetch_config(url: &str) -> Option<Config> {
@@ -90,6 +95,8 @@ impl State {
             title_font: self.font_title.read().clone(),
             text_font: self.font_text.read().clone(),
             rec_voice: self.rec_voice.read().clone(),
+            tts_voice: self.tts_voice.read().clone(),
+            tts_voice2: self.tts_voice2.read().clone(),
         };
         if let Ok(json) = serde_json::to_string(&s) {
             document::eval(&format!("localStorage.setItem('iwr-settings', {});", serde_json::to_string(&json).unwrap_or_default()));
@@ -115,6 +122,8 @@ impl State {
         self.font_title.set(s.title_font);
         self.font_text.set(s.text_font);
         self.rec_voice.set(s.rec_voice);
+        self.tts_voice.set(s.tts_voice);
+        self.tts_voice2.set(s.tts_voice2);
     }
 
     /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `iwr serve`, `codecast.json`
@@ -171,6 +180,20 @@ impl State {
         }
         if let Some(g) = c.glossary.filter(|_| fresh(true, p.glossary == c.glossary)) {
             self.glossary_on.set(g);
+        }
+        if let Some(v) = c.tts_voice.clone().filter(|_| fresh(true, p.tts_voice == c.tts_voice)) {
+            self.tts_voice.set(v);
+        }
+        if let Some(v) = c.tts_voice2.clone().filter(|_| fresh(true, p.tts_voice2 == c.tts_voice2)) {
+            self.tts_voice2.set(v);
+        }
+        if let Some(v) = c.rec_voice.clone().filter(|_| fresh(true, p.rec_voice == c.rec_voice)) {
+            // a recording playing already switches to it
+            if self.script.peek().is_some() && *self.voice.peek() == Voice::Audio && *self.rec_voice.peek() != v {
+                self.set_rec_voice(&v);
+            } else {
+                self.rec_voice.set(v);
+            }
         }
         if let Some(f) = c.fonts.title.clone().filter(|_| fresh(true, p.fonts.title == c.fonts.title)) {
             self.font_title.set(f);
@@ -378,6 +401,23 @@ pub fn SettingsPage() -> Element {
     let n_terms = state.glossary.read().len();
     let n_asked = state.asked.read().len();
     let locked = state.locked();
+    // the browser voices of the language, for the two pickers
+    let mut tts_list = use_signal(Vec::<(String, String)>::new);
+    use_effect(move || {
+        let lang = state.lang.read().clone();
+        spawn(async move { tts_list.set(crate::player::browser_voices(&lang).await) });
+    });
+    let (own1, own2) = (state.tts_voice.read().clone(), state.tts_voice2.read().clone());
+    let cfg = state.config.read().clone();
+    let auto = |c: &Option<String>| match c {
+        Some(n) => format!("the codecast's ({n})"),
+        None => "automatic".to_string(),
+    };
+    let (auto1, auto2) = (auto(&cfg.tts_voice), auto(&cfg.tts_voice2));
+    // recorded voices of the codecast, in this language
+    let recorded = state.script_src.read().as_ref().map(|s| iwr_core::i18n::recorded_voices(s, &lang)).unwrap_or_default();
+    let rec_now = state.script_src.read().as_ref().map(|s| state.recording_voice(s, &lang)).unwrap_or_default();
+    let has_second = state.script_src.read().as_ref().is_some_and(|s| s.has_second_voice());
     let font_title = state.font_title.read().clone();
     let font_text = state.font_text.read().clone();
     let mut font_role = use_signal(|| 0u8); // 0 box titles, 1 text
@@ -457,6 +497,43 @@ pub fn SettingsPage() -> Element {
                                 onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(if e.value() == "read" { Voice::Read } else { Voice::Tts }); state.save_settings(); },
                                 option { value: "tts", "🔊 spoken by the browser" }
                                 option { value: "read", "📖 read silently, advance on a timer" }
+                            }
+                        }
+                        for second in [false, true] {
+                            { let (title, desc, own, auto) = if second {
+                                  ("Second browser voice", if has_second { "says the sp: lines and asks the questions you click" } else { "asks the questions you click (and says the sp: lines, in codecasts that have them)" }, own2.clone(), auto2.clone())
+                              } else {
+                                  ("Browser voice", "speaks the codecast when there is no recording", own1.clone(), auto1.clone())
+                              };
+                              let list = tts_list.read().clone();
+                              let lang = lang.clone();
+                              rsx! {
+                                Row { title: title, desc: desc.to_string(),
+                                    select { class: "theme-select", disabled: locked, value: "{own}",
+                                        onchange: move |e| {
+                                            let v = e.value();
+                                            if second { state.tts_voice2.set(v); } else { state.tts_voice.set(v); }
+                                            state.save_settings();
+                                            state.tts_gen += 1;
+                                        },
+                                        option { value: "", "{auto}" }
+                                        for (name, l) in list.iter().cloned() {
+                                            option { value: "{name}", selected: name == own, "{name} ({l})" }
+                                        }
+                                    }
+                                    button { class: "small", title: "hear it", onclick: move |_| crate::player::speak_sample(&lang, &state.tts_names(), *state.tts_rate.peek(), second), "▶" }
+                                }
+                            } }
+                        }
+                        if recorded.len() > 1 || recorded.first().is_some_and(|(v, _)| !v.is_empty()) {
+                            Row { title: "Recorded voice", desc: "the recording that plays; a pair (A & B) is a codecast with two voices".to_string(),
+                                select { class: "theme-select", disabled: locked, value: "{rec_now}",
+                                    onchange: move |e| state.set_rec_voice(&e.value()),
+                                    for (id, n) in recorded.iter().cloned() {
+                                        option { value: "{id}", selected: id == rec_now,
+                                            if id.is_empty() { "Original ({n} part{plural(n)})" } else { "{iwr_core::voice::voice_label(&id).0} ({n} part{plural(n)})" } }
+                                    }
+                                }
                             }
                         }
                         Row { title: "Language", desc: "translated when played, offline (iwr serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (iwr translate --pieces, see the docs)".to_string(),
@@ -542,4 +619,9 @@ pub fn SettingsPage() -> Element {
             }
         }
     }
+}
+
+/// `s` after a count other than one.
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }

@@ -7,6 +7,8 @@
 //! lang = "en"                # language the codecast plays in (i18n::LANGS)
 //! voice = "tts"              # tts | audio | read
 //! tts_voice = "Samantha"     # browser voice whose name contains this, when there is one
+//! tts_voice2 = "Daniel"      # browser voice of the `sp:` lines (default: another voice of the language)
+//! rec_voice = "af_heart+am_fenrir"  # recorded voice played first, when several recorded the codecast
 //! rate = 1.1                 # speech rate, 0.5..2
 //! tour = true                # play every part in a row
 //! glossary = false           # built-in glossary questions
@@ -156,6 +158,11 @@ pub struct Config {
     pub voice: Option<String>,
     /// part of the name of the browser voice to speak with
     pub tts_voice: Option<String>,
+    /// part of the name of the browser voice that says the `sp:` lines
+    pub tts_voice2: Option<String>,
+    /// the recorded voice played first: a Kokoro voice (`am_adam`) or a pair
+    /// (`af_heart+am_fenrir`, a codecast with `sp:` lines); default: the one with the most parts
+    pub rec_voice: Option<String>,
     pub rate: Option<f64>,
     pub tour: Option<bool>,
     pub glossary: Option<bool>,
@@ -236,6 +243,8 @@ impl Config {
         line("lang", self.lang.as_deref().map(q), "language the codecast plays in");
         line("voice", self.voice.as_deref().map(q), "tts | audio | read");
         line("tts_voice", self.tts_voice.as_deref().map(q), "browser voice whose name contains this");
+        line("tts_voice2", self.tts_voice2.as_deref().map(q), "browser voice of the `sp:` lines");
+        line("rec_voice", self.rec_voice.as_deref().map(q), "recorded voice played first");
         line("rate", self.rate.map(|r| format!("{:?}", r)), "speech rate, 0.5..2");
         line("tour", self.tour.map(|b| b.to_string()), "play every part in a row");
         line("glossary", self.glossary.map(|b| b.to_string()), "built-in glossary questions");
@@ -273,6 +282,9 @@ impl Config {
         if let Some(v) = self.voice.as_deref().filter(|v| !["tts", "audio", "read"].contains(v)) {
             bad.push(format!("unknown voice `{}` (tts, audio or read)", v));
         }
+        if let Some(v) = self.rec_voice.as_deref().filter(|v| !crate::voice::is_voice_id(v)) {
+            bad.push(format!("rec_voice `{}` is not a Kokoro voice (`am_adam`) or a pair (`af_heart+am_fenrir`)", v));
+        }
         if let Some(r) = self.rate.filter(|r| !(0.5..=2.0).contains(r)) {
             bad.push(format!("rate {} out of 0.5..2", r));
         }
@@ -309,11 +321,12 @@ mod tests {
         assert!(Config::from_toml("colour = 1").is_err(), "unknown keys are refused");
         let bad = Config::from_toml("theme = \"neon\"\n[fonts]\ntitle = \"../x.ttf\"\n[colors]\naccent = \"red;}\"\nfoo = \"red\"\n").unwrap();
         assert_eq!(bad.problems().len(), 4, "{:?}", bad.problems());
+        assert_eq!(Config::from_toml("rec_voice = \"heart and adam\"").unwrap().problems().len(), 1);
     }
 
     #[test]
     fn writes_what_it_reads() {
-        let mut c = Config { theme: Some("nord".into()), rate: Some(1.0), tour: Some(false), lock: true, tts_voice: Some("Name \"q\" \\".into()), ..Default::default() };
+        let mut c = Config { theme: Some("nord".into()), rate: Some(1.0), tour: Some(false), lock: true, tts_voice: Some("Name \"q\" \\".into()), tts_voice2: Some("Daniel".into()), rec_voice: Some("af_heart+am_fenrir".into()), ..Default::default() };
         c.fonts.title = Some("fonts/My Font.ttf".into());
         c.colors.insert("hl-bg".into(), "#112233".into());
         c.colors.insert("accent".into(), "rgb(1, 2, 3)".into());

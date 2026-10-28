@@ -28,6 +28,7 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 {+id !id =id 18 …}           chart markers inside a spoken sentence, fired on that word (see Charts)
 <name>_tour[:<ref>]          generated cues (see Tours): architecture types errors entry flow todo files
 <One or two spoken sentences.>
+sp: <A line said by the second voice>      optional: a question, a doubt, a guess (see Two voices)
 ? <A question the listener may have>      optional, after the cue it belongs to
   <The answer, indented, two to four sentences; may start with its own @ ! = lines>
 ```
@@ -145,6 +146,30 @@ The listener is smart but new to this code. Aim for "I could explain it to a fri
 - **Questions before answers.** "So what happens if the disk is full?" then the code that handles it.
 - **Short sentences, active voice, *we*.** "We check the token" not "The token is checked".
 - **Say why it matters**: the bug it avoids, the cost it saves. Skip what the listener can't see.
+
+## Two voices (a second speaker)
+
+A line starting with `sp:` is said by a second voice: another browser voice, another Kokoro
+voice in the recording (the same voice spoken higher when the language has only one). It is any
+cue, with its own directives above it; the caption sets it apart. Neither voice is the teacher:
+the second one asks what the listener would ask, guesses wrong, sums up, or takes over a step.
+
+```
+@ flow:crate::parse
+! crate::parse/b1
+We read the file line by line.
+sp: Why not all at once?
+! crate::parse/b2
+Because one line is one task: we never need to look further.
+sp: So a broken line only loses that one task?
+Exactly, and the next line starts fresh.
+```
+
+- **One `sp:` line every three to six cues**, short (one sentence), never two in a row.
+- It voices a real doubt the next cue answers, or says the takeaway in its own words.
+  No "great question", no "as you said".
+- Clicked `?` questions are asked by the second voice too, and answered by the main one: keep
+  their wording like something a person would say.
 
 ## How to write it
 
@@ -388,6 +413,7 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 ## Checklist
 
 - `iwr check` prints "all refs resolve"; every `?` has an indented answer.
+- A few `sp:` lines let a second voice ask or sum up (one every three to six cues, never two in a row).
 - Directory form: `index.md` has `# Title` and a `- [Part](NN-file.md)` list in playing order; each
   part file starts with its `## Part name`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.

@@ -12,6 +12,9 @@
 //! recording goes stale when the English text changes. Japanese is phonemized by misaki
 //! (installed in the venv on first use), since espeak cannot read it.
 //!
+//! A codecast with `sp:` lines is recorded by a pair of voices (`--voice2`, default
+//! [`v::second_voice`]): `NN-name.af_heart+am_fenrir.ogg`, the second voice saying those lines.
+//!
 //! The UI's Generate page runs the same recording through `iwr serve` ([`record`] with a progress
 //! callback and a cancel flag), shows every part's state ([`status`]) and previews voices ([`preview`]).
 
@@ -36,7 +39,10 @@ static SETUP: Mutex<()> = Mutex::new(());
 pub use iwr_core::voice::DEFAULT_VOICE;
 
 pub struct Opts {
+    /// a Kokoro voice, or a pair `af_heart+am_michael` whose second voice says the `sp:` lines
     pub voice: String,
+    /// the voice of the `sp:` lines when `voice` is not a pair (default: [`v::second_voice`])
+    pub voice2: Option<String>,
     pub speed: f32,
     /// Kokoro's language (`en-us`, `en-gb`), or a codecast language to translate into (`ja`)
     pub lang: String,
@@ -93,19 +99,28 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
     let project = o.path.clone().or_else(|| dir.canonicalize().ok()?.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
     // a codecast language: translate each part, record it with a voice of that language
     let target: Option<&str> = iwr_core::i18n::lang(&o.lang).map(|l| l.code).filter(|c| *c != "en");
-    let o = &match target {
+    let loaded = codecast::load(dir)?;
+    let script = iwr_core::script::parse(&loaded.text);
+    let (first, second) = v::split_pair(&o.voice);
+    let (first, lang) = match target {
         Some(code) => {
             let l = v::voice_lang(code).filter(|l| l.code != "en").with_context(|| format!("Kokoro has no {} voice (it speaks ja, fr, es, it, pt)", code))?;
-            Opts { voice: if o.voice == DEFAULT_VOICE { l.default_voice.into() } else { o.voice.clone() }, lang: l.kokoro.into(), path: None, only: o.only.clone(), ..*o }
+            (if first == DEFAULT_VOICE { l.default_voice } else { first }, l.kokoro.to_string())
         }
-        None => Opts { voice: o.voice.clone(), lang: o.lang.clone(), path: None, only: o.only.clone(), ..*o },
+        None => (first, o.lang.clone()),
     };
+    // a codecast with `sp:` lines is recorded by a pair of voices, every part of it, so that the
+    // player offers one recording to pick; parts without them share their clips with the single voice
+    let voice = match script.has_second_voice() {
+        true => v::pair(first, Some(second.or(o.voice2.as_deref()).unwrap_or_else(|| v::second_voice(first)))),
+        false => first.to_string(),
+    };
+    let o = &Opts { voice, voice2: None, lang, path: None, only: o.only.clone(), ..*o };
     let names = match target {
         Some(_) => iwr_core::i18n::names(&iwr_core::analyze_path(&project)?),
         None => Default::default(),
     };
-    let loaded = codecast::load(dir)?;
-    let pron = codecast::pronounce(&iwr_core::script::parse(&loaded.text), loaded.glossary.as_deref());
+    let pron = codecast::pronounce(&script, loaded.glossary.as_deref());
     let mut todo = Vec::new();
     for f in part_files(dir)? {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
@@ -122,7 +137,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
             continue;
         }
         // the hashes are of the English cues: a translation goes stale with its source
-        let hashes: Vec<String> = english.iter().map(|s| codecast::text_hash(s)).collect();
+        let hashes = codecast::hashes(&english);
         let code = target.unwrap_or("en");
         // one recording per voice: `01-welcome.am_adam.ogg`, `01-welcome.ja.jf_alpha.ogg`
         let stem = codecast::variant_stem(&stem, code, &o.voice);
@@ -161,7 +176,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         std::fs::remove_file(f).with_context(|| format!("removing {}", f.display()))?;
     }
     let abs = dir.canonicalize()?;
-    let parts: Vec<_> = todo.iter().map(|(stem, spoken, _, _)| serde_json::json!({ "out": abs.join(format!("{}.ogg", stem)), "cues": spoken })).collect();
+    let parts: Vec<_> = todo.iter().map(|(stem, spoken, _, _)| part_job(abs.join(format!("{}.ogg", stem)), spoken)).collect();
     report(Event::Stage(format!("loading Kokoro, voice {}", o.voice)));
     let hdr = header(o);
     sidecar(&home, job(&home, o, parts), cancel, report, &mut |part, times, duration| {
@@ -201,11 +216,20 @@ fn part_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// The sidecar's job: model files, voice and delivery, the parts (`out` file + spoken cues).
+/// A part of the sidecar's job: its `out` file, the spoken cues, which of them the second voice says.
+fn part_job(out: PathBuf, spoken: &[codecast::Spoken]) -> serde_json::Value {
+    let (cues, second): (Vec<&str>, Vec<bool>) = spoken.iter().map(|(t, s)| (t.as_str(), *s)).unzip();
+    serde_json::json!({ "out": out, "cues": cues, "second": second })
+}
+
+/// The sidecar's job: model files, voices and delivery, the parts ([`part_job`]). A pair whose
+/// two voices are the same speaks the second one higher ([`v::SECOND_PITCH`]).
 fn job(home: &Path, o: &Opts, parts: Vec<serde_json::Value>) -> serde_json::Value {
+    let (voice, voice2) = v::split_pair(&o.voice);
+    let pitch2 = if voice2 == Some(voice) { v::SECOND_PITCH } else { 1.0 };
     serde_json::json!({
-        "model": home.join(MODEL), "voices": home.join(VOICES), "voice": o.voice, "speed": o.speed, "lang": o.lang,
-        "gap": o.gap, "level": o.level, "cache": home.join("clips"), "fresh": o.fresh, "parts": parts,
+        "model": home.join(MODEL), "voices": home.join(VOICES), "voice": voice, "voice2": voice2.unwrap_or(voice), "pitch2": pitch2,
+        "speed": o.speed, "lang": o.lang, "gap": o.gap, "level": o.level, "cache": home.join("clips"), "fresh": o.fresh, "parts": parts,
     })
 }
 
@@ -268,13 +292,13 @@ fn sidecar(home: &Path, job: serde_json::Value, cancel: &AtomicBool, report: &mu
 }
 
 /// A part file's cues translated into `lang` (as the player translates them), as they will be spoken.
-fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)], fresh: bool, dir: &Path) -> Result<Vec<String>> {
+fn translated(text: &str, lang: &str, names: &std::collections::HashSet<String>, pron: &[(String, String)], fresh: bool, dir: &Path) -> Result<Vec<codecast::Spoken>> {
     let mut s = iwr_core::script::parse(text);
     let texts = iwr_core::i18n::texts(&s, &[], names);
     let done = crate::translate::translate(lang, &texts, fresh, Some(dir))?;
     let map: std::collections::HashMap<String, String> = texts.into_iter().zip(done).collect();
     iwr_core::i18n::apply(&mut s, &mut [], names, &|t| map.get(t).cloned());
-    Ok(s.parts.iter().flat_map(|p| &p.cues).map(|c| iwr_core::speech::spoken(&c.say, pron)).collect())
+    Ok(s.parts.iter().flat_map(|p| &p.cues).map(|c| (iwr_core::speech::spoken(&c.say, pron), c.second())).collect())
 }
 
 fn home() -> Result<PathBuf> {
@@ -339,14 +363,16 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
     };
     st.dir = Some(dir.display().to_string());
     let Ok(loaded) = codecast::load(dir) else { return st };
-    let pron = codecast::pronounce(&iwr_core::script::parse(&loaded.text), loaded.glossary.as_deref());
+    let script = iwr_core::script::parse(&loaded.text);
+    st.second = script.has_second_voice();
+    let pron = codecast::pronounce(&script, loaded.glossary.as_deref());
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).map(|d| d.filter_map(|e| e.ok().map(|e| e.path())).collect()).unwrap_or_default();
     entries.sort();
     for f in part_files(dir).unwrap_or_default() {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
         let text = std::fs::read_to_string(&f).unwrap_or_default();
         let (spoken, skip) = codecast::part_spoken(&text, &pron);
-        let hashes: Vec<String> = spoken.iter().map(|s| codecast::text_hash(s)).collect();
+        let hashes = codecast::hashes(&spoken);
         let name = iwr_core::script::parse(&text).parts.first().map(|p| p.name.clone()).unwrap_or_default();
         let mut p = PartStatus { stem: stem.clone(), name, cues: spoken.len(), skip: skip.map(str::to_string), ..Default::default() };
         // the part's own `01-welcome.ogg`, then one file per language and voice
@@ -433,8 +459,8 @@ pub fn preview(voice: &str, speed: f32, lang: &str) -> Result<Vec<u8>> {
     let out = home.join("previews").join(format!("{}-{}-{}.ogg", voice, speed, l.arg));
     if !out.is_file() {
         std::fs::create_dir_all(out.parent().unwrap())?;
-        let o = Opts { voice: voice.into(), speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![], retranslate: false, fresh: false };
-        let parts = vec![serde_json::json!({ "out": out, "cues": [l.sample] })];
+        let o = Opts { voice: voice.into(), voice2: None, speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![], retranslate: false, fresh: false };
+        let parts = vec![part_job(out.clone(), &[(l.sample.to_string(), false)])];
         sidecar(&home, job(&home, &o, parts), &AtomicBool::new(false), &mut |_| {}, &mut |_, _, _| Ok(0))?;
     }
     Ok(std::fs::read(&out)?)

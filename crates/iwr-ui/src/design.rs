@@ -132,6 +132,8 @@ pub fn DesignEditor() -> Element {
             draft.set(c);
         }
     });
+    // recorded voices with a name (`iwr voice`), in English: what `rec_voice` can name
+    let recorded: Vec<(String, usize)> = state.script_src.read().as_ref().map(|s| iwr_core::i18n::recorded_voices(s, "en")).unwrap_or_default().into_iter().filter(|(v, _)| !v.is_empty()).collect();
     let mut voices = use_signal(Vec::<String>::new);
     use_future(move || async move {
         let mut ev = document::eval(
@@ -223,9 +225,23 @@ pub fn DesignEditor() -> Element {
                 input { r#type: "text", list: "iwr-voices", placeholder: "part of a voice name", value: "{c.tts_voice.clone().unwrap_or_default()}",
                     // the list shows "Name (lang)": keep the name
                     onchange: move |e| edit(state, draft, |c| c.tts_voice = opt(e.value().rsplit_once(" (").map(|(n, _)| n.to_string()).unwrap_or(e.value()))) }
+            }
+            crate::settings::Row { title: "Second browser voice", desc: "says the sp: lines; without one, another voice of the language, else the same voice higher".to_string(),
+                input { r#type: "text", list: "iwr-voices", placeholder: "part of a voice name", value: "{c.tts_voice2.clone().unwrap_or_default()}",
+                    onchange: move |e| edit(state, draft, |c| c.tts_voice2 = opt(e.value().rsplit_once(" (").map(|(n, _)| n.to_string()).unwrap_or(e.value()))) }
                 datalist { id: "iwr-voices",
                     for v in voices.read().iter() {
                         option { value: "{v}" }
+                    }
+                }
+            }
+            if !recorded.is_empty() {
+                crate::settings::Row { title: "Recorded voice", desc: "the recording played first when several voices recorded the codecast (a pair: two voices)".to_string(),
+                    select { class: "theme-select", onchange: move |e| edit(state, draft, |c| c.rec_voice = opt(e.value())),
+                        option { value: "", selected: c.rec_voice.is_none(), "the one with the most parts" }
+                        for (id, n) in recorded.iter().cloned() {
+                            option { value: "{id}", selected: c.rec_voice.as_deref() == Some(id.as_str()), "{iwr_core::voice::voice_label(&id).0} ({n} part{plural(n)})" }
+                        }
                     }
                 }
             }
@@ -315,4 +331,9 @@ pub fn DesignEditor() -> Element {
             }
         }
     }
+}
+
+/// `s` after a count other than one.
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }

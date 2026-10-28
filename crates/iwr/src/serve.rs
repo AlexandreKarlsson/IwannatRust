@@ -303,7 +303,7 @@ async fn api_voice_start(State(s): State<AppState>, headers: HeaderMap, Json(req
     if iwr_core::voice::voice_lang(&req.lang).is_none() || !iwr_core::voice::VOICES.contains(&req.voice.as_str()) {
         return (StatusCode::BAD_REQUEST, "unknown voice or language").into_response();
     }
-    let opts = crate::voice::Opts { voice: req.voice.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh };
+    let opts = crate::voice::Opts { voice: req.voice.clone(), voice2: req.voice2.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh };
     spawn_voice_job(s, dir, vec![opts], vec![], Some(req))
 }
 
@@ -319,7 +319,7 @@ async fn api_voice_refresh(State(s): State<AppState>, headers: HeaderMap, Json(r
         .stale
         .iter()
         .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
-        .map(|g| crate::voice::Opts { voice: g.voice.clone(), speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false })
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false })
         .collect();
     spawn_voice_job(s, dir, opts, st.orphans, None)
 }

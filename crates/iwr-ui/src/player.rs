@@ -67,6 +67,13 @@ impl State {
         s
     }
 
+    /// The browser voices to speak with, main and second: the viewer's picks, else the codecast's.
+    pub fn tts_names(&self) -> (String, String) {
+        let c = self.config.peek();
+        let pick = |own: String, cfg: &Option<String>| if own.is_empty() { cfg.clone().unwrap_or_default() } else { own };
+        (pick(self.tts_voice.peek().clone(), &c.tts_voice), pick(self.tts_voice2.peek().clone(), &c.tts_voice2))
+    }
+
     /// Play the recordings of another voice (switches to recording mode), from the same cue.
     pub fn set_rec_voice(&mut self, voice: &str) {
         self.rec_voice.set(voice.to_string());
@@ -596,21 +603,62 @@ async fn fetch_translations(lang: &str, texts: &[String]) -> Result<Vec<String>,
 }
 
 /// JS that sets the utterance `u` to speak `lang`, with a voice for it when the browser has one
-/// (English keeps the browser's default voice). `name`: the codecast's `tts_voice`, picked first
-/// when a voice of that language has it in its name.
-pub fn voice_js(lang: &str, name: Option<&str>) -> String {
+/// (English keeps the browser's default voice). `names`: the main and the second voice, parts of
+/// a voice name ([`State::tts_names`]); a voice of that language with it in its name is picked
+/// first. `second`: a `sp:` line, said by the second voice, else by another voice of the
+/// language, else by the same voice spoken higher.
+pub fn voice_js(lang: &str, names: &(String, String), second: bool) -> String {
     let Some(l) = iwr_core::i18n::lang(lang) else { return String::new() };
-    let name = serde_json::to_string(&name.unwrap_or_default().to_lowercase()).unwrap_or_else(|_| "\"\"".into());
-    if l.code == "en" && name == "\"\"" {
+    let js = |n: &str| serde_json::to_string(&n.to_lowercase()).unwrap_or_else(|_| "\"\"".into());
+    let (name, name2) = (js(&names.0), js(&names.1));
+    if l.code == "en" && name == "\"\"" && !second {
         return String::new();
     }
     format!(
         r#"{set_lang}
-           try {{ const vs = speechSynthesis.getVoices().filter(v => v.lang.replace("_", "-").toLowerCase().startsWith("{code}"));
-                  const v = ({name} && vs.find(v => v.name.toLowerCase().includes({name}))) || ("{code}" != "en" && vs[0]); if (v) u.voice = v; }} catch (e) {{}}"#,
+           try {{ const all = speechSynthesis.getVoices();
+                  const vs = all.filter(v => v.lang.replace("_", "-").toLowerCase().startsWith("{code}"));
+                  const find = (n) => n && vs.find(v => v.name.toLowerCase().includes(n));
+                  let v = find({name}) || ("{code}" != "en" && vs[0]) || null;
+                  if ({second}) {{
+                    const cur = v || all.find(x => x.default) || vs[0];
+                    const other = (x) => !cur || x.name != cur.name;
+                    const w = find({name2}) || vs.find(x => other(x) && cur && x.lang == cur.lang) || vs.find(other);
+                    if (w && other(w)) v = w; else u.pitch = 1.3;
+                  }}
+                  if (v) u.voice = v; }} catch (e) {{}}"#,
         set_lang = if l.code == "en" { String::new() } else { format!("u.lang = \"{}\";", l.speech) },
         code = l.code
     )
+}
+
+/// The browser's speech voices for `lang`, as (name, its language), waiting at most 2 s for
+/// Chrome to fill the list.
+pub async fn browser_voices(lang: &str) -> Vec<(String, String)> {
+    let code = iwr_core::i18n::lang(lang).map(|l| l.code).unwrap_or("en");
+    let mut ev = document::eval(&format!(
+        r#"const send = () => {{ try {{ dioxus.send(speechSynthesis.getVoices().filter(v => v.lang.replace("_", "-").toLowerCase().startsWith("{code}")).map(v => [v.name, v.lang])); }} catch (e) {{ dioxus.send([]); }} }};
+           try {{ if (speechSynthesis.getVoices().length) send(); else {{ speechSynthesis.addEventListener("voiceschanged", send, {{ once: true }}); setTimeout(send, 2000); }} }} catch (e) {{ send(); }}"#
+    ));
+    ev.recv::<Vec<(String, String)>>().await.unwrap_or_default()
+}
+
+/// Say a sample sentence with the main voice, or the second one (`second`), to hear a pick.
+pub fn speak_sample(lang: &str, names: &(String, String), rate: f64, second: bool) {
+    let text = match (iwr_core::voice::voice_lang(lang).filter(|l| l.code != "en"), second) {
+        (Some(l), _) => l.sample,
+        (None, false) => "We read the file line by line, because one line is one task.",
+        (None, true) => "Why line by line, and not all at once?",
+    };
+    document::eval(&format!(
+        r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
+           const u = new SpeechSynthesisUtterance({});
+           u.rate = {rate:.2};
+           {voice}
+           setTimeout(() => speechSynthesis.speak(u), 60);"#,
+        serde_json::to_string(text).unwrap_or_else(|_| "\"\"".into()),
+        voice = voice_js(lang, names, second)
+    ));
 }
 
 async fn fetch_text(url: &str) -> Option<String> {
@@ -655,6 +703,8 @@ pub fn PlayerBar() -> Element {
     let pct = (cue_idx + 1) as f64 / total.max(1) as f64 * 100.0;
     let title = s.title.clone();
     let say = cue.say.clone();
+    // a `sp:` line: the second voice says it, the caption sits apart
+    let second = cue.second();
     // an answer being shown brings its own popup, the cue's comes back after it
     let pop = match &*state.answering.read() { Some(q) => q.pop.clone(), None => cue.pop.clone() };
     // the cue whose popup the viewer closed; the next cue's popup shows again
@@ -739,7 +789,7 @@ pub fn PlayerBar() -> Element {
                try {{ speechSynthesis.resume(); speechSynthesis.speak(u); }} catch (e) {{ dioxus.send("error:" + e); }}
                "#,
             serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
-            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref()),
+            voice = voice_js(&state.lang.peek(), &state.tts_names(), cue.second()),
             // chart markers: how far the voice is, from word boundaries, else from the time spoken
             progress = if cue.marks.is_empty() {
                 String::new()
@@ -816,19 +866,27 @@ pub fn PlayerBar() -> Element {
             return;
         }
         let pron = state.pronounce.peek().clone();
-        let text = format!("{} {}", iwr_core::speech::spoken(&q.ask, &pron), iwr_core::speech::spoken(&q.answer, &pron));
+        let (ask, answer) = (iwr_core::speech::spoken(&q.ask, &pron), iwr_core::speech::spoken(&q.answer, &pron));
         let rate = *state.tts_rate.peek();
+        let lang = state.lang.peek().clone();
+        let cfg = state.tts_names();
+        // the second voice asks, the main voice answers
         let js = format!(
             r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
-               const u = new SpeechSynthesisUtterance({});
+               const q = new SpeechSynthesisUtterance({ask});
+               q.rate = {rate:.2};
+               {{ const u = q; {voice2} }}
+               const u = new SpeechSynthesisUtterance({answer});
                u.rate = {rate:.2};
                {voice}
                u.onend = () => dioxus.send("end");
                u.onerror = (e) => dioxus.send("error:" + e.error);
-               setTimeout(() => speechSynthesis.speak(u), 60);
+               setTimeout(() => {{ speechSynthesis.speak(q); speechSynthesis.speak(u); }}, 60);
                "#,
-            serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
-            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref())
+            ask = serde_json::to_string(&ask).unwrap_or_else(|_| "\"\"".into()),
+            answer = serde_json::to_string(&answer).unwrap_or_else(|_| "\"\"".into()),
+            voice2 = voice_js(&lang, &cfg, true),
+            voice = voice_js(&lang, &cfg, false)
         );
         let my_gen = *state.tts_gen.peek();
         spawn(async move {
@@ -1020,7 +1078,7 @@ pub fn PlayerBar() -> Element {
                         audio { id: "iwr-audio", controls: true, src: "{u}", style: "width:100%; height:32px; margin:4px 0" }
                     }
                 }
-                Markdown { text: say }
+                div { class: if second { "say second" } else { "say" }, Markdown { text: say } }
                 if let Some(q) = answering.clone() {
                     div { class: "answer",
                         div { class: "q",
