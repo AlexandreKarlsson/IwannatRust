@@ -48,14 +48,21 @@ impl State {
         }
     }
 
-    /// Load the script again (new recordings), keeping the position.
+    /// Load the script again (new recordings): the copy the codecast button plays, and the player
+    /// when it shows the project's codecast (not the tutorial or a guide), keeping the position.
     async fn reload_script(&mut self) {
-        if self.script.peek().is_none() {
+        let Some((text, audio, base, _)) = crate::player::fetch_script(true).await else { return };
+        let s = iwr_core::script::parse(&text);
+        let old = self.own_script.peek().as_ref().map(|(o, _, _)| o.title.clone());
+        self.own_script.set(Some((Rc::new(s.clone()), audio.clone(), base.clone())));
+        let shows_own = self.script_src.peek().as_ref().is_some_and(|p| Some(&p.title) == old.as_ref());
+        if self.script.peek().is_none() || !shows_own {
             return;
         }
-        let Some((text, _, _, _)) = crate::player::fetch_script(true).await else { return };
         let (part, cue) = (*self.part_idx.peek(), *self.cue_idx.peek());
-        self.load_script(iwr_core::script::parse(&text));
+        self.audio_url.set(audio);
+        self.audio_base.set(base);
+        self.load_script(s);
         let fits = self.script.peek().as_ref().and_then(|s| s.parts.get(part)).is_some_and(|p| cue < p.cues.len());
         if fits {
             self.part_idx.set(part);
