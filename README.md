@@ -86,6 +86,19 @@ type checker), so it is fast on any crate that parses and right most of the time
 [CLI](docs/cli.md) · [architecture](docs/architecture.md) · [model](docs/model.md) ·
 [development](docs/development.md)
 
+## Skill for AI agents
+
+[`skills/iwr-commenting`](skills/iwr-commenting/SKILL.md) teaches an agent to comment Rust code
+so it reads well in IwannatRust. Copy it into your agent's skills folder, e.g. for Claude Code:
+
+```sh
+cp -r skills/iwr-commenting ~/.claude/skills/        # all projects
+cp -r skills/iwr-commenting <project>/.claude/skills/ # one project
+```
+
+Or as a Claude Code plugin: `/plugin marketplace add AlexandreKarlsson/IwannatRust`, then
+`/plugin install iwannatrust@iwannatrust`.
+
 ## License
 
 MIT

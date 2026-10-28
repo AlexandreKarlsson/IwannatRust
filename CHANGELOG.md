@@ -8,6 +8,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Agent Skill `iwr-commenting` (`skills/`): teaches AI agents to comment Rust code so it reads
+  well in IwannatRust, with how to check the result. Installable in Claude Code as a plugin
+  (`/plugin marketplace add AlexandreKarlsson/IwannatRust`); other agents copy the folder.
 - First start: the app asks whether you have used it before; *No* plays the tutorial, which is
   itself a codecast, recorded with a natural voice and shipped with the app, played on the open
   project (player, file tree, Code view, views, sketch, side note, question, the top bar's buttons,

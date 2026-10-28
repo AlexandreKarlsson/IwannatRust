@@ -177,5 +177,12 @@ is read wrongly, fix it in the codecast with a `pronounce: written = spoken` lin
 6. Look at it: `iwr serve <path>`, then open Architecture, Types, and Flow for your main function.
    A box showing a raw name instead of your sentence means its comment broke a rule above.
 
+## For AI agents
+
+The rules above, condensed for an agent, are an Agent Skill:
+[skills/iwr-commenting/SKILL.md](../skills/iwr-commenting/SKILL.md). To install it, copy the
+folder into your agent's skills folder (see the [README](../README.md#skill-for-ai-agents)).
+Keep it in step with this page when a rule changes.
+
 See also: [writing a codecast](writing-codecasts.md) (comments are its "Step 0"),
 [the codecast format](codecast.md) (tours that read these comments).

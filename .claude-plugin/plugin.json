@@ -1,0 +1,10 @@
+{
+  "name": "iwannatrust",
+  "description": "Skills for agents working on Rust code shown with IwannatRust: comment the code so it reads well as boxes and flow charts.",
+  "version": "0.1.0",
+  "author": { "name": "MandoKa" },
+  "homepage": "https://github.com/AlexandreKarlsson/IwannatRust",
+  "repository": "https://github.com/AlexandreKarlsson/IwannatRust",
+  "license": "MIT",
+  "icon": "./images/logo.png"
+}

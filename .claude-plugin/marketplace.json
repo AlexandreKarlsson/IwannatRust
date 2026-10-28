@@ -1,0 +1,12 @@
+{
+  "name": "iwannatrust",
+  "owner": { "name": "MandoKa" },
+  "description": "IwannatRust's skills for AI agents writing and commenting Rust code.",
+  "plugins": [
+    {
+      "name": "iwannatrust",
+      "source": "./",
+      "description": "Skills for agents working on Rust code shown with IwannatRust."
+    }
+  ]
+}
