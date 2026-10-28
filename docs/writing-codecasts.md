@@ -24,6 +24,8 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
 | bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
+| chart:<name>               a chart beside the view (`@ chart:<name>` fills the view instead)
+{+id !id =id 18 …}           chart markers inside a spoken sentence, fired on that word (see Charts)
 <name>_tour[:<ref>]          generated cues (see Tours): architecture types errors entry flow todo files
 <One or two spoken sentences.>
 ? <A question the listener may have>      optional, after the cue it belongs to
@@ -288,6 +290,71 @@ The shop sends this little parcel. Each item says what and how many.
 |
 ````
 
+## Charts (a number that changed, a share of a whole)
+
+When the story is a number, show it: build time going down over versions, how much of the code
+each module holds, before and after a fix. A ```` ```chart <title> ```` block draws a line, bar,
+pie or stacked chart; `@ chart:<title>` fills the view with it, `| chart:<title>` puts it in the
+side panel next to the code. The chart moves with the voice: markers in braces inside a spoken
+sentence fire on the word they sit before, and are never read aloud.
+
+````
+## Faster builds
+```chart Build time
+line  x: version  y: seconds  unit: s
+v1  42
+v2  35  :::hidden
+v3  12  :::hidden
+```
+@ chart:Build time
+! v1
+Version one took forty two seconds to build.
+Then caching trimmed it {+v2} a little, and parallel builds {+v3 !v3 ~v1>v3} crushed it.
+````
+
+**The block.** The first line is the kind, then the axis names and an optional `unit:`:
+
+| Kind | Shows | Rows |
+|------|-------|------|
+| `line` | a value over time or versions (x values evenly spaced) | `id value` |
+| `bar` | values side by side, before and after | `id value` |
+| `pie` / `donut` | parts of a whole | `id value` (shares, any total) |
+| `stack` / `stack%` | parts of a whole across several groups (`%`: each bar to 100) | `id v1 v2 …` |
+
+Several series (two lines, grouped or stacked bars): a `series: name1 name2 …` line, then one value
+per series on each row. The id is also the label unless the row ends with `"a label"`. A row
+ending in `:::hidden` waits for its `+` marker, like a hidden diagram node.
+
+**Markers.** Write them in `{}` inside the cue text; a `{}` at the start of the sentence fires with it.
+Braces inside backticks, or holding anything else, stay text. A `!` line may also name rows: they
+glow until a `!id` marker takes over.
+
+| Marker | Does |
+|--------|------|
+| `+id` / `-id` | show / hide a point, bar or slice (lines draw to it, bars grow, slices sweep) |
+| `=id 18` | change a value: the mark moves to it and its label counts there |
+| `!id` | glow it, instead of what glowed before (`!` alone clears) |
+| `~a>b` | a delta badge from `a` to `b` (−71%) |
+| `--30 "target"` | a threshold line at 30 (the label is optional) |
+| `"text"@id` | a short callout on a mark |
+
+Axes rescale smoothly when a new value does not fit. Stepping to a cue by hand shows it with all
+its markers fired; while playing, each one fires as the voice reaches it: browser speech by its
+word boundaries (or the time spoken when the browser gives none), recordings by how far the cue's
+audio has played.
+
+**Guidelines.**
+- One chart per part, 3–8 marks. More than that is a table: put it in a `| md:` panel.
+- Reveal, don't dump: start with one or two marks and add the rest as the voice reaches them.
+- Say the number in words in the cue ("forty two seconds"); the chart shows it, the voice gives
+  it meaning. Never read every value.
+- Put the marker just before the word that carries the news (`{+v3}` before "crushed"), not at
+  the end of the sentence.
+- Title, axis and series names and `"labels"` are translated with the cues; ids and values are
+  not, so give rows a `"label"` when the id is not a word a listener should read. A translated cue
+  keeps its markers at the same fraction of the sentence.
+- Come back to the code afterwards: a chart backs up a point, it is not the point.
+
 ## Example
 
 ```
@@ -327,6 +394,7 @@ Then every parsed task is saved into storage, one per loop iteration. `t.clone()
 - First cue of every part sets the stage: `@` plus a `!`, `+` or `|` (Welcome: `@ arch`, crates
   lit, `+ view`); `iwr check` prints no "first cue" note. No part longer than twelve cues.
 - Data the code sends, reads or stores is shown with an example block, not described.
+- A number that changed or a share of a whole is a chart revealed with `{+id}` markers, not a list of figures.
 - Each big idea has one metaphor; jargon comes after the plain words.
 - Every module has a `//!`, loops and key `if`s have a short `//` (if you may edit the code).
 - Inventory parts may use tours (`architecture_tour`, `types_tour`, `errors_tour`…) instead of hand-written cue lists.

@@ -4,6 +4,7 @@
 #![allow(non_snake_case)]
 
 mod canvas;
+mod chart;
 mod code;
 mod design;
 mod fonts;
@@ -96,6 +97,10 @@ pub struct State {
     pub own_script: Signal<Option<(Rc<iwr_core::script::Script>, Option<String>, String)>>,
     /// the diagram shown by `@ diagram` (from the current part)
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
+    /// the chart shown by `@ chart` (from the current part)
+    pub chart: Signal<Option<Rc<iwr_core::chart::Chart>>>,
+    /// how far the voice is into the current cue, 0 to 1: chart markers up to there have fired
+    pub cue_frac: Signal<f64>,
     /// `>` ops of the current part up to the current cue, replayed on the diagram
     pub diagram_ops: Signal<Vec<iwr_core::diagram::Op>>,
     /// what the side panel shows (`|` lines of a codecast), next to the view
@@ -393,6 +398,8 @@ fn App() -> Element {
         welcome_open: Signal::new(false),
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
+        chart: Signal::new(None),
+        cue_frac: Signal::new(1.0),
         side: Signal::new(None),
         code_mark: Signal::new(None),
         answering: Signal::new(None),
@@ -615,6 +622,7 @@ fn App() -> Element {
     let theme_name = state.theme.read().clone();
     let is_code = *state.mode.read() == Mode::Code;
     let is_plan = *state.mode.read() == Mode::Plan;
+    let chart = (*state.mode.read() == Mode::Chart).then(|| state.chart.read().clone());
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
@@ -629,6 +637,7 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
+        style { {chart::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }),
@@ -663,13 +672,18 @@ fn App() -> Element {
                     code::CodeView {}
                 } else if is_plan {
                     player::PlanPage {}
+                } else if let Some(c) = chart.clone() {
+                    match c {
+                        Some(c) => rsx! { chart::ChartView { chart: (*c).clone(), full: true } },
+                        None => rsx! { div { class: "chart full", "No chart here: a codecast draws one with a ```chart block and `@ chart`." } },
+                    }
                 } else {
                     canvas::Canvas {}
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     // the side panel takes the details' place
                     if has_side { side::SidePanel {} } else { panels::Details {} }
                 }
-                if has_side && (is_code || is_plan) {
+                if has_side && (is_code || is_plan || chart.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     side::SidePanel {}
                 }

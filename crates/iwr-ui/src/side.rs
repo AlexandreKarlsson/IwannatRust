@@ -10,7 +10,7 @@ use iwr_core::bytes::{self, Layout, Size};
 use iwr_core::script::Side;
 
 /// Field colours, in order; padding (`_`) is grey.
-const PALETTE: [&str; 8] = ["#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa", "#2dd4bf", "#fb923c", "#f87171"];
+pub(crate) const PALETTE: [&str; 8] = ["#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa", "#2dd4bf", "#fb923c", "#f87171"];
 const PADDING: &str = "#9ca3af";
 
 #[component]
@@ -23,6 +23,7 @@ pub fn SidePanel() -> Element {
         Side::Note(n) => ("notes", n.title.clone()),
         Side::Diagram(d) => ("diagram", d.title.clone()),
         Side::Example(e) => (e.lang.as_str(), e.title.clone()),
+        Side::Chart(c) => ("chart", c.title.clone()),
     };
     rsx! {
         div { class: "side", style: "width:{dw}px",
@@ -38,6 +39,7 @@ pub fn SidePanel() -> Element {
                     Side::Note(n) => rsx! { div { class: "side-note", Markdown { text: n.text.clone() } } },
                     Side::Diagram(d) => rsx! { MiniDiagram { diagram: d.clone() } },
                     Side::Example(e) => rsx! { ExampleCard { example: e.clone() } },
+                    Side::Chart(c) => rsx! { crate::chart::ChartView { chart: c.clone() } },
                 }
             }
         }

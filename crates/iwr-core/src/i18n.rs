@@ -153,6 +153,16 @@ fn walk(s: &mut Script, glossary: &mut [Entry], f: &mut dyn FnMut(&str) -> Strin
             }
             md(&mut note.text);
         }
+        // chart labels; ids, values and `{}` markers stay (markers sit at a fraction of the text)
+        for c in &mut part.charts {
+            for t in [&mut c.title, &mut c.x, &mut c.y].into_iter().flatten() {
+                md(t);
+            }
+            c.series.iter_mut().for_each(&mut md);
+            for r in c.rows.iter_mut().filter(|r| r.label != r.id) {
+                md(&mut r.label);
+            }
+        }
         for cue in &mut part.cues {
             md(&mut cue.say);
             for q in &mut cue.questions {

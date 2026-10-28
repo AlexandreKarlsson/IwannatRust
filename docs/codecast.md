@@ -294,6 +294,26 @@ The panel draws the bytes as a coloured strip with offsets and each field's name
 (field, offset, size, value, description); hovering a byte or a row lights both. `iwr check`
 reports unreadable lines, sizes that do not add up to the sample, and `|` lines naming no block.
 
+## Charts
+
+A ```` ```chart <title> ```` block draws a chart; `@ chart[:ref]` fills the view with it, `| chart[:ref]`
+puts it in the side panel (ref: the n-th chart of the part, or its title).
+
+```
+line  x: version  y: seconds  unit: s     kind: line bar pie donut stack stack%
+series: debug release                     optional: one value per series on each row
+v1  42  40                                id value… ["label"] [:::hidden]
+```
+
+Markers sit in braces inside a cue's text and are never spoken: `Caching cut it {+v2 !v2} a bit.`
+`+id` / `-id` show / hide a row, `=id 18` changes its value(s), `!id` glows (`!` alone clears),
+`~a>b` a delta badge, `--30 "goal"` a threshold line, `"text"@id` a callout. The parser takes them
+out of the text and keeps their place as a fraction of it (`Cue::marks`), so speech, captions,
+recordings' text hashes and translations see plain sentences. While playing, a marker fires when
+the voice reaches it (TTS word boundaries, else the time spoken; a recording's time into the cue);
+a cue reached by hand shows all of its markers. `iwr check` reports chart errors, markers naming
+rows no chart of the part has, and markers in a part without a chart.
+
 ## Panels, spots and the file tree
 
 **Enlarge a panel.** A `+` line above a cue makes one panel of the screen big and the others small,

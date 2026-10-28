@@ -11,6 +11,7 @@
 pub mod brief;
 pub mod config;
 pub mod bytes;
+pub mod chart;
 pub mod diagram;
 pub mod model;
 pub mod guide;

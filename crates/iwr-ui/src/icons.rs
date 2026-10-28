@@ -36,6 +36,7 @@ pub fn for_mode(m: Mode) -> &'static str {
         Mode::Types => "types",
         Mode::ErrorFlow => "errors",
         Mode::Diagram => "diagram",
+        Mode::Chart => "chart",
         Mode::Plan => "plan",
     }
 }

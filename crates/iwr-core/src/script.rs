@@ -96,6 +96,9 @@ pub struct Part {
     /// example blocks of the part (```` ```json Body ````, ```` ```csv ````…), in order (`| example:Body`)
     #[serde(default)]
     pub examples: Vec<Example>,
+    /// ```` ```chart ```` blocks of the part, in order (`@ chart:<title>`, `| chart:<title>`)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub charts: Vec<crate::chart::Chart>,
     /// recordings of this part in other languages or by other voices (`audio.ja:` + `times.ja:`,
     /// `audio.en.am_adam:` + `times.en.am_adam:` lines)
     #[serde(default)]
@@ -233,6 +236,16 @@ pub struct Cue {
     /// on (see [`Focus`]); `Some("")` (`+` alone) gives everything back its normal look
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus: Option<String>,
+    /// `{+v2 !v2}` chart markers taken out of the text, with where they sat (see [`crate::chart`])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<crate::chart::CueMark>,
+}
+
+impl Cue {
+    /// Set the text from a script line: chart markers go to `marks`.
+    fn set_say(&mut self, raw: &str) {
+        (self.say, self.marks) = crate::chart::split_say(raw);
+    }
 }
 
 /// A line that asks for a generated tour: `name_tour` or `name_tour:<ref>`.
@@ -376,6 +389,7 @@ pub fn parse(text: &str) -> Script {
                 "mermaid" => Some(Fence::Mermaid),
                 "bytes" => Some(Fence::Bytes),
                 "md" | "markdown" => Some(Fence::Md),
+                "chart" => Some(Fence::Chart),
                 w if EXAMPLE_LANGS.contains(&w) => Some(Fence::Example(w.to_string())),
                 _ => None,
             };
@@ -487,7 +501,7 @@ pub fn parse(text: &str) -> Script {
                     if rest.is_empty() {
                         continue;
                     }
-                    pending.say = rest.to_string();
+                    pending.set_say(rest);
                     part.cues.push(std::mem::take(&mut pending));
                     continue;
                 }
@@ -501,7 +515,7 @@ pub fn parse(text: &str) -> Script {
             part.cues.push(std::mem::take(&mut pending));
             continue;
         }
-        pending.say = t.to_string();
+        pending.set_say(t);
         part.cues.push(std::mem::take(&mut pending));
     }
     // unclosed block: keep what was read, the parser reports what is wrong with it
@@ -529,6 +543,7 @@ enum Fence {
     Mermaid,
     Bytes,
     Md,
+    Chart,
     Example(String),
 }
 
@@ -541,6 +556,7 @@ fn close_fence(f: Option<(Fence, Option<String>, Vec<String>)>, part: &mut Part)
             let text = dedent(&lines);
             part.notes.push(Note { title, text });
         }
+        Fence::Chart => part.charts.push(crate::chart::parse(&dedent(&lines), title.as_deref())),
         Fence::Example(lang) => part.examples.push(Example { lang, title, text: dedent(&lines) }),
     }
 }
@@ -589,6 +605,9 @@ pub fn to_text(s: &Script) -> String {
         for e in &p.examples {
             out.push_str(&format!("```{}{}\n{}\n```\n", e.lang, e.title.as_ref().map(|t| format!(" {}", t)).unwrap_or_default(), e.text));
         }
+        for ch in &p.charts {
+            out.push_str(&format!("```chart{}\n{}\n```\n", ch.title.as_ref().filter(|_| !ch.source.contains("title:")).map(|t| format!(" {}", t)).unwrap_or_default(), ch.source));
+        }
         for c in &p.cues {
             if let Some(v) = &c.show {
                 out.push_str(&format!("@ {}\n", v));
@@ -611,7 +630,7 @@ pub fn to_text(s: &Script) -> String {
             if let Some(f) = &c.focus {
                 out.push_str(&format!("+ {}\n", f).replace("+ \n", "+\n"));
             }
-            let say = flatten(&c.say);
+            let say = flatten(&crate::chart::join_say(&c.say, &c.marks));
             match (&c.tour, c.t) {
                 (Some(tour), _) => out.push_str(&format!("{}\n", tour)),
                 (None, Some(t)) => out.push_str(&format!("[{}] {}\n", t, say)),
@@ -836,6 +855,7 @@ pub fn view_of(name: &str) -> Option<Mode> {
         "types" => Mode::Types,
         "errors" | "error" => Mode::ErrorFlow,
         "diagram" | "sketch" => Mode::Diagram,
+        "chart" | "graph" => Mode::Chart,
         "plan" | "outline" => Mode::Plan,
         _ => return None,
     })
@@ -852,6 +872,7 @@ pub fn view_name(m: Mode) -> &'static str {
         Mode::Types => "types",
         Mode::ErrorFlow => "errors",
         Mode::Diagram => "diagram",
+        Mode::Chart => "chart",
         Mode::Plan => "plan",
     }
 }
@@ -860,6 +881,20 @@ pub fn view_name(m: Mode) -> &'static str {
 /// front-matter title (`:Bus`).
 pub fn find_diagram<'a>(part: &'a Part, r: Option<&str>) -> Option<&'a Diagram> {
     find_by(&part.diagrams, r, |d| d.title.as_deref())
+}
+
+/// The chart `@ chart[:ref]` or `| chart[:ref]` points at in a part.
+pub fn find_chart<'a>(part: &'a Part, r: Option<&str>) -> Option<&'a crate::chart::Chart> {
+    find_by(&part.charts, r, |c| c.name.as_deref())
+}
+
+/// Chart markers fired in a part up to `frac` (0 to 1) of cue `cue`, in order.
+pub fn marks_at(part: &Part, cue: usize, frac: f64) -> Vec<&crate::chart::Mark> {
+    let mut out = vec![];
+    for (i, c) in part.cues.iter().enumerate().take(cue + 1) {
+        out.extend(c.marks.iter().filter(|m| i < cue || m.frac() <= frac).flat_map(|m| &m.marks));
+    }
+    out
 }
 
 /// `@ <kind>[:ref]` / `| <kind>[:ref]` lookup: the first block, the n-th (`:2`), or by title.
@@ -880,6 +915,7 @@ pub enum Side {
     Note(Note),
     Diagram(Diagram),
     Example(Example),
+    Chart(crate::chart::Chart),
 }
 
 impl Side {
@@ -889,6 +925,7 @@ impl Side {
             Side::Bytes(l) => l.ids().into_iter().map(String::from).collect(),
             Side::Diagram(d) => d.ids().into_iter().map(String::from).collect(),
             Side::Example(e) => e.ids(),
+            Side::Chart(c) => c.ids().into_iter().map(String::from).collect(),
             Side::Note(_) => vec![],
         }
     }
@@ -912,13 +949,14 @@ pub fn find_side(part: &Part, side: &str) -> Result<Option<Side>, String> {
         "bytes" => find_by(&part.layouts, r, |l| l.title.as_deref()).map(|l| Some(Side::Bytes(l.clone()))).ok_or_else(|| missing("byte layout", "```bytes")),
         "md" | "markdown" | "note" | "list" => find_by(&part.notes, r, |n| n.title.as_deref()).map(|n| Some(Side::Note(n.clone()))).ok_or_else(|| missing("```md block", "```md")),
         "diagram" | "sketch" => find_by(&part.diagrams, r, |d| d.title.as_deref()).map(|d| Some(Side::Diagram(d.clone()))).ok_or_else(|| missing("diagram", "```mermaid")),
+        "chart" | "graph" => find_chart(part, r).map(|c| Some(Side::Chart(c.clone()))).ok_or_else(|| missing("chart", "```chart")),
         "example" | "ex" | "data" => find_by(&part.examples, r, |e| e.title.as_deref()).map(|e| Some(Side::Example(e.clone()))).ok_or_else(|| missing("example", "```json (csv, yaml…)")),
         // `| json:Body`: the examples of that format
         k if EXAMPLE_LANGS.contains(&k) => {
             let of: Vec<Example> = part.examples.iter().filter(|e| e.lang == k).cloned().collect();
             find_by(&of, r, |e| e.title.as_deref()).map(|e| Some(Side::Example(e.clone()))).ok_or_else(|| missing(&format!("{} example", k), &format!("```{}", k)))
         }
-        _ => Err(format!("unknown side panel `| {}` (bytes, md, diagram, example)", side)),
+        _ => Err(format!("unknown side panel `| {}` (bytes, md, diagram, chart, example)", side)),
     }
 }
 
@@ -1152,6 +1190,7 @@ pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
 struct Track<'a> {
     mode: Option<Mode>,
     diagram: Option<&'a Diagram>,
+    chart: Option<&'a crate::chart::Chart>,
     /// refs of what the side panel shows (`|`)
     side: Vec<String>,
 }
@@ -1169,6 +1208,17 @@ impl<'a> Track<'a> {
                     bad.push(match r {
                         Some(r) => format!("{}: no diagram `{}` in this part (`@ diagram:2`, or the block's `title:`)", at, r),
                         None => format!("{}: `@ diagram` but this part has no ```mermaid block", at),
+                    });
+                }
+            }
+            Some(Mode::Chart) => {
+                self.mode = Some(Mode::Chart);
+                self.diagram = None;
+                self.chart = find_chart(part, r);
+                if self.chart.is_none() {
+                    bad.push(match r {
+                        Some(r) => format!("{}: no chart `{}` in this part (`@ chart:2`, or the block's title)", at, r),
+                        None => format!("{}: `@ chart` but this part has no ```chart block", at),
                     });
                 }
             }
@@ -1216,6 +1266,11 @@ impl<'a> Track<'a> {
                     }
                 }
                 (Some(Mode::Diagram), None) => {}
+                (Some(Mode::Chart), _) => {
+                    if let Some(c) = self.chart.filter(|c| c.row(r).is_none()) {
+                        bad.push(format!("{}: `{}` is not a row of the chart (rows: {})", at, r, c.ids().join(" ")));
+                    }
+                }
                 _ => {
                     if resolve(p, r).is_none() && resolve_dir(p, r).is_none() {
                         bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
@@ -1272,7 +1327,7 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
     let mut expanded = s.clone();
     expand_tours(p, &mut expanded);
     let s = &expanded;
-    let mut t = Track { mode: None, diagram: None, side: vec![] };
+    let mut t = Track { mode: None, diagram: None, chart: None, side: vec![] };
     for part in &s.parts {
         for (i, d) in part.diagrams.iter().enumerate() {
             for e in &d.errors {
@@ -1282,6 +1337,11 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
         for (i, l) in part.layouts.iter().enumerate() {
             for e in &l.errors {
                 bad.push(format!("{} / bytes {}: {}", part.name, i + 1, e));
+            }
+        }
+        for (i, c) in part.charts.iter().enumerate() {
+            for e in &c.errors {
+                bad.push(format!("{} / chart {}: {}", part.name, i + 1, e));
             }
         }
         // the side panel is per part
@@ -1299,6 +1359,17 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
             }
             if !c.ops.is_empty() {
                 t.ops(part, &at, &c.ops, &mut bad);
+            }
+            for m in c.marks.iter().flat_map(|m| &m.marks) {
+                if part.charts.is_empty() {
+                    bad.push(format!("{}: chart marker `{{{}}}` but this part has no ```chart block", at, crate::chart::marks_text(std::slice::from_ref(m))));
+                    break;
+                }
+                // a marker may name rows of any chart of the part
+                let unknown: Vec<&str> = part.charts.iter().map(|ch| ch.unknown(m)).reduce(|a, b| a.into_iter().filter(|x| b.contains(x)).collect()).unwrap_or_default();
+                for u in unknown {
+                    bad.push(format!("{}: `{}` in `{{{}}}` is not a row of a chart of this part", at, u, crate::chart::marks_text(std::slice::from_ref(m))));
+                }
             }
             if let Some(r) = &c.code {
                 if resolve(p, r).is_none() {

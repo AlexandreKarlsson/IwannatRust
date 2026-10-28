@@ -245,7 +245,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None, marks: vec![] });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -1069,4 +1069,29 @@ fn tutorial(p: &Project) -> iwr_core::script::Script {
     stems.sort();
     let parts: Vec<PartFile> = stems.iter().map(|st| PartFile { stem: st.clone(), text: iwr_core::tutorial::fill(p, &std::fs::read_to_string(dir.join(format!("{st}.md"))).unwrap()), audio: None, times: vec![], voices: vec![] }).collect();
     script::parse(&script::assemble(&std::fs::read_to_string(dir.join("index.md")).unwrap(), &parts))
+}
+
+#[test]
+fn chart_blocks_and_markers() {
+    use iwr_core::script;
+    let p = project();
+    let text = "# T\n\n## Faster\n```chart Build time\nline x: version y: seconds unit: s\nv1 42\nv2 35 :::hidden\nv3 12 :::hidden\n```\n@ chart:Build time\n! v1\nVersion one took forty two seconds.\nThen caching cut it {+v2} a bit, and parallel builds {+v3 !v3 ~v1>v3} crushed it.\n| chart\nSame {=v3 10} beside.\n";
+    let s = script::parse(text);
+    let part = &s.parts[0];
+    assert_eq!(part.charts.len(), 1);
+    assert_eq!(part.cues[1].say, "Then caching cut it a bit, and parallel builds crushed it.");
+    assert_eq!(part.cues[1].marks.len(), 2);
+    assert!(script::check(&p, &s).is_empty(), "{:?}", script::check(&p, &s));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    // half way into the cue: v2 shown, v3 not yet
+    let c = &part.charts[0];
+    let st = c.state(script::marks_at(part, 1, 0.5));
+    assert_eq!(st.shown, vec![true, true, false]);
+    let st = c.state(script::marks_at(part, 2, 0.0));
+    assert_eq!((st.shown[2], st.values[2][0], st.deltas.len()), (true, 12.0, 1));
+    assert_eq!(c.state(script::marks_at(part, 2, 1.0)).values[2][0], 10.0);
+    // unknown rows and a marker without a chart are reported
+    let bad = script::parse("# T\n## A\n```chart\nbar\na 1\n```\n@ chart\n! zz\nGo {+b}.\n## B\n@ arch\n! crate::main\nNo {+a} chart.\n");
+    let errs = script::check(&p, &bad);
+    assert_eq!(errs.len(), 3, "{errs:?}");
 }

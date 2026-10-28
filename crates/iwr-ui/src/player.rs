@@ -309,10 +309,11 @@ impl State {
         self.focus.set(None);
         self.spot.set(None);
         self.zoom.set(None);
-        if matches!(*self.mode.read(), Mode::Diagram | Mode::Plan) {
+        if matches!(*self.mode.read(), Mode::Diagram | Mode::Chart | Mode::Plan) {
             self.set_mode(Mode::Code);
         }
         self.diagram.set(None);
+        self.chart.set(None);
         self.diagram_ops.set(vec![]);
         self.side.set(None);
         self.code_mark.set(None);
@@ -398,6 +399,11 @@ impl State {
             .map(|part| part.cues.iter().take(cue_idx + 1).flat_map(|c| c.ops.iter().cloned()).collect())
             .unwrap_or_default();
         self.diagram_ops.set(ops);
+        // chart markers of this cue fire as the voice reaches them; stepping by hand shows them all
+        let frac = if *self.playing.peek() && *self.voice.peek() != Voice::Read { 0.0 } else { 1.0 };
+        if *self.cue_frac.peek() != frac {
+            self.cue_frac.set(frac);
+        }
         // `|` lines are sticky inside a part too
         let side = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::side_at(part, cue_idx));
         self.side.set(side.map(Rc::new));
@@ -436,13 +442,16 @@ impl State {
             if let Some(m) = mode {
                 if m != *self.mode.read() {
                     self.mode.set(m);
-                    if !matches!(m, Mode::Code | Mode::Plan) {
+                    if !matches!(m, Mode::Code | Mode::Chart | Mode::Plan) {
                         self.views_open.set(true);
                     }
                 }
                 if m == Mode::Diagram {
                     let d = self.find_diagram(r);
                     self.diagram.set(d.map(Rc::new));
+                } else if m == Mode::Chart {
+                    let c = self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).and_then(|part| script::find_chart(part, r)).cloned();
+                    self.chart.set(c.map(Rc::new));
                 } else if let Some(r) = r {
                     if let Some(res) = script::resolve(p, r) {
                         if let Some(mid) = res.module {
@@ -472,7 +481,7 @@ impl State {
             self.hl_ids.set(refs.clone());
             // in a diagram the refs are node ids, and the side panel's fields or nodes are its
             // own: don't select project items that share a name
-            let in_diagram = *self.mode.read() == Mode::Diagram;
+            let in_diagram = matches!(*self.mode.read(), Mode::Diagram | Mode::Chart);
             let side_ids = self.side.read().as_ref().map(|s| s.ids()).unwrap_or_default();
             let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter(|r| !side_ids.contains(r)).filter_map(|r| script::resolve(p, r)).collect() };
             // folders: refs that are not a file, an item or a module
@@ -542,7 +551,7 @@ impl State {
     pub fn camera(&mut self) {
         let req = *self.fit_request.peek();
         self.fit_done.set(req);
-        if !matches!(*self.mode.read(), Mode::Code | Mode::Plan) {
+        if !matches!(*self.mode.read(), Mode::Code | Mode::Chart | Mode::Plan) {
             let graph = self.build_graph();
             let hl = self.hl.read().clone();
             let ids = self.hl_ids.read().clone();
@@ -703,6 +712,10 @@ pub fn PlayerBar() -> Element {
             return;
         }
         let Some(cue) = state.current_cue() else { return };
+        // the cue is spoken from its start: its chart markers fire again as the voice reaches them
+        if !cue.marks.is_empty() && *state.cue_frac.peek() != 0.0 {
+            state.cue_frac.set(0.0);
+        }
         let text = iwr_core::speech::spoken(&cue.say, &state.pronounce.peek());
         let rate = *state.tts_rate.peek();
         // A browser without a speech engine (e.g. snap Chromium, no voices) errors or "ends"
@@ -719,13 +732,26 @@ pub fn PlayerBar() -> Element {
                u.rate = {rate:.2};
                {voice}
                const t0 = performance.now();
-               u.onstart = () => dioxus.send("start");
-               u.onend = () => dioxus.send("end:" + Math.round(performance.now() - t0));
+               let iv = 0, seen = false;
+               u.onstart = () => {{ dioxus.send("start"); {progress} }};
+               u.onend = () => {{ clearInterval(iv); dioxus.send("end:" + Math.round(performance.now() - t0)); }};
                u.onerror = (e) => dioxus.send("error:" + e.error);
                try {{ speechSynthesis.resume(); speechSynthesis.speak(u); }} catch (e) {{ dioxus.send("error:" + e); }}
                "#,
             serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
-            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref())
+            voice = voice_js(&state.lang.peek(), state.config.peek().tts_voice.as_deref()),
+            // chart markers: how far the voice is, from word boundaries, else from the time spoken
+            progress = if cue.marks.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    r#"const n = {n}, est = {est:.0};
+                       u.onboundary = (e) => {{ seen = true; dioxus.send("b:" + e.charIndex / n); }};
+                       iv = setInterval(() => {{ if (!seen) dioxus.send("b:" + Math.min(0.98, (performance.now() - t0) / est)); }}, 200);"#,
+                    n = text.encode_utf16().count().max(1),
+                    est = text.chars().count() as f64 * 1000.0 / (14.0 * rate.max(0.1))
+                )
+            }
         );
         let my_gen = *state.tts_gen.peek();
         let cue_no = *state.cue_idx.peek() + 1;
@@ -743,6 +769,12 @@ pub fn PlayerBar() -> Element {
                     state.tts_info.set(format!("cue {cue_no}: speak requested · {voices} · waiting for start…"));
                     continue;
                 }
+                if let Some(f) = msg.strip_prefix("b:").and_then(|f| f.parse::<f64>().ok()) {
+                    if f > *state.cue_frac.peek() {
+                        state.cue_frac.set(f.min(1.0));
+                    }
+                    continue;
+                }
                 if msg == "start" {
                     state.tts_info.set(format!("cue {cue_no}: speaking · {voices}"));
                     continue;
@@ -755,12 +787,14 @@ pub fn PlayerBar() -> Element {
                 let failed = msg.starts_with("error:") && !msg.ends_with("interrupted") && !msg.ends_with("canceled");
                 if too_fast || failed {
                     state.playing.set(false);
+                    state.cue_frac.set(1.0);
                     let why = if failed { msg.clone() } else { format!("ended after {} ms, too fast to have spoken {words} words", ms.unwrap_or(0)) };
                     state.tts_info.set(format!(
                         "⚠ TTS failed on cue {cue_no}: {why} · {voices}. The browser has no working speech voice: try another browser (Chrome/Firefox, not snap Chromium) or the 📖 read voice."
                     ));
                     return;
                 }
+                state.cue_frac.set(1.0);
                 state.tts_info.set(match ms {
                     Some(ms) => format!("cue {cue_no}: done in {:.1} s · {voices}", ms as f64 / 1000.0),
                     None => format!("cue {cue_no}: {msg} · {voices}"),
@@ -881,6 +915,15 @@ pub fn PlayerBar() -> Element {
                                 state.part_idx.set(pi);
                                 state.cue_idx.set(ci);
                                 state.apply_cue();
+                            }
+                            // how far into the cue: up to the next cue's start, or an estimate of its length
+                            let cues = &s.parts[pi].cues;
+                            if !cues[ci].marks.is_empty() {
+                                let end = cues.get(ci + 1).and_then(|c| c.t).unwrap_or(best_t + cues[ci].say.chars().count() as f64 / 14.0);
+                                let f = ((t - best_t) / (end - best_t).max(0.1)).clamp(0.0, 1.0);
+                                if (f - *state.cue_frac.peek()).abs() > 0.01 {
+                                    state.cue_frac.set(f);
+                                }
                             }
                         }
                     }

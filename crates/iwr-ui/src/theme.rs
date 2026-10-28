@@ -237,7 +237,7 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
         Mode::Types => vec![n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::ErrorType), n(NodeKind::Trait), n(NodeKind::TypeAlias), n(NodeKind::Function), e(EdgeKind::Contains), e(EdgeKind::Implements), e(EdgeKind::Supertrait), e(EdgeKind::Uses)],
         Mode::ErrorFlow => vec![n(NodeKind::Function), n(NodeKind::Panic), n(NodeKind::ErrorType), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Handles), e(EdgeKind::Error), e(EdgeKind::Aliases)],
         // a sketch explains itself, and the plan page is not a graph: no legend
-        Mode::Diagram | Mode::Plan => vec![],
+        Mode::Diagram | Mode::Chart | Mode::Plan => vec![],
     }
 }
 
