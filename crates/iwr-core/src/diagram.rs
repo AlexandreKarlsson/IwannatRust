@@ -82,6 +82,9 @@ pub struct Diagram {
     pub errors: Vec<String>,
     /// the block as written (kept for [`crate::script::to_text`])
     pub source: String,
+    /// a `sequenceDiagram` block: drawn by [`crate::sequence`] instead (no `nodes` then)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<crate::sequence::Sequence>,
 }
 
 impl Diagram {
@@ -89,11 +92,14 @@ impl Diagram {
         self.nodes.iter().find(|n| n.id == id)
     }
     pub fn has(&self, id: &str) -> bool {
-        self.node(id).is_some()
+        self.node(id).is_some() || self.seq.as_ref().is_some_and(|s| s.ids().contains(&id))
     }
-    /// Node ids, for error messages.
+    /// Node ids (participants, messages and notes of a sequence), for refs and error messages.
     pub fn ids(&self) -> Vec<&str> {
-        self.nodes.iter().map(|n| n.id.as_str()).collect()
+        match &self.seq {
+            Some(s) => s.ids(),
+            None => self.nodes.iter().map(|n| n.id.as_str()).collect(),
+        }
     }
 
     fn touch(&mut self, id: String, shape: Option<Shape>, label: Option<String>, group: Option<&String>) {
@@ -158,7 +164,7 @@ pub fn op_text(op: &Op) -> String {
 
 // ------------------------------------------------------------------ parsing
 
-const OTHER_DIAGRAMS: [&str; 12] = ["sequencediagram", "classdiagram", "statediagram", "erdiagram", "gantt", "pie", "journey", "gitgraph", "mindmap", "timeline", "quadrantchart", "xychart"];
+const OTHER_DIAGRAMS: [&str; 11] = ["classdiagram", "statediagram", "erdiagram", "gantt", "pie", "journey", "gitgraph", "mindmap", "timeline", "quadrantchart", "xychart"];
 const SKIPPED: [&str; 7] = ["classdef ", "class ", "style ", "linkstyle ", "click ", "acctitle", "accdescr"];
 
 /// Parse a mermaid flowchart. Never fails: lines it cannot read go to [`Diagram::errors`].
@@ -196,8 +202,17 @@ pub fn parse(text: &str) -> Diagram {
                     d.horizontal = matches!(dir.as_str(), "LR" | "RL");
                     continue;
                 }
+                if lower.starts_with("sequencediagram") {
+                    let rest: Vec<(usize, &str)> = text.lines().enumerate().skip(ln + 1).collect();
+                    let (seq, title) = crate::sequence::parse(&rest, &mut d.errors);
+                    if d.title.is_none() {
+                        d.title = title;
+                    }
+                    d.seq = Some(seq);
+                    return d;
+                }
                 if let Some(k) = OTHER_DIAGRAMS.iter().find(|k| lower.starts_with(*k)) {
-                    d.errors.push(format!("line {}: `{}` is not supported, only flowcharts (`graph LR` / `graph TD`)", ln + 1, k));
+                    d.errors.push(format!("line {}: `{}` is not supported, only flowcharts (`graph LR` / `graph TD`) and `sequenceDiagram`", ln + 1, k));
                     return d;
                 }
                 // no header: a vertical flowchart
@@ -692,6 +707,9 @@ impl<'a> Ctx<'a> {
 /// `ops` are the `>` lines played so far (in order); names they mention that do not exist are
 /// ignored (`codecast check` reports them).
 pub fn graph(d: &Diagram, ops: &[Op]) -> Graph {
+    if let Some(s) = &d.seq {
+        return crate::sequence::graph(s, ops, Mode::Diagram);
+    }
     let mut g = Graph { mode: Some(Mode::Diagram), ..Default::default() };
     if d.nodes.is_empty() {
         g.note = Some("Empty diagram.".into());
@@ -1101,7 +1119,8 @@ mod tests {
         assert_eq!(d.errors.len(), 3, "{:?}", d.errors);
         assert!(d.errors[0].starts_with("line 3:"));
         let d = parse("sequenceDiagram\nA->>B: hi\n");
-        assert_eq!(d.errors.len(), 1);
+        assert!(d.errors.is_empty() && d.seq.is_some());
+        assert_eq!(parse("classDiagram\nA <|-- B\n").errors.len(), 1);
         assert!(parse("graph LR\nsubgraph g\na\n").errors[0].contains("without `end`"));
     }
 

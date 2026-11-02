@@ -8,6 +8,7 @@ Two accumulators: the part being filled, and pending, the cue being built from t
 One loop over the lines, and a chain of prefixes. Each branch either changes state and continues, or finishes a cue.
 ! iwr-core::script::parse/b12 iwr-core::script::parse/b14
 A mermaid fence is captured whole: when it closes, the block is parsed as a diagram and attached to the part.
+sp: And the questions I can click, where do their answers live?
 ! iwr-core::script::parse/b20 iwr-core::script::parse/b31
 Indented lines after a question mark are the answer. An answer may carry its own directives, so it can point at the code it talks about.
 ! iwr-core::script::parse/b43 iwr-core::script::parse/b46 iwr-core::script::parse/b47
@@ -20,6 +21,7 @@ The four directives: at sign for the view, bang for the highlights, equals for t
 Any other line is spoken text. It completes the cue: pending is taken out with `mem::take`, which leaves a fresh default behind for the next one.
 ? What does mem take do?
   `std::mem::take` swaps a value with its default and gives you the old one. Here it hands the finished cue to the list and leaves an empty cue in pending, in one move, without cloning and without a second variable. It is the idiom for "pop the current thing and start over".
+sp: What happens when a writer makes a typo in a ref?
 @ flow:iwr-core::script::check
 Writers make mistakes, so check walks the parsed script and verifies every ref against the Project: items, blocks, lines, files, and diagram node ids. codecast check prints whatever does not resolve.
 ! iwr-core::script::check/b9 iwr-core::script::check/b10 iwr-core::script::check/b11 iwr-core::script::check/b12

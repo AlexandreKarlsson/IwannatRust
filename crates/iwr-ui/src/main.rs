@@ -280,7 +280,7 @@ impl State {
         }
         if it.is_callable() {
             let mode = *self.mode.read();
-            if matches!(mode, Mode::CallTree | Mode::ControlFlow | Mode::BranchTree) {
+            if matches!(mode, Mode::CallTree | Mode::Sequence | Mode::ControlFlow | Mode::BranchTree) {
                 self.set_root(Some(id));
             }
         }

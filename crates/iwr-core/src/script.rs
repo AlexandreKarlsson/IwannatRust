@@ -875,6 +875,7 @@ pub fn view_of(name: &str) -> Option<Mode> {
     Some(match name {
         "code" => Mode::Code,
         "calls" | "calltree" => Mode::CallTree,
+        "sequence" | "seq" => Mode::Sequence,
         "flow" | "cfg" => Mode::ControlFlow,
         "arch" | "architecture" => Mode::Architecture,
         "branches" | "branch" => Mode::BranchTree,
@@ -892,6 +893,7 @@ pub fn view_name(m: Mode) -> &'static str {
     match m {
         Mode::Code => "code",
         Mode::CallTree => "calls",
+        Mode::Sequence => "sequence",
         Mode::ControlFlow => "flow",
         Mode::Architecture => "arch",
         Mode::BranchTree => "branches",

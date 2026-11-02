@@ -105,11 +105,14 @@ pub fn Canvas() -> Element {
     let selected_node_id: Option<String> = g.nodes.iter().find(|n| is_selected(n, selected, sel_span, mode)).map(|n| n.id.clone());
     let focus_id = hovered_id.clone().or(selected_node_id);
     let spots = label_spots.read().clone();
+    // a sequence diagram (generated, or a `sequenceDiagram` block): its frames go in front
+    let seq = g.edges.iter().any(|e| e.kind == EdgeKind::Lifeline);
     let edge_classes: Vec<String> = g
         .edges
         .iter()
         .map(|e| {
-            let highlighted = hi.contains(&e.from) && hi.contains(&e.to);
+            // sequence diagrams: a message glows by its own id (`!m3`) or with the bar it starts
+            let highlighted = (hi.contains(&e.from) && hi.contains(&e.to)) || (mode == Mode::Diagram && hl_ids.contains(&e.id)) || (mode == Mode::Sequence && e.kind != EdgeKind::Lifeline && hi.contains(&e.to));
             let near = focus_id.as_ref().is_some_and(|f| &e.from == f || &e.to == f);
             // architecture: dependency arrows stay faint unless they touch the box in focus or a glowing one
             let dim = mode == Mode::Architecture && e.kind == EdgeKind::Dependency && !near && !hi.contains(&e.from) && !hi.contains(&e.to);
@@ -170,7 +173,7 @@ pub fn Canvas() -> Element {
                 }
                 g { class: if animate { "cam anim" } else { "cam" }, transform: "{transform}",
                     // containers first
-                    for n in g.nodes.iter().filter(|n| n.container) {
+                    for n in g.nodes.iter().filter(|n| n.container && !seq) {
                         Node { key: "{n.id}", node: n.clone(), selected: false, highlighted: hi.contains(&n.id), hovered: false, mode, moved }
                     }
                     for (e, class) in g.edges.iter().zip(&edge_classes) {
@@ -187,6 +190,10 @@ pub fn Canvas() -> Element {
                             moved,
                         }
                     }
+                    // sequence frames over the arrows and bars, so their borders and titles stay readable
+                    for n in g.nodes.iter().filter(|n| n.container && seq) {
+                        Frame { key: "{n.id}", node: n.clone() }
+                    }
                     // labels last: above the boxes, where they were placed not to cover any
                     for ((e, class), spot) in g.edges.iter().zip(&edge_classes).zip(spots.iter()) {
                         if let (Some(l), Some((x, y))) = (&e.label, spot) {
@@ -202,7 +209,7 @@ pub fn Canvas() -> Element {
                 if let Some(r) = root_label {
                     span { class: "status", "root: " b { "{r}" } }
                 }
-                if mode == Mode::CallTree {
+                if mode == Mode::CallTree || mode == Mode::Sequence {
                     span { class: "depth", title: "how many call levels to open from the root",
                         "depth"
                         button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set(d.saturating_sub(1).max(1)); state.save_settings(); }, "−" }
@@ -466,6 +473,31 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     }
 }
 
+/// A sequence diagram's frame (`loop`, `alt`, …), drawn in front: a thin outline that lets
+/// clicks through, a corner tab with the kind word, then the title (a comment, or the code).
+#[component]
+fn Frame(node: VNode) -> Element {
+    let color = theme::node_color(node.kind);
+    let tag = node.sublabel.clone();
+    let tab_w = if tag.is_empty() { 0.0 } else { iwr_core::views::display_width(&tag) * 6.8 + 18.0 };
+    let title_w = if node.label.is_empty() { 0.0 } else { iwr_core::views::display_width(&node.label) * 6.6 + 14.0 };
+    let tab = format!("0,0 {:.1},0 {:.1},12 {:.1},20 0,20", tab_w, tab_w, tab_w - 8.0);
+    rsx! {
+        g { class: "frame", transform: "translate({node.x:.1},{node.y:.1})", style: "pointer-events: none",
+            rect { width: "{node.w:.1}", height: "{node.h:.1}", rx: "4", fill: "{color}", "fill-opacity": "0.04", stroke: "{color}", "stroke-width": "1.4", "stroke-opacity": "0.9" }
+            if tab_w > 0.0 {
+                polygon { points: "{tab}", fill: "var(--bg)" }
+                polygon { points: "{tab}", fill: "{color}", "fill-opacity": "0.3", stroke: "{color}", "stroke-width": "1.2" }
+                text { x: "7", y: "14", "font-size": "11", "font-weight": "700", fill: "var(--text)", "{tag}" }
+            }
+            if title_w > 0.0 {
+                rect { x: "{tab_w + 4.0:.1}", y: "3", width: "{title_w:.1}", height: "15", rx: "3", fill: "var(--bg)", "fill-opacity": "0.85" }
+                text { x: "{tab_w + 11.0:.1}", y: "14", "font-size": "11.5", fill: "var(--text)", "{node.label}" }
+            }
+        }
+    }
+}
+
 /// A hub chip: coloured dot with the hub's initials; hovering it focuses the hub (its arrows show).
 #[component]
 fn Chip(chip: iwr_core::views::Chip, x: f64, y: f64, r: f64) -> Element {
@@ -492,7 +524,7 @@ fn Edge(edge: VEdge, segs: Vec<Seg>, class: String) -> Element {
     let color = theme::edge_color(edge.kind, &edge.from);
     // counted edges (architecture) get thicker with use, up to about twice the base width
     let width = if edge.weight > 1 { width + (edge.weight as f64).log2().min(4.0) * 0.45 } else { width };
-    let head = arrow(&segs, width);
+    let head = if edge.kind == EdgeKind::Lifeline { None } else { arrow(&segs, width) };
     let tail = if edge.both {
         let rev: Vec<Seg> = segs.iter().rev().map(|s| match *s {
             Seg::Line(a, b) => Seg::Line(b, a),

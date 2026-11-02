@@ -182,6 +182,47 @@ pub struct VoiceStatus {
     /// a second voice speaks in the codecast (`sp:` lines): it is recorded by a pair of voices
     #[serde(default)]
     pub second: bool,
+    /// every language and voice (or pair) `codecast voice` has recorded parts with
+    #[serde(default)]
+    pub sets: Vec<VoiceSet>,
+}
+
+/// The recordings of one voice (or pair) in one language, how they were made, and the parts it
+/// still lacks: completed in one go (`POST /api/voice/complete`) or deleted (`POST /api/voice/drop`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct VoiceSet {
+    /// codecast language: `en`, `ja`
+    pub lang: String,
+    /// a voice or a pair: `af_heart+am_michael`
+    pub voice: String,
+    /// as `codecast voice` was told: `en-us`, `en-gb`, `ja`
+    pub arg: String,
+    pub speed: f32,
+    pub gap: f32,
+    pub level: f32,
+    /// part stems with an up-to-date recording
+    pub recorded: Vec<String>,
+    /// part stems whose text changed since
+    pub stale: Vec<String>,
+    /// recordable part stems it has no recording of (none when it cannot be completed: a pair
+    /// for a codecast without `sp:` lines, or one voice for a codecast with them)
+    pub missing: Vec<String>,
+    /// its audio and times files
+    pub files: Vec<String>,
+}
+
+impl VoiceSet {
+    /// `en/af_heart+am_michael`: how the page names the set in a request.
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.lang, self.voice)
+    }
+
+    /// The parts a completion records: changed since, then missing.
+    pub fn todo(&self) -> Vec<String> {
+        let mut t: Vec<String> = self.stale.iter().chain(&self.missing).cloned().collect();
+        t.sort();
+        t
+    }
 }
 
 /// The out-of-date recordings of one voice in one language, and how they were made, to make
@@ -214,7 +255,7 @@ impl StaleGroup {
 /// are gone are deleted either way.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct CleanRequest {
-    /// [`StaleGroup::key`]s; empty = every group
+    /// [`StaleGroup::key`]s (or [`VoiceSet::key`]s for `complete` / `drop`); empty = every group
     #[serde(default)]
     pub groups: Vec<String>,
 }

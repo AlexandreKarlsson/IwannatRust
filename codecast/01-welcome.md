@@ -13,6 +13,7 @@ Welcome to IwannatRust, a tool that reads a Rust project and explains it: with p
 @ plan
 +
 This is the plan: ten parts, from the source files to the player. Click any of them to jump there, or let the tour run.
+sp: Ten parts is a lot. Where do we even start?
 @ diagram
 First, the map: four crates, and who depends on whom.
 ! core
@@ -21,8 +22,9 @@ iwr-core does the thinking. It parses the source, links calls and types, and bui
 iwr-ui is the web page: a Dioxus app that draws the graphs as SVG, plays codecasts, and answers questions.
 ! cli
 iwr is the command line: serve, brief, check, export. It analyzes a project, embeds the web UI, and talks to the browser over a small JSON API.
+sp: Three crates do the work, so what is the fourth one for?
 ! demo
-And demo is a tiny task runner that exists only to be explained. Its codecast is the one the README shows.
+demo is a tiny task runner that exists only to be explained. Its codecast is the one the README shows.
 ? Why three crates and not one?
   Because the browser build and the command line want different things. iwr-core must compile to wasm with no file system and no UI, so it is a pure library. iwr-ui is a web app and pulls in Dioxus. iwr needs tokio, a server and the disk. Keeping them apart keeps each build small and the core honest.
 !

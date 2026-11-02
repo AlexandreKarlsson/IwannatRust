@@ -13,7 +13,7 @@ macro_rules! icons {
     };
 }
 
-icons!["code", "calls", "flow", "arch", "branches", "structure", "types", "errors", "diagram", "plan", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home", "voice", "logo", "favicon"];
+icons!["code", "calls", "sequence", "flow", "arch", "branches", "structure", "types", "errors", "diagram", "plan", "settings", "palette", "back", "info", "dark", "light", "panel", "split", "codecast", "tour", "fit", "check", "prev", "next", "question", "home", "voice", "logo", "favicon"];
 
 fn table() -> &'static HashMap<&'static str, String> {
     static T: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
@@ -29,6 +29,7 @@ pub fn for_mode(m: Mode) -> &'static str {
     match m {
         Mode::Code => "code",
         Mode::CallTree => "calls",
+        Mode::Sequence => "sequence",
         Mode::ControlFlow => "flow",
         Mode::Architecture => "arch",
         Mode::BranchTree => "branches",

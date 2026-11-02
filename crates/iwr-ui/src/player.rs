@@ -470,7 +470,7 @@ impl State {
                         } else if let Some(item) = res.item {
                             match m {
                                 Mode::Code => self.open_in_code(item),
-                                Mode::CallTree | Mode::ControlFlow | Mode::BranchTree => {
+                                Mode::CallTree | Mode::Sequence | Mode::ControlFlow | Mode::BranchTree => {
                                     self.set_root(Some(item));
                                     self.selected.set(Some(item));
                                 }

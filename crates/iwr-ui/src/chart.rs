@@ -1,7 +1,8 @@
 //! Charts of a codecast (`@ chart`, `| chart`): an SVG drawn from [`iwr_core::chart::State`], the
 //! chart as the markers fired so far left it. Marks are keyed by row id so a new one mounts with
 //! its entry animation (a line draws to it, a bar grows, a slice sweeps) and a changed one glides
-//! there through CSS transitions.
+//! there through CSS transitions. A dense line (a signal over many seconds) drops its dots and
+//! thins its x labels; shaded spans and threshold lines sit behind and over it.
 
 use crate::State;
 use dioxus::prelude::*;
@@ -38,13 +39,20 @@ pub fn ChartView(chart: Chart, #[props(default)] full: bool) -> Element {
     let slot = (w - L - R) / n;
     let x_of = |i: usize| L + slot * (i as f64 + 0.5);
     let ns = c.series.len().max(1);
+    let son = |k: usize| st.series_shown.get(k).copied().unwrap_or(true);
+    let dense = c.dense();
+    // a dense line glows a row with a dot on its data series, not on its dashed lines
+    let dashed = |s: usize| c.series.get(s).is_some_and(|n| c.dashed.contains(n));
+    // every k-th x label, so labels never overlap
+    let lab_w = c.rows.iter().map(|r| r.label.chars().count()).max().unwrap_or(1) as f64 * 7.5 + 10.0;
+    let lab_k = ((lab_w / slot).ceil() as usize).max(1);
     // top of a row's mark: where badges and callouts sit
     let top = |i: usize| -> (f64, f64) {
         let v = &st.values[i];
         let y = match c.kind {
             Kind::Stack => y_of(v.iter().sum()),
             Kind::StackPct => T,
-            _ => y_of(v.iter().cloned().fold(f64::MIN, f64::max)),
+            _ => y_of(v.iter().enumerate().filter(|(k, _)| son(*k)).map(|(_, x)| *x).fold(f64::MIN, f64::max)),
         };
         (x_of(i), y)
     };
@@ -83,25 +91,43 @@ pub fn ChartView(chart: Chart, #[props(default)] full: bool) -> Element {
             }
         }
     } else {
-        let ticks: Vec<f64> = (0..=((hi - lo) / step).round() as usize).map(|k| lo + step * k as f64).collect();
+        // ticks on multiples of the step, inside the axis (a `min:` axis may start between two)
+        let first = (lo / step - 1e-9).ceil() * step;
+        let ticks: Vec<f64> = (0..=((hi - first) / step + 1e-9).floor().max(0.0) as usize).map(|k| first + step * k as f64).collect();
         let shown: Vec<usize> = (0..c.rows.len()).filter(|i| st.shown[*i]).collect();
         let bw = slot * 0.62 / if c.kind == Kind::Bar { ns as f64 } else { 1.0 };
+        // the series shown, right aligned in the top bar
+        let legend: Vec<(usize, String)> = c.series.iter().cloned().enumerate().filter(|(s, _)| son(*s)).collect();
+        let spans: Vec<(usize, f64, f64, Option<String>)> = st.spans.iter().enumerate().map(|(k, (a, b, l))| (k, x_of(*a) - slot / 2.0, x_of(*b) + slot / 2.0, l.clone())).collect();
         rsx! {
+            for (k, x1, x2, l) in spans.into_iter() {
+                g { key: "span{k}", class: "span",
+                    rect { x: "{x1}", y: "{T}", width: "{x2 - x1}", height: "{h - T - B}" }
+                    if let Some(l) = l {
+                        text { x: "{(x1 + x2) / 2.0}", y: "{T + 16.0}", "text-anchor": "middle", "{l}" }
+                    }
+                }
+            }
             for v in ticks.iter().cloned() {
                 line { class: "grid", x1: "{L}", x2: "{w - R}", style: "transform:translateY({y_of(v)}px)" }
                 text { class: "tick", x: "{L - 8.0}", "text-anchor": "end", style: "transform:translateY({y_of(v) + 4.0}px)", "{num(v)}" }
             }
-            for i in 0..c.rows.len() {
+            for i in (0..c.rows.len()).filter(|i| i % lab_k == 0) {
                 text { class: if st.shown[i] { "xlab" } else { "xlab off" }, x: "{x_of(i)}", y: "{h - B + 18.0}", "text-anchor": "middle", "{c.rows[i].label}" }
             }
             match c.kind {
                 Kind::Line => rsx! {
-                    for s in 0..ns {
+                    for s in (0..ns).filter(|s| son(*s)) {
                         for w in shown.windows(2) {
-                            path { key: "{s}-{c.rows[w[0]].id}-{c.rows[w[1]].id}", class: "seg", stroke: color(s), "pathLength": "1",
-                                style: "d:path('M{x_of(w[0])} {y_of(st.values[w[0]][s])} L{x_of(w[1])} {y_of(st.values[w[1]][s])}')" }
+                            if dashed(s) {
+                                path { key: "{s}-{c.rows[w[0]].id}-{c.rows[w[1]].id}", class: "seg dash", stroke: color(s),
+                                    style: "d:path('M{x_of(w[0])} {y_of(st.values[w[0]][s])} L{x_of(w[1])} {y_of(st.values[w[1]][s])}')" }
+                            } else {
+                                path { key: "{s}-{c.rows[w[0]].id}-{c.rows[w[1]].id}", class: if dense { "seg thin" } else { "seg" }, stroke: color(s), "pathLength": "1",
+                                    style: "d:path('M{x_of(w[0])} {y_of(st.values[w[0]][s])} L{x_of(w[1])} {y_of(st.values[w[1]][s])}')" }
+                            }
                         }
-                        for i in shown.iter().cloned() {
+                        for i in shown.iter().cloned().filter(|i| !dense || (!dashed(s) && !glow(&c.rows[*i].id).is_empty())) {
                             g { key: "{s}-{c.rows[i].id}", class: "pt{glow(&c.rows[i].id)}", style: "transform:translate({x_of(i)}px,{y_of(st.values[i][s])}px)",
                                 circle { r: "6", fill: color(s) }
                                 text { class: "val", y: "-12", "text-anchor": "middle", "{num(st.values[i][s])}" }
@@ -151,8 +177,8 @@ pub fn ChartView(chart: Chart, #[props(default)] full: bool) -> Element {
                 }
             }
             if c.series.len() > 1 {
-                for (s, name) in c.series.iter().enumerate() {
-                    g { class: "legend", style: "transform:translate({w - R - 110.0 * (c.series.len() - s) as f64}px,{T - 28.0}px)",
+                for (k, (s, name)) in legend.iter().cloned().enumerate() {
+                    g { key: "lg{name}", class: "legend", style: "transform:translate({w - R - 110.0 * (legend.len() - k) as f64}px,{T - 28.0}px)",
                         rect { width: "12", height: "12", rx: "3", fill: color(s) }
                         text { x: "18", y: "11", "{name}" }
                     }
@@ -226,6 +252,10 @@ pub const CSS: &str = r#"
 .chart .bar text, .chart .legend { transition:transform .7s ease; animation:chart-fade .5s ease-out .3s both; }
 .chart .glow circle, .chart .glow rect, .chart .slice.glow { filter:drop-shadow(0 0 6px var(--hi)) drop-shadow(0 0 2px var(--hi)); }
 .chart .glow text { fill:var(--hi); }
+.chart .seg.thin { stroke-width:2; }
+.chart .seg.dash { stroke-width:2; stroke-dasharray:6 5; animation:chart-fade .5s ease-out both; }
+.chart .span rect { fill:var(--hi); opacity:.13; animation:chart-fade .4s both; }
+.chart .span text { fill:var(--hi); font-size:12px; font-weight:600; animation:chart-fade .4s both; }
 .chart .rule { transition:transform .7s ease; animation:chart-fade .5s both; }
 .chart .rule line { stroke:var(--hi); stroke-width:1.5; stroke-dasharray:6 5; }
 .chart .rule text { fill:var(--hi); font-size:12px; }

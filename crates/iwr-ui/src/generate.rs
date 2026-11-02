@@ -301,6 +301,9 @@ pub fn GeneratePage() -> Element {
                     if !status.stale.is_empty() || !status.orphans.is_empty() {
                         Outdated { status: status.clone(), running, message }
                     }
+                    if !status.sets.is_empty() {
+                        Sets { status: status.clone(), running, current: format!("{}/{}", code, key), req, picked, message }
+                    }
                     if !status.ready {
                         div { class: "gen-banner",
                             Icon { name: "info", size: 16 }
@@ -734,6 +737,108 @@ fn Outdated(status: Rc<VoiceStatus>, running: bool, message: Signal<String>) -> 
                     button { class: "gen-mini", onclick: move |_| confirm.set(None), "Keep them" }
                 } else {
                     button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some("*".into())), if n_rec > 0 { "Delete all out-of-date" } else { "Delete them" } }
+                }
+            }
+        }
+    }
+}
+
+/// Every voice (or pair) that has recordings, per language: pick it in the form, record what it
+/// lacks (changed and missing parts) in one click, or delete all its files.
+#[component]
+fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<VoiceRequest>, picked: Signal<Option<HashSet<String>>>, message: Signal<String>) -> Element {
+    let mut state = use_context::<State>();
+    let (mut req, mut picked, mut message) = (req, picked, message);
+    // the delete button asks once more: the set waiting for that second click
+    let mut confirm = use_signal(|| None::<String>);
+    let complete = move |groups: Vec<String>| {
+        spawn(async move {
+            message.set(String::new());
+            match post("/api/voice/complete", &v::CleanRequest { groups }).await {
+                Ok(_) => state.voice_job.set(Some(VoiceJob { running: true, stage: "starting".into(), ..Default::default() })),
+                Err(e) => message.set(e),
+            }
+        });
+    };
+    let mut remove = move |key: String| {
+        confirm.set(None);
+        spawn(async move {
+            match post("/api/voice/drop", &v::CleanRequest { groups: vec![key] }).await {
+                Ok(_) => {
+                    state.refresh_voice_status().await;
+                    state.reload_script().await;
+                }
+                Err(e) => message.set(e),
+            }
+        });
+    };
+    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| l.name.to_string()).unwrap_or_else(|| code.to_string());
+    let n_todo = status.sets.iter().filter(|g| !g.todo().is_empty()).count();
+    let total = status.parts.iter().filter(|p| p.skip.is_none()).count();
+    rsx! {
+        section { class: "gen-card gen-sets",
+            div { class: "gen-out-head",
+                span { class: "gen-out-icon", Icon { name: "voice", size: 14 } }
+                div {
+                    h3 { "Recorded voices" }
+                    p { "Each voice or pair keeps its own recordings. Complete records the parts it lacks — changed or new — with the voice and delivery it was made with." }
+                }
+            }
+            div { class: "gen-out-list",
+                for g in status.sets.iter().cloned() {
+                    { let key = g.key();
+                      let (name, _) = v::voice_label(&g.voice);
+                      let todo = g.todo().len();
+                      let asking = confirm.read().as_deref() == Some(key.as_str());
+                      let mut detail = vec![format!("{}/{} recorded", g.recorded.len(), total)];
+                      if !g.stale.is_empty() { detail.push(format!("{} changed", g.stale.len())); }
+                      if !g.missing.is_empty() { detail.push(format!("{} missing", g.missing.len())); }
+                      detail.push(format!("{:.2}×", g.speed));
+                      let detail = detail.join(" · ");
+                      let lacking = g.todo().join(", ");
+                      let cur = key == current;
+                      let (k1, k2, k3) = (key.clone(), key.clone(), key.clone());
+                      let pick = g.clone();
+                      rsx! {
+                        div { class: if cur { "gen-out-row cur" } else { "gen-out-row" },
+                            span { class: "avatar", style: "--h:{hue(&g.voice)}", "{name.chars().next().unwrap_or('?')}" }
+                            div { class: "what",
+                                b { "{name} · {lang_name(&g.lang)}" }
+                                span { title: "{lacking}", "{detail}" }
+                            }
+                            if !cur {
+                                button { class: "gen-mini", disabled: running, title: "pick this voice, language and delivery in the form below",
+                                    onclick: move |_| {
+                                        let (first, second) = v::split_pair(&pick.voice);
+                                        picked.set(None);
+                                        req.with_mut(|r| {
+                                            r.lang = pick.arg.clone();
+                                            r.voice = first.into();
+                                            r.voice2 = second.map(str::to_string);
+                                            r.speed = pick.speed;
+                                            r.gap = pick.gap;
+                                            r.level = pick.level;
+                                        });
+                                    },
+                                    "Select"
+                                }
+                            }
+                            button { class: "gen-mini go", disabled: running || todo == 0, title: if todo == 0 { "nothing to record".to_string() } else { format!("record {lacking}") },
+                                onclick: move |_| complete(vec![k1.clone()]),
+                                if todo == 0 { "✓ Complete" } else { "↻ Complete {todo} part(s)" }
+                            }
+                            if asking {
+                                button { class: "gen-mini danger", disabled: running, onclick: move |_| remove(k2.clone()), "Delete {g.files.len() / 2} recording(s)?" }
+                            } else {
+                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), "Delete" }
+                            }
+                        }
+                    } }
+                }
+            }
+            if n_todo > 1 {
+                div { class: "gen-out-foot",
+                    button { class: "gen-mini go big", disabled: running, onclick: move |_| complete(status.sets.iter().filter(|g| !g.todo().is_empty()).map(|g| g.key()).collect()), "↻ Complete all {n_todo} voices" }
                 }
             }
         }

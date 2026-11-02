@@ -8,6 +8,7 @@ graph LR
 @ flow:iwr-ui::player::State::apply_cue
 ! iwr-ui::player::State::apply_cue
 On the browser side, every step of a codecast ends in apply_cue. It is short, and it is the whole contract between a script and the screen.
+sp: And when I step backwards, how does a moved box get back?
 ! iwr-ui::player::State::apply_cue/b4 iwr-ui::player::State::apply_cue/b11
 First the diagram ops: every greater-than line of the part up to this cue, in order. Replaying from the first cue is what makes stepping backwards correct for free.
 ! iwr-ui::player::State::apply_cue/b12
@@ -18,6 +19,7 @@ apply_directives is a bigger function with three sections: the view, the highlig
 The at sign is split into a view and a ref. A different view switches the mode, which rebuilds the graph on the next render.
 ! iwr-ui::player::State::apply_directives/b11 iwr-ui::player::State::apply_directives/b12
 A diagram ref picks a block from the current part; any other ref is resolved against the project and becomes the root, the scope, or the open file, depending on the view.
+sp: In a diagram, why not look the names up in the code like everything else?
 ! iwr-ui::player::State::apply_directives/b31 iwr-ui::player::State::apply_directives/b35 iwr-ui::player::State::apply_directives/b36
 The bang refs: in a diagram they are node ids and stay as strings; elsewhere they resolve to spans. Resolving by name in a diagram would select a function that happens to share a node's name.
 ! iwr-ui::player::State::apply_directives/b66 iwr-ui::player::State::apply_directives/b71 iwr-ui::player::State::apply_directives/b82

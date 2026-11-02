@@ -11,6 +11,7 @@ graph LR
 Before any code, the shape of the whole thing. Source files go through two passes, parse and resolve, and come out as one big value called Project.
 ! project views layout ui
 From the Project, views builds a graph for each picture, layout gives every box a position, and the UI only draws what it is handed.
+sp: And the voice? If the UI only draws, where does the talking come from?
 ! project brief writer script
 There is a second road. brief prints the Project as compact text, a person or a model writes a codecast from it, and the player performs that script on top of the views.
 ? Why is the UI kept so dumb?

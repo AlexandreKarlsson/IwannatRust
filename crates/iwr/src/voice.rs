@@ -385,6 +385,20 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
             let duration = times_text.lines().find_map(|l| l.strip_prefix("# duration ")).and_then(|d| d.trim().parse().ok());
             let fresh = codecast::read_times(&times_path).iter().map(|(_, h)| h).eq(hashes.iter());
             let voice = Some(voice).filter(|v| !v.is_empty()).or_else(|| after("kokoro"));
+            if let Some(vc) = &voice {
+                let arg = if lang == "en" { after("lang").unwrap_or_else(|| "en-us".into()) } else { lang.clone() };
+                let num = |k: &str, d: f32| after(k).and_then(|s| s.parse().ok()).unwrap_or(d);
+                let set = match st.sets.iter_mut().position(|g| g.lang == lang && g.voice == *vc) {
+                    Some(i) => &mut st.sets[i],
+                    None => {
+                        st.sets.push(v::VoiceSet { lang: lang.clone(), voice: vc.clone(), arg, speed: num("speed", 1.0), gap: num("gap", 0.4), level: num("opus", 0.95), ..Default::default() });
+                        st.sets.last_mut().unwrap()
+                    }
+                };
+                if fresh { &mut set.recorded } else { &mut set.stale }.push(stem.clone());
+                set.files.push(audio.clone());
+                set.files.push(format!("{}.times", vstem));
+            }
             if !fresh {
                 if let Some(vc) = &voice {
                     let arg = if lang == "en" { after("lang").unwrap_or_else(|| "en-us".into()) } else { lang.clone() };
@@ -404,6 +418,12 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
             p.recordings.push(Recording { lang, state: if fresh { "recorded" } else { "stale" }.into(), voice, file: audio, speed: after("speed").and_then(|s| s.parse().ok()), duration, kb });
         }
         st.parts.push(p);
+    }
+    // what each set lacks; `record` makes a pair of a single voice (and the other way round) when
+    // the codecast's `sp:` lines say so, so a set of the other kind is not completed
+    for set in st.sets.iter_mut().filter(|g| v::split_pair(&g.voice).1.is_some() == st.second) {
+        let own = |p: &PartStatus| p.recordings.iter().any(|r| r.lang == set.lang && r.state == "own");
+        set.missing = st.parts.iter().filter(|p| p.skip.is_none() && p.recording(&set.lang, &set.voice).is_none() && !own(p)).map(|p| p.stem.clone()).collect();
     }
     st.orphans = orphans(dir, &entries, &st.parts.iter().map(|p| p.stem.clone()).collect::<Vec<_>>());
     st
@@ -456,4 +476,32 @@ pub fn preview(voice: &str, speed: f32, lang: &str) -> Result<Vec<u8>> {
         sidecar(&home, job(&home, &o, parts), &AtomicBool::new(false), &mut |_| {}, &mut |_, _, _| Ok(0))?;
     }
     Ok(std::fs::read(&out)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A voice that recorded every part but one lists that part as missing, and its files.
+    #[test]
+    fn status_lists_voice_sets_with_their_missing_parts() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");
+        let dir = std::env::temp_dir().join(format!("iwr-voice-sets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for e in std::fs::read_dir(&src).unwrap().flatten() {
+            std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
+        }
+        let gone = part_files(&dir).unwrap()[0].file_stem().unwrap().to_str().unwrap().to_string();
+        for ext in ["ogg", "times"] {
+            std::fs::remove_file(dir.join(format!("{gone}.af_heart.{ext}"))).unwrap();
+        }
+        let st = status(Some(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
+        let set = st.sets.iter().find(|g| g.key() == "en/af_heart").expect("the af_heart set");
+        assert_eq!(set.missing, vec![gone.clone()]);
+        assert!(set.stale.is_empty());
+        assert_eq!(set.todo(), vec![gone]);
+        assert_eq!(set.files.len(), set.recorded.len() * 2);
+    }
 }

@@ -136,6 +136,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/voice/cancel", post(api_voice_cancel))
             .route("/api/voice/refresh", post(api_voice_refresh))
             .route("/api/voice/clean", post(api_voice_clean))
+            .route("/api/voice/complete", post(api_voice_complete))
+            .route("/api/voice/drop", post(api_voice_drop))
             .route("/api/voice/preview", post(api_voice_preview))
             .fallback(static_handler)
             .layer(tower_http::cors::CorsLayer::permissive())
@@ -340,6 +342,50 @@ async fn api_voice_clean(State(s): State<AppState>, headers: HeaderMap, Json(req
     match crate::voice::delete(&dir, &names) {
         Ok(n) => {
             eprintln!("voice: deleted {n} out-of-date file(s)");
+            Json(n).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")).into_response(),
+    }
+}
+
+/// Record what each asked voice set lacks (its changed and missing parts), with the voice and
+/// delivery it was made with.
+async fn api_voice_complete(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<iwr_core::voice::CleanRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let st = crate::voice::status(Some(&dir));
+    let opts: Vec<_> = st
+        .sets
+        .iter()
+        .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
+        .filter(|g| !g.todo().is_empty())
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.todo(), retranslate: false, fresh: false })
+        .collect();
+    if opts.is_empty() {
+        return (StatusCode::CONFLICT, "nothing to record: those voices are complete").into_response();
+    }
+    spawn_voice_job(s, dir, opts, vec![], None)
+}
+
+/// Delete every recording of the asked voice sets; answers how many files went.
+async fn api_voice_drop(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<iwr_core::voice::CleanRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    if req.groups.is_empty() {
+        return (StatusCode::BAD_REQUEST, "name the voices to delete").into_response();
+    }
+    if s.voice_job.lock().unwrap().0.running {
+        return (StatusCode::CONFLICT, "a recording is running").into_response();
+    }
+    let st = crate::voice::status(Some(&dir));
+    let names: Vec<String> = st.sets.into_iter().filter(|g| req.groups.contains(&g.key())).flat_map(|g| g.files).collect();
+    match crate::voice::delete(&dir, &names) {
+        Ok(n) => {
+            eprintln!("voice: deleted {n} recording file(s)");
             Json(n).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")).into_response(),

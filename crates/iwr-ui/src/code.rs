@@ -294,6 +294,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
                 if it.is_callable() {
                     span { class: "chip act", title: "control flow of this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, "flow" }
                     span { class: "chip act", title: "call tree from this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "calls" }
+                    span { class: "chip act", title: "sequence diagram of the calls made from this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, "sequence" }
                 }
             }
             if let Some(d) = doc {

@@ -8,6 +8,7 @@ One match, one builder per mode: call tree, control flow, architecture, branch t
 Code is the exception: the Code view is drawn by the UI from the block trees, so it gets an empty graph.
 ! iwr-core::views::build/b19 iwr-core::views::build/b20
 And Diagram is the other exception: a diagram does not come from the project at all, it comes from the codecast. We get to that in two parts.
+sp: And who decides where each box goes on the screen?
 @ flow:iwr-core::layout::layered
 Every builder ends in the layout engine. layered takes boxes with sizes and edges, and returns coordinates and edge routes. No external crate, so it runs in wasm too.
 ! iwr-core::layout::layered/b9 iwr-core::layout::layered/b14
@@ -23,6 +24,7 @@ Reading it as code. Step one, break cycles: a depth-first search finds back edge
 Step two, longest-path layering: every node goes one layer below its deepest predecessor.
 ! crates/iwr-core/src/layout.rs:242-279
 Step three, virtual nodes: an edge that skips layers is split, so the ordering step can route it around real boxes.
+sp: Why would the order of boxes inside one layer matter?
 ! crates/iwr-core/src/layout.rs:280-305
 Step four, barycenter sweeps: each layer is sorted by the average position of its neighbours, downwards then upwards, a few times, to reduce crossings.
 ! crates/iwr-core/src/layout.rs:306-369

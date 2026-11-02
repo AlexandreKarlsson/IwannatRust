@@ -332,7 +332,11 @@ v1  42  40                                id value… ["label"] [:::hidden]
 
 Markers sit in braces inside a cue's text and are never spoken: `Caching cut it {+v2 !v2} a bit.`
 `+id` / `-id` show / hide a row, `=id 18` changes its value(s), `!id` glows (`!` alone clears),
-`~a>b` a delta badge, `--30 "goal"` a threshold line, `"text"@id` a callout. The parser takes them
+`~a>b` a delta badge, `--30 "goal"` a threshold line (the same label again moves it, `--` alone
+clears), `"text"@id` a callout, `[a..b] "label"` a shaded span of rows (`[]` clears), `+a..b` a
+range of rows, `+@name` / `-@name` a whole series. The header also takes `min:` / `max:` (the value
+axis) and `dash: <series…>`; `series: a b:::hidden` hides a series until its `+@b`. A line of more
+than 16 rows draws no dots (`Chart::dense`) and thins its x labels. The parser takes them
 out of the text and keeps their place as a fraction of it (`Cue::marks`), so speech, captions,
 recordings' text hashes and translations see plain sentences. While playing, a marker fires when
 the voice reaches it (TTS word boundaries, else the time spoken; a recording's time into the cue);

@@ -127,6 +127,7 @@ pub fn edge_style(k: EdgeKind) -> (&'static str, &'static str, f64) {
         EdgeKind::Handles => ("#22c55e", "", 1.6),
         EdgeKind::Arrow | EdgeKind::Line => ("#94a3b8", "", 1.8),
         EdgeKind::Dotted | EdgeKind::DottedLine => ("#94a3b8", "3 4", 1.8),
+        EdgeKind::Lifeline => ("#94a3b8", "4 5", 1.2),
         EdgeKind::Thick | EdgeKind::ThickLine => ("#94a3b8", "", 3.2),
     }
 }
@@ -208,6 +209,7 @@ pub fn edge_kind_label(k: EdgeKind) -> &'static str {
         EdgeKind::Handles => "error handled",
         EdgeKind::Arrow | EdgeKind::Line => "link",
         EdgeKind::Dotted | EdgeKind::DottedLine => "dotted link",
+        EdgeKind::Lifeline => "lifeline",
         EdgeKind::Thick | EdgeKind::ThickLine => "strong link",
     }
 }
@@ -235,6 +237,7 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
         Mode::Architecture => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Struct), n(NodeKind::Trait), n(NodeKind::External), e(EdgeKind::Contains), e(EdgeKind::Dependency)],
         Mode::Structure => vec![n(NodeKind::Module), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Impl), n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::Trait), n(NodeKind::Const)],
         Mode::Types => vec![n(NodeKind::Struct), n(NodeKind::Enum), n(NodeKind::ErrorType), n(NodeKind::Trait), n(NodeKind::TypeAlias), n(NodeKind::Function), e(EdgeKind::Contains), e(EdgeKind::Implements), e(EdgeKind::Supertrait), e(EdgeKind::Uses)],
+        Mode::Sequence => vec![n(NodeKind::Module), n(NodeKind::Struct), n(NodeKind::Trait), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Loop), n(NodeKind::If), e(EdgeKind::Call), e(EdgeKind::Recursion), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Await)],
         Mode::ErrorFlow => vec![n(NodeKind::Function), n(NodeKind::Panic), n(NodeKind::ErrorType), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Handles), e(EdgeKind::Error), e(EdgeKind::Aliases)],
         // a sketch explains itself, and the plan page is not a graph: no legend
         Mode::Diagram | Mode::Chart | Mode::Plan => vec![],
@@ -967,6 +970,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-out-row .what { flex:1; min-width:0; display:flex; flex-direction:column; }
 .gen-out-row .what b { font-size:13px; }
 .gen-out-row .what span { font-size:11px; color:var(--muted); font-family:ui-monospace, Menlo, Consolas, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gen-sets .gen-out-icon { background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #000)); box-shadow:none; }
+.gen-out-row.cur { border-color:var(--accent); }
 .gen-out-note { font-size:11px; color:var(--muted); }
 .gen-out-foot { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap; }
 .gen-mini { border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:8px; padding:5px 11px; font-size:12px; cursor:pointer; white-space:nowrap; transition:border-color .15s, background .15s; }

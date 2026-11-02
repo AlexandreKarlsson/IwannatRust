@@ -18,6 +18,7 @@ Sometimes the best explanation is not in the code: a metaphor, a protocol, a phy
 The block goes through diagram parse, a small tolerant parser for mermaid flowcharts: shapes, arrows, labels, groups. Lines it cannot read become errors for codecast check, not crashes.
 ! cue ops dgraph
 The greater-than lines of the cues are ops: move a node into a group, show it, hide it. The player replays the ops of a part from its first cue, so stepping back undoes them.
+sp: Can a box show up halfway through, or is the whole picture there from the start?
 > +token
 ! token
 Like this one, which was hidden until now.
@@ -29,6 +30,7 @@ And now it moves next to the canvas. diagram graph lays the whole thing out agai
 @ flow:iwr-core::diagram::graph
 ! iwr-core::diagram::graph/b6 iwr-core::diagram::graph/b14 iwr-core::diagram::graph/b47
 In code, graph starts by computing the state: the parent of every node from the block, then the moves, then what is hidden, in the order the ops were played.
+sp: How do you lay out a box that has other boxes inside it?
 ! iwr-core::diagram::graph/b67
 = crates/iwr-core/src/diagram.rs:785:18-46
 Then place lays out the top level. A group is placed by laying out its members first, recursively, and using the result as the group's size, with the layered engine from the previous part.

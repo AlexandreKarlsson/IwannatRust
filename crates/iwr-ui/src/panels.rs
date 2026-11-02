@@ -330,6 +330,7 @@ pub fn Details() -> Element {
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, "control flow" }
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::BranchTree); state.set_root(Some(id)); }, "branches" }
                                 button { class: "small", onclick: move |_| { state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "call tree" }
+                                button { class: "small", onclick: move |_| { state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, "sequence" }
                                 if mode != Mode::ControlFlow {
                                     button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), "codecast from here" }
                                 }

@@ -6,6 +6,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Charts for a signal over time: `min:` / `max:` set the value axis, `dash:` draws series dashed
+  (thresholds), `series: raw line:::hidden` with `+@line` / `-@line` markers shows a series later,
+  `[a..b] "label"` shades a span of rows (`[]` clears), `+a..b` shows a range of rows, a threshold
+  line with the label of one already drawn moves it and `--` clears them. Lines of more than 16 rows
+  drop their dots and thin their x labels.
+
 ### Changed
 
 - The CLI is now called `codecast` (`codecast serve .`, `codecast check codecast/`, `codecast voice`).

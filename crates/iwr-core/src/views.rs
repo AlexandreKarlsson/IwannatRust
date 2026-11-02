@@ -20,6 +20,9 @@ pub enum Mode {
     ErrorFlow,
     /// A sketch drawn by a codecast (see [`crate::diagram`]); not built from the project.
     Diagram,
+    /// The calls made from the root function in time order, one column per type or module
+    /// (see [`crate::sequence`]).
+    Sequence,
     /// A chart drawn by a codecast (see [`crate::chart`]; rendered by the UI, no graph).
     Chart,
     /// The plan page of a codecast: its parts, one line each (rendered by the UI, no graph).
@@ -28,8 +31,8 @@ pub enum Mode {
 
 impl Mode {
     /// Graph modes built from the project (everything except `Code` and `Diagram`).
-    pub const GRAPHS: [Mode; 7] = [Mode::CallTree, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
-    pub const ALL: [Mode; 8] = [Mode::Code, Mode::CallTree, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
+    pub const GRAPHS: [Mode; 8] = [Mode::CallTree, Mode::Sequence, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
+    pub const ALL: [Mode; 9] = [Mode::Code, Mode::CallTree, Mode::Sequence, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
     pub fn label(&self) -> &'static str {
         match self {
             Mode::Code => "Code",
@@ -41,6 +44,7 @@ impl Mode {
             Mode::Types => "Types & traits",
             Mode::ErrorFlow => "Error flow",
             Mode::Diagram => "Diagram",
+            Mode::Sequence => "Sequence",
             Mode::Chart => "Chart",
             Mode::Plan => "Plan",
         }
@@ -55,6 +59,7 @@ impl Mode {
             Mode::Structure => "Files, modules, impl blocks and items as nested blocks.",
             Mode::Types => "Structs, enums, traits and how they relate (fields, impls, supertraits).",
             Mode::ErrorFlow => "Where errors are created, propagated with ?, handled, or turned into panics.",
+            Mode::Sequence => "The calls made from the root function, in time order: one column per type or module, loops and branches as frames.",
             Mode::Diagram => "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows.",
             Mode::Chart => "A chart drawn by the codecast: a number that changed, a share of a whole.",
             Mode::Plan => "The plan of the codecast: its parts in order, one line each. Click one to jump there.",
@@ -150,6 +155,8 @@ pub enum EdgeKind {
     Arrow,
     Line,
     Dotted,
+    /// a sequence diagram's dashed vertical line under a participant (no head)
+    Lifeline,
     DottedLine,
     Thick,
     ThickLine,
@@ -453,7 +460,7 @@ fn node_size(label: &str, _sublabel: &str) -> (f64, f64) {
     (w.max(60.0), 16.0 + 16.0 * lines as f64)
 }
 
-fn kind_of_item(it: &Item) -> NodeKind {
+pub(crate) fn kind_of_item(it: &Item) -> NodeKind {
     match it.kind {
         ItemKind::Function => {
             if it.fn_info().map(|f| f.is_main).unwrap_or(false) {
@@ -608,6 +615,7 @@ pub fn build(p: &Project, mode: Mode, opts: &ViewOptions) -> Graph {
         Mode::Structure => structure(p, opts),
         Mode::Types => types(p, opts),
         Mode::ErrorFlow => error_flow(p, opts),
+        Mode::Sequence => crate::sequence::view(p, opts),
         Mode::Diagram => Graph { note: Some("Diagrams are drawn by a codecast: `@ diagram` after a ```mermaid block.".into()), ..Default::default() },
         Mode::Plan | Mode::Chart => Graph::default(),
     };

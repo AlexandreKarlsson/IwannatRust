@@ -8,6 +8,10 @@
 //! v2  35  :::hidden                         waits for a `+v2` marker
 //! ```
 //!
+//! A line over many seconds (a signal and the thresholds read against it) adds `min:` / `max:`
+//! (the value axis, instead of from 0), `series: raw floor:::hidden` (a series that waits for its
+//! `+@floor` marker) and `dash: floor` (drawn dashed). Past 16 rows a line drops its dots.
+//!
 //! Markers sit in braces inside a cue's text, `Then caching cut it {+v2 !v2} a bit.`: [`split_say`]
 //! takes them out of the spoken text and remembers where they were, so the player fires them on
 //! that word. [`Chart::state`] folds the markers fired so far into what is drawn.
@@ -66,6 +70,13 @@ pub struct Chart {
     pub y: Option<String>,
     pub unit: Option<String>,
     pub series: Vec<String>,
+    /// per series: `name:::hidden`, drawn from its `+@name` marker on
+    pub series_hidden: Vec<bool>,
+    /// series drawn dashed (`dash: a b`): a threshold, a level read against the data
+    pub dashed: Vec<String>,
+    /// value axis bounds (`min:` / `max:`): the axis starts there instead of at 0
+    pub min: Option<f64>,
+    pub max: Option<f64>,
     pub rows: Vec<Row>,
     pub errors: Vec<String>,
     /// the block as written (for `script::to_text`)
@@ -85,8 +96,16 @@ pub enum Mark {
     Glow(Vec<String>),
     /// `~a>b`: a delta badge from a to b
     Delta(String, String),
-    /// `--30 "target"`: a threshold line
+    /// `--30 "target"`: a threshold line; one with the label of a line already drawn moves it
     Rule(f64, Option<String>),
+    /// `--` alone: remove the threshold lines
+    ClearRules,
+    /// `[a..b] "label"`: shade the rows from a to b (a window of time)
+    Span(String, String, Option<String>),
+    /// `[]`: remove the shaded spans
+    ClearSpans,
+    /// `+@name` / `-@name`: show / hide a series
+    Series(String, bool),
     /// `"text"@id`: a callout on a mark
     Note(String, String),
 }
@@ -128,13 +147,26 @@ pub fn parse(src: &str, title: Option<&str>) -> Chart {
                     "y" => c.y = Some(v),
                     "unit" => c.unit = Some(v),
                     "title" => c.title = Some(v),
-                    _ => c.errors.push(format!("line {}: unknown `{}:` (x, y, unit, title)", n + 1, k)),
+                    "dash" => c.dashed = v.split_whitespace().map(String::from).collect(),
+                    "min" | "max" => match v.parse::<f64>() {
+                        Ok(x) if k == "min" => c.min = Some(x),
+                        Ok(x) => c.max = Some(x),
+                        Err(_) => c.errors.push(format!("line {}: `{}: {}` is not a number", n + 1, k, v)),
+                    },
+                    _ => c.errors.push(format!("line {}: unknown `{}:` (x, y, unit, title, min, max, dash)", n + 1, k)),
                 }
             }
             continue;
         }
         if let Some(r) = t.strip_prefix("series:") {
-            c.series = r.split_whitespace().map(String::from).collect();
+            for w in r.split_whitespace() {
+                let (name, hidden) = match w.strip_suffix(":::hidden") {
+                    Some(n) => (n, true),
+                    None => (w, false),
+                };
+                c.series.push(name.to_string());
+                c.series_hidden.push(hidden);
+            }
             continue;
         }
         let mut row = Row { id: toks[0].clone(), ..Default::default() };
@@ -163,6 +195,11 @@ pub fn parse(src: &str, title: Option<&str>) -> Chart {
         c.rows.push(row);
     }
     c.name = c.title.clone();
+    for d in &c.dashed {
+        if !c.series.contains(d) {
+            c.errors.push(format!("`dash: {d}`: no series of that name"));
+        }
+    }
     if c.rows.is_empty() {
         c.errors.push("no rows (`id value` per line)".into());
     }
@@ -226,10 +263,26 @@ pub fn parse_marks(inner: &str) -> Option<Vec<Mark>> {
     while i < toks.len() {
         let t = toks[i].as_str();
         i += 1;
-        if let Some(v) = t.strip_prefix("--") {
+        if t == "--" {
+            out.push(Mark::ClearRules);
+        } else if let Some(v) = t.strip_prefix("--") {
             let label = toks.get(i).and_then(|l| quoted(l)).map(String::from);
             i += label.is_some() as usize;
             out.push(Mark::Rule(num(v)?, label));
+        } else if t == "[]" {
+            out.push(Mark::ClearSpans);
+        } else if let Some((a, b)) = t.strip_prefix('[').and_then(|r| r.strip_suffix(']')).and_then(|r| r.split_once("..")) {
+            if a.is_empty() || b.is_empty() {
+                return None;
+            }
+            let label = toks.get(i).and_then(|l| quoted(l)).map(String::from);
+            i += label.is_some() as usize;
+            out.push(Mark::Span(a.to_string(), b.to_string(), label));
+        } else if let Some(name) = t.strip_prefix("+@").or_else(|| t.strip_prefix("-@")) {
+            if name.is_empty() {
+                return None;
+            }
+            out.push(Mark::Series(name.to_string(), t.starts_with('+')));
         } else if let Some(id) = t.strip_prefix('+') {
             out.push(Mark::Show(id.to_string()));
         } else if let Some(id) = t.strip_prefix('-') {
@@ -337,6 +390,10 @@ pub fn marks_text(ms: &[Mark]) -> String {
             Mark::Glow(ids) => ids.iter().map(|i| format!("!{i}")).collect::<Vec<_>>().join(" "),
             Mark::Delta(a, b) => format!("~{a}>{b}"),
             Mark::Rule(v, l) => format!("--{}{}", fmt(*v), l.as_ref().map(|l| format!(" \"{l}\"")).unwrap_or_default()),
+            Mark::ClearRules => "--".into(),
+            Mark::Span(a, b, l) => format!("[{a}..{b}]{}", l.as_ref().map(|l| format!(" \"{l}\"")).unwrap_or_default()),
+            Mark::ClearSpans => "[]".into(),
+            Mark::Series(n, on) => format!("{}@{n}", if *on { '+' } else { '-' }),
             Mark::Note(id, t) => format!("\"{t}\"@{id}"),
         })
         .collect::<Vec<_>>()
@@ -355,6 +412,10 @@ pub struct State {
     pub deltas: Vec<(String, String)>,
     pub rules: Vec<(f64, Option<String>)>,
     pub notes: Vec<(String, String)>,
+    /// shaded spans: first and last row index, label
+    pub spans: Vec<(usize, usize, Option<String>)>,
+    /// per series
+    pub series_shown: Vec<bool>,
 }
 
 impl Chart {
@@ -366,14 +427,35 @@ impl Chart {
         self.rows.iter().position(|r| r.id == id)
     }
 
+    /// Rows a `+`/`-` marker names: one id, or `a..b` (every row from a to b).
+    pub fn rows_of(&self, id: &str) -> Option<std::ops::RangeInclusive<usize>> {
+        match id.split_once("..") {
+            Some((a, b)) => {
+                let (a, b) = (self.row(a)?, self.row(b)?);
+                Some(a.min(b)..=a.max(b))
+            }
+            None => self.row(id).map(|i| i..=i),
+        }
+    }
+
+    /// More rows than a line can show as dots: no dots or values, except on glowed rows.
+    pub fn dense(&self) -> bool {
+        self.kind == Kind::Line && self.rows.len() > 16
+    }
+
     /// The chart as written, then each marker in order; markers on ids of other charts are skipped.
     pub fn state<'a>(&self, marks: impl IntoIterator<Item = &'a Mark>) -> State {
-        let mut s = State { shown: self.rows.iter().map(|r| !r.hidden).collect(), values: self.rows.iter().map(|r| r.values.clone()).collect(), ..Default::default() };
+        let mut s = State {
+            shown: self.rows.iter().map(|r| !r.hidden).collect(),
+            values: self.rows.iter().map(|r| r.values.clone()).collect(),
+            series_shown: (0..self.series.len().max(1)).map(|k| !self.series_hidden.get(k).copied().unwrap_or(false)).collect(),
+            ..Default::default()
+        };
         let has = |id: &str| self.row(id).is_some();
         for m in marks {
             match m {
                 Mark::Show(id) | Mark::Hide(id) => {
-                    if let Some(i) = self.row(id) {
+                    for i in self.rows_of(id).into_iter().flatten() {
                         s.shown[i] = matches!(m, Mark::Show(_));
                     }
                 }
@@ -394,7 +476,22 @@ impl Chart {
                         s.deltas.push((a.clone(), b.clone()));
                     }
                 }
-                Mark::Rule(v, l) => s.rules.push((*v, l.clone())),
+                Mark::Rule(v, l) => match s.rules.iter_mut().find(|r| l.is_some() && r.1 == *l) {
+                    Some(r) => r.0 = *v,
+                    None => s.rules.push((*v, l.clone())),
+                },
+                Mark::ClearRules => s.rules.clear(),
+                Mark::Span(a, b, l) => {
+                    if let (Some(a), Some(b)) = (self.row(a), self.row(b)) {
+                        s.spans.push((a.min(b), a.max(b), l.clone()));
+                    }
+                }
+                Mark::ClearSpans => s.spans.clear(),
+                Mark::Series(n, on) => {
+                    if let Some(k) = self.series.iter().position(|x| x == n) {
+                        s.series_shown[k] = *on;
+                    }
+                }
                 Mark::Note(id, t) => {
                     if has(id) {
                         s.notes.retain(|(i, _)| i != id);
@@ -409,24 +506,40 @@ impl Chart {
     /// Ids a marker names that are not rows of this chart.
     pub fn unknown<'a>(&self, m: &'a Mark) -> Vec<&'a str> {
         let ids: Vec<&str> = match m {
-            Mark::Show(i) | Mark::Hide(i) | Mark::Set(i, _) | Mark::Note(i, _) => vec![i],
+            Mark::Show(i) | Mark::Hide(i) => return i.split("..").filter(|i| self.row(i).is_none()).collect(),
+            Mark::Set(i, _) | Mark::Note(i, _) => vec![i],
             Mark::Glow(v) => v.iter().map(String::as_str).collect(),
-            Mark::Delta(a, b) => vec![a, b],
-            Mark::Rule(..) => vec![],
+            Mark::Delta(a, b) | Mark::Span(a, b, _) => vec![a, b],
+            Mark::Series(n, _) => return if self.series.contains(n) { vec![] } else { vec![n] },
+            Mark::Rule(..) | Mark::ClearRules | Mark::ClearSpans => vec![],
         };
         ids.into_iter().filter(|i| self.row(i).is_none()).collect()
     }
 
-    /// The value axis: 0 to a round number above the largest value shown (stacks: the largest
-    /// sum), rules included, and the step between its ticks.
+    /// The value axis: 0 (or `min:`) to a round number above the largest value shown (stacks:
+    /// the largest sum; `max:` at least), rules included, and the step between its ticks.
     pub fn range(&self, s: &State) -> (f64, f64, f64) {
         if self.kind == Kind::StackPct {
             return (0.0, 100.0, 25.0);
         }
-        let vals = s.values.iter().zip(&s.shown).filter(|(_, sh)| **sh).map(|(v, _)| if self.kind == Kind::Stack { v.iter().sum() } else { v.iter().cloned().fold(f64::MIN, f64::max) });
-        let all: Vec<f64> = vals.chain(s.rules.iter().map(|r| r.0)).collect();
-        let lo = all.iter().cloned().fold(0.0, f64::min);
-        let hi = all.iter().cloned().fold(0.0, f64::max);
+        let on = |k: usize| s.series_shown.get(k).copied().unwrap_or(true);
+        let vals: Vec<f64> = s
+            .values
+            .iter()
+            .zip(&s.shown)
+            .filter(|(_, sh)| **sh)
+            .flat_map(|(v, _)| if self.kind == Kind::Stack { vec![v.iter().sum()] } else { v.iter().enumerate().filter(|(k, _)| on(*k)).map(|(_, x)| *x).collect() })
+            .collect();
+        let all: Vec<f64> = vals.into_iter().chain(s.rules.iter().map(|r| r.0)).collect();
+        let base = self.min.unwrap_or(0.0);
+        let lo = all.iter().cloned().fold(base, f64::min);
+        let hi = all.iter().cloned().fold(self.max.unwrap_or(base), f64::max);
+        if self.min.is_some() {
+            // a set axis keeps its bottom: steps fit the span, not the distance from 0
+            let step = nice((hi - lo) / 5.0);
+            let top = if self.max.is_some_and(|m| m >= hi) { hi } else { step * (hi / step).ceil() };
+            return (lo, top, step);
+        }
         let step = nice((hi - lo) / 4.0);
         (step * (lo / step).floor(), step * (hi / step).ceil().max(1.0), step)
     }
@@ -477,6 +590,24 @@ mod tests {
         assert_eq!(join_say(&t, &m), "Caching cut it {+v2 !v2} a bit, `fmt {x}` {not one} {=v1 18 --30 \"goal\" \"fast\"@v3 ~v1>v3}.");
         let (t, m) = split_say("{+a} Starts here.");
         assert_eq!((t.as_str(), m[0].at), ("Starts here.", 0));
+    }
+
+    #[test]
+    fn traces() {
+        let c = parse("line min: 35 max: 50 dash: line\nseries: raw line:::hidden\na 37 39\nb 45 39\nc 44 39 :::hidden", None);
+        assert!(c.errors.is_empty(), "{:?}", c.errors);
+        assert_eq!((c.min, c.max, c.series_hidden.clone()), (Some(35.0), Some(50.0), vec![false, true]));
+        let (_, m) = split_say("Up {+a..c +@line [a..b] \"check\" --40 \"on\"} then {--41 \"on\" [] -@line}.");
+        let ms: Vec<&Mark> = m.iter().flat_map(|m| &m.marks).collect();
+        assert_eq!(ms[2], &Mark::Span("a".into(), "b".into(), Some("check".into())));
+        let s = c.state(ms[..4].iter().copied());
+        assert_eq!((s.shown.clone(), s.series_shown.clone(), s.spans.len(), s.rules.clone()), (vec![true; 3], vec![true, true], 1, vec![(40.0, Some("on".into()))]));
+        let s = c.state(ms.iter().copied());
+        assert_eq!((s.rules.clone(), s.spans.len(), s.series_shown.clone()), (vec![(41.0, Some("on".into()))], 0, vec![true, false]));
+        assert_eq!(c.range(&s), (35.0, 50.0, 5.0));
+        assert_eq!(parse("line min: 36 max: 38\na 37", None).range(&State { shown: vec![true], values: vec![vec![37.0]], ..Default::default() }), (36.0, 38.0, 0.5));
+        assert!(c.unknown(&Mark::Show("a..zz".into())) == vec!["zz"] && c.unknown(&Mark::Series("x".into(), true)) == vec!["x"]);
+        assert_eq!(marks_text(&ms.iter().map(|m| (*m).clone()).collect::<Vec<_>>()), "+a..c +@line [a..b] \"check\" --40 \"on\" --41 \"on\" [] -@line");
     }
 
     #[test]
