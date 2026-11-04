@@ -61,6 +61,15 @@ read them raw (the *Code* button) or in the player.
 
 <img src="images/shot-code.png" alt="Code view: nested blocks next to the source" width="100%">
 
+## Supported languages
+
+| Language | Status |
+|---|---|
+| Rust | ✅ Supported |
+
+Only Rust for now. More languages (Python, PHP, TypeScript, Go, ...) can be added.
+If you want one, say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues): languages people ask for come first.
+
 ## Commands
 
 ```
