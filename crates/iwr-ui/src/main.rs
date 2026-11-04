@@ -46,6 +46,21 @@ pub struct Flags {
     pub constructs: bool,
 }
 
+/// Default file tree width: a share of the window width.
+pub const SIDEBAR_W: f64 = 0.10;
+/// Default details / side panel width: a share of the window width (the graph gets the rest).
+pub const DETAILS_W: f64 = 0.45;
+
+/// Keep the file tree between 6% and 40% of the window.
+pub fn clamp_sidebar(f: f64) -> f64 {
+    f.clamp(0.06, 0.4)
+}
+
+/// Keep the details panel between 15% and 70% of the window.
+pub fn clamp_details(f: f64) -> f64 {
+    f.clamp(0.15, 0.7)
+}
+
 #[derive(Clone, Copy)]
 pub struct State {
     pub project: Signal<Option<Rc<Project>>>,
@@ -146,8 +161,12 @@ pub struct State {
     pub files_tab: Signal<bool>,
     pub closed_dirs: Signal<HashSet<String>>,
     pub sidebar_open: Signal<bool>,
+    /// file tree width, as a share of the window width (0.06..0.4)
     pub sidebar_w: Signal<f64>,
+    /// details / side panel width, as a share of the window width (0.15..0.7)
     pub details_w: Signal<f64>,
+    /// window width in px, to turn mouse drags into shares
+    pub win_w: Signal<f64>,
     /// blocks pane share of the code view, 0.2..0.8
     pub split: Signal<f64>,
     /// active drag: (which, start x, start value)
@@ -241,7 +260,7 @@ impl State {
 
     pub fn save_layout(&self) {
         document::eval(&format!(
-            "localStorage.setItem('iwr-layout', '{},{},{},{}');",
+            "localStorage.setItem('iwr-layout2', '{},{},{},{}');",
             if *self.sidebar_open.read() { 1 } else { 0 },
             *self.sidebar_w.read(),
             *self.details_w.read(),
@@ -428,8 +447,9 @@ fn App() -> Element {
         files_tab: Signal::new(true),
         closed_dirs: Signal::new(HashSet::new()),
         sidebar_open: Signal::new(true),
-        sidebar_w: Signal::new(250.0),
-        details_w: Signal::new(380.0),
+        sidebar_w: Signal::new(SIDEBAR_W),
+        details_w: Signal::new(DETAILS_W),
+        win_w: Signal::new(1600.0),
         split: Signal::new(0.5),
         drag: Signal::new(None),
         animate: Signal::new(false),
@@ -450,14 +470,25 @@ fn App() -> Element {
 
     // layout persistence
     use_future(move || async move {
-        if let Ok(v) = document::eval("return localStorage.getItem('iwr-layout') || '';").await {
+        if let Ok(v) = document::eval("return localStorage.getItem('iwr-layout2') || '';").await {
             if let Some(t) = v.as_str() {
                 let parts: Vec<f64> = t.split(',').filter_map(|x| x.parse().ok()).collect();
                 if parts.len() == 4 {
-                    state.sidebar_w.set(parts[1].clamp(140.0, 600.0));
-                    state.details_w.set(parts[2].clamp(240.0, 900.0));
+                    state.sidebar_w.set(clamp_sidebar(parts[1]));
+                    state.details_w.set(clamp_details(parts[2]));
                     state.split.set(parts[3].clamp(0.2, 0.8));
                 }
+            }
+        }
+    });
+    // window width, kept current, so drags in px become shares of the window
+    use_future(move || async move {
+        let mut ev = document::eval(
+            "dioxus.send(window.innerWidth); window.addEventListener('resize', () => dioxus.send(window.innerWidth));",
+        );
+        while let Ok(w) = ev.recv::<f64>().await {
+            if w > 0.0 {
+                state.win_w.set(w);
             }
         }
     });
@@ -659,8 +690,8 @@ fn App() -> Element {
                     if let Some((which, x0, v0)) = *state.drag.read() {
                         let x = e.data().client_coordinates().x;
                         match which {
-                            0 => state.sidebar_w.set((v0 + (x - x0)).clamp(140.0, 600.0)),
-                            1 => state.details_w.set((v0 - (x - x0)).clamp(240.0, 900.0)),
+                            0 => { let ww = *state.win_w.read(); state.sidebar_w.set(clamp_sidebar(v0 + (x - x0) / ww)) }
+                            1 => { let ww = *state.win_w.read(); state.details_w.set(clamp_details(v0 - (x - x0) / ww)) }
                             _ => {
                                 let (_, _, cw, _) = *state.canvas_rect.read();
                                 let total = if cw > 0.0 { cw } else { 1000.0 };

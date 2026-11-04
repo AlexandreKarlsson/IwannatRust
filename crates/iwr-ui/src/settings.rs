@@ -220,8 +220,8 @@ impl State {
     }
 
     pub fn reset_layout(&mut self) {
-        self.sidebar_w.set(250.0);
-        self.details_w.set(380.0);
+        self.sidebar_w.set(crate::SIDEBAR_W);
+        self.details_w.set(crate::DETAILS_W);
         self.split.set(0.5);
         self.sidebar_open.set(true);
         self.save_layout();

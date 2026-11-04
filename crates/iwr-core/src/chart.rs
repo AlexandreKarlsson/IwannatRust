@@ -335,12 +335,16 @@ pub fn split_say(raw: &str) -> (String, Vec<CueMark>) {
         }
         match from.find('}').filter(|_| !code).and_then(|e| parse_marks(&from[1..e]).map(|m| (e, m))) {
             Some((e, m)) => {
-                // `word {+a} word` keeps one space, `word {+a}.` none
-                if text.ends_with(' ') {
+                // `word {+a} word` and `word {+a}word` keep one space, `word {+a}.` none
+                let spaced = text.ends_with(' ');
+                if spaced {
                     text.pop();
                 }
                 found.push((text.chars().count(), m));
                 rest = &from[e + 1..];
+                if spaced && rest.starts_with(|c: char| c.is_alphanumeric() || c == '`') {
+                    text.push(' ');
+                }
             }
             None => {
                 text.push('{');
@@ -590,6 +594,11 @@ mod tests {
         assert_eq!(join_say(&t, &m), "Caching cut it {+v2 !v2} a bit, `fmt {x}` {not one} {=v1 18 --30 \"goal\" \"fast\"@v3 ~v1>v3}.");
         let (t, m) = split_say("{+a} Starts here.");
         assert_eq!((t.as_str(), m[0].at), ("Starts here.", 0));
+        // A marker glued to the next word keeps the space before it
+        let (t, m) = split_say("the line, {--10 \"ten\"}ten thousand, then {!a}`x`.");
+        assert_eq!(t, "the line, ten thousand, then `x`.");
+        assert_eq!((m[0].at, m[1].at), ("the line,".chars().count(), "the line, ten thousand, then".chars().count()));
+        assert_eq!(join_say(&t, &m), "the line, {--10 \"ten\"} ten thousand, then {!a} `x`.");
     }
 
     #[test]

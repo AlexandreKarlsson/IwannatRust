@@ -164,6 +164,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A chart marker glued to the next word (`the line, {--10}ten thousand`) no longer eats the space
+  before it: the caption and the voice read "the line, ten thousand", not "the line,ten thousand".
 - Edge labels no longer cover box names: the layered layout widens the gap between two layers
   when a label needs room (left-to-right diagrams), a label with no free spot on its arrow (a
   self-loop) moves to the nearest free one, wide characters (CJK, emoji) count double in label

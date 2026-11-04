@@ -98,7 +98,7 @@ pub fn Sidebar() -> Element {
     let _scope = *state.scope.read();
     let project = state.project.read().clone();
     let Some(p) = project else {
-        return rsx! { div { class: "sidebar", style: "width:250px", div { class: "status", "loading project…" } } };
+        return rsx! { div { class: "sidebar", style: "width:10vw", div { class: "status", "loading project…" } } };
     };
     let search = state.search.read().to_lowercase();
     let selected = *state.selected.read();
@@ -114,7 +114,7 @@ pub fn Sidebar() -> Element {
     let w = *state.sidebar_w.read();
     let files_tab = *state.files_tab.read();
     rsx! {
-        div { class: "sidebar", style: "width:{w:.0}px",
+        div { class: "sidebar", style: "width:{w * 100.0:.2}vw",
             div { class: "sbtabs",
                 button { class: if files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(true), "📁 files" }
                 button { class: if !files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(false), "☰ items" }
@@ -300,7 +300,7 @@ pub fn Details() -> Element {
 
     let dw = *state.details_w.read();
     rsx! {
-        div { class: "details", style: "width:{dw:.0}px",
+        div { class: "details", style: "width:{dw * 100.0:.2}vw",
             div { class: "info",
                 if let Some(info) = &info {
                     h3 { "{info.title} " span { class: "pill", "{info.kind}" } }

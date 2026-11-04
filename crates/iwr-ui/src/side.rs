@@ -26,7 +26,7 @@ pub fn SidePanel() -> Element {
         Side::Chart(c) => ("chart", c.title.clone()),
     };
     rsx! {
-        div { class: "side", style: "width:{dw}px",
+        div { class: "side", style: "width:{dw * 100.0:.2}vw",
             div { class: "side-head",
                 span { class: "kind", "{kind}" }
                 span { class: "title", {title.unwrap_or_default()} }

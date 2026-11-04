@@ -336,7 +336,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .toggles { display:flex; gap:8px; align-items:center; color:var(--muted); font-size:12px; }
 .toggles label { display:flex; gap:3px; align-items:center; cursor:pointer; }
 .main { display:flex; flex:1; min-height:0; }
-.sidebar { width:250px; flex:none; border-right:1px solid var(--border); background:var(--panel); overflow:auto; padding:6px; }
+.sidebar { width:10vw; min-width:140px; flex:none; border-right:1px solid var(--border); background:var(--panel); overflow:auto; padding:6px; }
 .resizer { flex:none; width:6px; cursor:col-resize; background:transparent; transition: background .15s; position:relative; z-index:2; margin:0 -3px; }
 .resizer:hover, .app.dragging .resizer { background:var(--accent); opacity:.6; }
 .app.dragging { user-select:none; cursor:col-resize; }
@@ -361,7 +361,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .main .sidebar, .main .details, .main .side { transition: width .45s ease; }
 .main .blocks-pane.half { transition: flex-basis .45s ease; }
 .ftree .frow, .sidebar .item { transition: font-size .3s, padding .3s, background .3s, box-shadow .3s; }
-.main.focus-files .sidebar, .main.focus-items .sidebar { width:max(40vw, 340px) !important; }
+.main.focus-files .sidebar, .main.focus-items .sidebar { width:max(30vw, 300px) !important; }
 .main.focus-files .ftree .frow { font-size:16px; padding:4px 8px; }
 .main.focus-files .ftree .fic { font-size:15px; width:36px; }
 .main.focus-files .ftree .fcount { font-size:12px; }
@@ -369,9 +369,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .main.focus-view .sidebar, .main.focus-source .sidebar { width:150px !important; }
 .main.focus-view .details, .main.focus-view .side { width:clamp(260px, 24vw, 460px) !important; }
 .main.focus-view .blocks-pane.half { flex-basis:72% !important; }
-.main.focus-source .details { width:max(55vw, 420px) !important; }
+.main.focus-source .details, .main.focus-source .side { width:max(55vw, 420px) !important; }
 .main.focus-source .details .source { font-size:1.12em; }
-.main.focus-source .blocks-pane.half { flex-basis:30% !important; }
+.main.focus-source .blocks-pane.half { flex-basis:38% !important; }
 .main.focus-source .source-pane { font-size:1.08em; }
 /* first start: the welcome dialog and the tutorial */
 .tut-backdrop { position:fixed; inset:0; z-index:80; }
@@ -506,7 +506,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .tooltip .doc { color:var(--muted); white-space:pre-wrap; margin-top:4px; }
 .tooltip pre { margin:4px 0 0; background:var(--panel2); padding:6px; border-radius:6px; max-height:160px; overflow:hidden; font-size:11px; }
 .pill { display:inline-block; background:var(--panel3); border-radius:999px; padding:0 7px; font-size:11px; margin:2px 3px 0 0; color:var(--text); }
-.details { width:380px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
+.details { width:45vw; min-width:240px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
 .details .info { padding:10px; border-bottom:1px solid var(--border); overflow:auto; max-height:45%; }
 .details h3 { margin:0 0 4px; font-size:14px; }
 .details .sig { color:var(--code); font-family: ui-monospace, Menlo, Consolas, monospace; white-space:pre-wrap; font-size:12px; margin:4px 0; }
@@ -708,7 +708,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 
 /* ---- settings page */
 /* side panel: `|` lines of a codecast (byte layouts, notes, small diagrams) */
-.side { width:380px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; min-width:0; }
+.side { width:45vw; min-width:240px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; min-width:0; }
 .side-head { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--border); }
 .side-head .kind { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:0 7px; }
 .side-head .title { font-weight:700; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
