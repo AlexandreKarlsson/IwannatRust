@@ -16,6 +16,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The `examples/demo` project and its codecast are gone: IwannatRust's own tour (`codecast/`,
+  `scripts/iwr self`) is the example. `scripts/iwr` commands default to this repository; the tests
+  keep the small crate as `crates/iwr-core/tests/fixtures/demo`.
 - The CLI is now called `codecast` (`codecast serve .`, `codecast check codecast/`, `codecast voice`).
   `iwr` still works for now: it says so and runs `codecast`.
 - Voice and translation run the same on Linux, macOS and Windows and need nothing installed first:

@@ -733,7 +733,7 @@ over two lines.")), None);
 
 #[test]
 fn every_tour_builds_and_checks_on_the_demo() {
-    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo");
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/demo");
     let p = iwr_core::analyze_path(&demo).unwrap();
     for line in ["architecture_tour", "types_tour", "errors_tour", "entry_tour", "flow_tour:crate::run", "todo_tour", "files_tour", "types_tour:crate::storage", "errors_tour:crate::parser"] {
         let cues = iwr_core::tours::generate(&p, line).unwrap_or_else(|e| panic!("{line}: {e}")).cues;

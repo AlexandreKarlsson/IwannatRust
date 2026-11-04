@@ -15,7 +15,7 @@ Yes: exit code one when anything is wrong, so a codecast can be checked in CI li
 @ flow:iwr::serve::serve
 serve is the command you use most. It analyzes the project once, loads the codecast next to it, and starts the web server.
 ! iwr::serve::serve/b2 iwr::serve::serve/b4
-No script given? locate looks for a codecast directory, then a codecast file, next to the project. The demo works with no flags for that reason.
+No script given? locate looks for a codecast directory, then a codecast file, next to the project. So a project with its codecast next to it needs no flags.
 ! iwr::serve::serve/b8 iwr::serve::serve/b9
 The script is checked at startup too, and problems are printed on stderr, but the server starts anyway: a broken ref should not stop you from looking at the code.
 sp: If I edit the code while the tour is open, do I restart the server?

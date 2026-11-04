@@ -35,15 +35,14 @@ A project without a codecast still gets one: the built-in tour, written from its
 rustup target add wasm32-unknown-unknown
 cargo install dioxus-cli --version 0.7.10 --locked
 scripts/iwr build                  # web UI + CLI, one binary: target/release/codecast
-scripts/iwr serve examples/demo    # opens http://127.0.0.1:4321
+scripts/iwr self                   # IwannatRust explaining itself, http://127.0.0.1:4321
 ```
 
 On first start the app asks whether you have used it before. Answer *no* and the **integrated
 tutorial** plays. It is itself a codecast, recorded and shipped with the app, and runs on the
 project you opened (about five minutes). The **?** button in the top bar brings it back.
 
-Examples: [examples/demo/codecast/](examples/demo/codecast/) (11 parts, also explains the Rust it
-shows) and [codecast/](codecast/), IwannatRust's own tour (`scripts/iwr self`).
+Example: [codecast/](codecast/), IwannatRust's own tour (`scripts/iwr self`).
 Scripts put one directive per line. GitHub's markdown view joins those lines into paragraphs, so
 read them raw (the *Code* button) or in the player.
 

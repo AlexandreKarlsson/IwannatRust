@@ -23,7 +23,7 @@ ask: What is an impl?
 ## trait
 aliases: traits
 ask: What is a trait?
-A trait is a contract: a list of methods a type promises to provide, like an interface in other languages. `trait Store { fn save(...); fn all(...); }` says "anything that calls itself a Store can save and list". Code can then be written against the trait, and any type that implements it can be swapped in. That is how the demo's in-memory storage could be replaced by a database.
+A trait is a contract: a list of methods a type promises to provide, like an interface in other languages. `trait Store { fn save(...); fn all(...); }` says "anything that calls itself a Store can save and list". Code can then be written against the trait, and any type that implements it can be swapped in. That is how an in-memory storage can be swapped for a database.
 
 ## struct
 aliases: structs
@@ -118,7 +118,7 @@ ask: What is a Vec?
 ## HashMap
 aliases: hash map
 ask: What is a HashMap?
-`HashMap<K, V>` is a dictionary: keys of one type, values of another, fast lookup by key. `insert` adds, `get` looks up and returns an `Option`, because the key might not be there. The demo's in-memory storage is one.
+`HashMap<K, V>` is a dictionary: keys of one type, values of another, fast lookup by key. `insert` adds, `get` looks up and returns an `Option`, because the key might not be there. A simple in-memory storage is often one.
 
 ## macro
 aliases: macros, println, vec!

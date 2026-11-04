@@ -4,18 +4,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BIN="$ROOT/target/release/codecast"
-DEMO="$ROOT/examples/demo"
 export PATH="$HOME/.cargo/bin:$PATH"
 
 have_bin() { [ -x "$BIN" ]; }
 need_bin() { have_bin || { echo "iwr not built yet → scripts/iwr build" >&2; exit 1; }; }
-# Project path for a command: a path, or `demo` (examples/demo, the default) / `self` (this repository).
-proj() { case "${1:-demo}" in demo) echo "$DEMO" ;; self|repo|iwr) echo "$ROOT" ;; *) echo "$1" ;; esac; }
+# Project path for a command: a path, or `self` (this repository, the default).
+proj() { case "${1:-self}" in self|repo|iwr) echo "$ROOT" ;; *) echo "$1" ;; esac; }
 
 commands() {
 cat <<'MENU'
   🔨  build       Build the web UI (dx) and the CLI with the UI embedded
-  🚀  serve  [P]  Analyze a project and open the interactive UI (P: a path, demo = examples/demo, self = this repository)
+  🚀  serve  [P]  Analyze a project and open the interactive UI (P: a path, or self = this repository)
   🎙️  codecast [P] [S] [A]  Serve with a codecast (default: <P>/codecast/ or codecast.md), optional audio
   🪞  self   [S] [A]      Serve this repository with its own codecast: the tour of IwannatRust
   📦  export [P] [-o DIR]   Static site (index.html + project.json + script) for docs
@@ -36,7 +35,7 @@ usage() {
   echo
   commands
   echo
-  echo "usage: scripts/iwr <command> [args]      P = project path, or demo (default) / self (this repository)"
+  echo "usage: scripts/iwr <command> [args]      P = project path, or self (this repository, the default)"
 }
 
 pick() {

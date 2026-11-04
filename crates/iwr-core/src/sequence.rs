@@ -916,7 +916,7 @@ mod project_tests {
 
     #[test]
     fn builds_from_the_demo_crate() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/demo");
         let p = crate::analyze_path(&root).unwrap();
         let opts = ViewOptions { depth: 3, ..Default::default() };
         let (s, note) = from_calls(&p, &opts);

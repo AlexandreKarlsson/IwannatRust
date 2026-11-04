@@ -43,7 +43,7 @@ codecast/
 
 A part file may start with its own `# heading`; after the title in `index.md`, further `#` lines are
 ignored. `codecast check codecast/` validates the whole directory;
-[examples/demo/codecast/](../examples/demo/codecast/) is one.
+[codecast/](../codecast/), this repository's own tour, is one.
 
 ## Look and defaults: `codecast.toml`
 

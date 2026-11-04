@@ -294,7 +294,7 @@ pub fn pronounce(s: &script::Script, glossary: Option<&str>) -> Vec<(String, Str
 #[cfg(test)]
 mod tutorial_tests {
     /// The UI ships the tutorial with its recording: editing a sentence without recording it
-    /// again (`codecast voice crates/iwr-ui/assets/tutorial --path examples/demo`) fails here.
+    /// again (`codecast voice crates/iwr-ui/assets/tutorial --path crates/iwr-core/tests/fixtures/demo`) fails here.
     #[test]
     fn tutorial_recording_matches_its_text() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");

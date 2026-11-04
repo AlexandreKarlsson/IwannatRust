@@ -16,10 +16,10 @@ cargo install dioxus-cli --version 0.7.10 --locked     # provides `dx` (in ~/.ca
 
 ```sh
 scripts/iwr build                            # or ./build.sh: dx build --release (UI) + cargo build --release -p iwr
-./target/release/codecast serve examples/demo
+./target/release/codecast serve .
 ```
 
-Core-only iteration (no wasm): `cargo run -p iwr -- summary examples/demo` prints items, calls, relations, block trees, view sizes and guide steps.
+Core-only iteration (no wasm): `cargo run -p iwr -- summary crates/iwr-core/tests/fixtures/demo` prints items, calls, relations, block trees, view sizes and guide steps.
 
 UI type-check without `dx` noise: `cargo check -p iwr-ui --target wasm32-unknown-unknown`.
 
@@ -42,7 +42,7 @@ placeholders (`{dir}`, `{file}`, `{fn}`, `{fn_line}`, `{fn_b1}`, filled by `iwr_
 spoken text never names the project) and their `af_heart` recordings. After editing a sentence:
 
 ```sh
-./target/release/codecast voice crates/iwr-ui/assets/tutorial --path examples/demo
+./target/release/codecast voice crates/iwr-ui/assets/tutorial --path crates/iwr-core/tests/fixtures/demo
 ```
 
 then rebuild (the recordings are UI assets). New parts go in `PARTS` (`crates/iwr-ui/src/tutorial.rs`).
