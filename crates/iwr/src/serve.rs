@@ -34,6 +34,40 @@ struct Shared {
 
 type AppState = Arc<Shared>;
 
+/// Watch the project for edits. The whole tree first; when the OS runs out of watches (a big
+/// workspace: every `target/` folder counts), only the folders that can hold sources, each on
+/// its own; and when even that fails, serve without reloading rather than not at all.
+fn watch_sources(watcher: &mut impl Watcher, root: &Path) {
+    if watcher.watch(root, RecursiveMode::Recursive).is_ok() {
+        return;
+    }
+    let _ = watcher.unwatch(root);
+    // Build output, git objects, dependencies and hidden folders hold no source to re-read
+    let skip = |p: &Path| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with('.') || n == "target" || n == "node_modules")
+    };
+    let mut stack = vec![root.to_path_buf()];
+    let mut watched = 0usize;
+    while let Some(dir) = stack.pop() {
+        // Out of watches even here: keep what is watched, say so once
+        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            eprintln!("file watch stopped after {watched} folders ({e}); edits elsewhere need a restart");
+            return;
+        }
+        watched += 1;
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if entry.file_type().is_ok_and(|t| t.is_dir()) && !skip(&p) {
+                stack.push(p);
+            }
+        }
+    }
+    eprintln!("watching {watched} source folders (too many folders to watch the whole tree)");
+}
+
 fn analyze(path: &Path) -> Result<Project> {
     let started = Instant::now();
     let p = iwr_core::analyze_path(path).with_context(|| format!("analyzing {}", path.display()))?;
@@ -97,7 +131,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
                 }
             }
         })?;
-        watcher.watch(&watch_root, RecursiveMode::Recursive)?;
+        watch_sources(&mut watcher, &watch_root);
         {
             let shared = shared.clone();
             tokio::spawn(async move {

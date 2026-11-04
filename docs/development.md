@@ -53,7 +53,8 @@ Headless Chrome against a running `codecast serve` is the fastest loop (`scripts
 over the DevTools protocol: click, press keys, screenshot each cue, read classes). A fresh
 `--user-data-dir` shows the first-start dialog. Selectors: `.node` (svg nodes), `.iblk`/`.blk` (code
 view blocks), `.sidebar .mod` (module headers), `.main.focus-*` / `.spot-on` / `.main.zoomed`
-(codecast panels, spots, zoom).
+(codecast panels, spots, zoom; in the Code view `.main.zoom-code` and each pane's `.zoom-box`
+`style.zoom`).
 
 ## Adding a view
 

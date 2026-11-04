@@ -146,18 +146,21 @@ pub fn CodeView() -> Element {
             },
             if !source_only {
                 div { class: if show_source { "blocks-pane half" } else { "blocks-pane" }, style: if show_source { format!("flex: 0 0 {:.1}%", split * 100.0) } else { String::new() }, onmouseleave: move |_| state.hover_span.set(None),
-                    div { class: "file-bar",
-                        FilePick { file, files: files.clone() }
-                        span { class: "status", "{items.len()} items · click a block to open it" }
-                    }
-                    if let Some(d) = module_doc {
-                        div { class: "moddoc", "{d}" }
-                    }
-                    if !sf.text {
-                        div { class: "status", style: "margin-top:20px", "Binary or large file: not shown." }
-                    }
-                    for it in items {
-                        ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
+                    // what a codecast's `+ zoom` scales in place (`tutorial::Zoom`)
+                    div { class: "zoom-box",
+                        div { class: "file-bar",
+                            FilePick { file, files: files.clone() }
+                            span { class: "status", "{items.len()} items · click a block to open it" }
+                        }
+                        if let Some(d) = module_doc {
+                            div { class: "moddoc", "{d}" }
+                        }
+                        if !sf.text {
+                            div { class: "status", style: "margin-top:20px", "Binary or large file: not shown." }
+                        }
+                        for it in items {
+                            ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
+                        }
                     }
                 }
             }
@@ -166,23 +169,25 @@ pub fn CodeView() -> Element {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((2, e.data().client_coordinates().x, *state.split.read()))); } }
                 }
                 div { class: "source-pane", onmouseleave: move |_| state.hover_span.set(None),
-                    if source_only {
-                        div { class: "path", FilePick { file, files } }
-                    } else {
-                        div { class: "path", "{sf.path}" }
-                    }
-                    for (i, line) in sf.content.lines().enumerate() {
-                        {
-                            let ln = i + 1;
-                            let is_hover = hover.map(|h| h.file == file && h.contains_line(ln)).unwrap_or(false);
-                            let is_sel = sel_span.map(|s| s.file == file && s.contains_line(ln)).unwrap_or(false);
-                            let is_nar = hl_refs.iter().any(|r| r.span.file == file && r.inner && r.span.contains_line(ln));
-                            let mark = source::mark_range(code_mark, file, ln, line.chars().count());
-                            let mut lh = line_hover.clone();
-                            rsx! {
-                                div { class: format!("line{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " fn" } else { "" }, if is_nar { " nar" } else { "" }), id: "S{ln}",
-                                    onmouseenter: move |_| lh(ln),
-                                    {source::line_body(&shaded, ln, mark)}
+                    div { class: "zoom-box",
+                        if source_only {
+                            div { class: "path", FilePick { file, files } }
+                        } else {
+                            div { class: "path", "{sf.path}" }
+                        }
+                        for (i, line) in sf.content.lines().enumerate() {
+                            {
+                                let ln = i + 1;
+                                let is_hover = hover.map(|h| h.file == file && h.contains_line(ln)).unwrap_or(false);
+                                let is_sel = sel_span.map(|s| s.file == file && s.contains_line(ln)).unwrap_or(false);
+                                let is_nar = hl_refs.iter().any(|r| r.span.file == file && r.inner && r.span.contains_line(ln));
+                                let mark = source::mark_range(code_mark, file, ln, line.chars().count());
+                                let mut lh = line_hover.clone();
+                                rsx! {
+                                    div { class: format!("line{}{}{}", if is_hover { " hl" } else { "" }, if is_sel { " fn" } else { "" }, if is_nar { " nar" } else { "" }), id: "S{ln}",
+                                        onmouseenter: move |_| lh(ln),
+                                        {source::line_body(&shaded, ln, mark)}
+                                    }
                                 }
                             }
                         }

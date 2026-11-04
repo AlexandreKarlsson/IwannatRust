@@ -629,6 +629,7 @@ fn App() -> Element {
     let is_code = *state.mode.read() == Mode::Code;
     let is_plan = *state.mode.read() == Mode::Plan;
     let chart = (*state.mode.read() == Mode::Chart).then(|| state.chart.read().clone());
+    let is_graph = !is_code && !is_plan && chart.is_none();
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
@@ -704,7 +705,8 @@ fn App() -> Element {
             if let Some(name) = spot.filter(|_| has_guide) {
                 tutorial::Spot { key: "{name}", name: name.to_string() }
             }
-            if let Some(on) = state.zoom.read().filter(|_| has_guide && !settings_open && !generate_open) {
+            // a graph frames its highlight with the camera (`State::camera`), the rest through `Zoom`
+            if let Some(on) = state.zoom.read().filter(|on| has_guide && !settings_open && !generate_open && !(on.is_empty() && is_graph)) {
                 tutorial::Zoom { key: "z-{on}", on: on.to_string() }
             }
         }

@@ -24,6 +24,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
   directory (`~/.cache/codecast`, `~/Library/Caches/codecast`, `%LOCALAPPDATA%\codecast`); an
   existing `~/.cache/iwr` is moved there. `CODECAST_KOKORO` / `CODECAST_TRANSLATE` replace the
   `IWR_…` variables, which are still read.
+- `+ zoom` fits the screen instead of blowing it up. In the Code view each pane zooms in place onto
+  its own highlight (the text reflows, the source stays whole on screen, lit lines fit the pane's
+  width, the sidebar narrows); a graph's highlight is framed by the camera (legend and details
+  panel untouched); a panel or spot still scales the middle of the screen. Every zoom stops where
+  the target's biggest text reaches ~17 px on a 1080p screen (15 to 22 px with the window's
+  height), where it used to go up to 2.2× whatever the text size. `+ view` keeps the details panel
+  at about a quarter of the screen (260 to 460 px) instead of 260 px, so its source stays readable.
 
 ### Added
 

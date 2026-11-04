@@ -554,7 +554,8 @@ impl State {
     }
 
     /// Place the camera on the highlight (the Code view scrolls instead; the plan page is a
-    /// list). It replaces the fit that a scope / root / mode change asked for.
+    /// list). It replaces the fit that a scope / root / mode change asked for. Under `+ zoom`
+    /// it frames every highlighted node instead of centring the first.
     pub fn camera(&mut self) {
         let req = *self.fit_request.peek();
         self.fit_done.set(req);
@@ -563,17 +564,39 @@ impl State {
             let hl = self.hl.read().clone();
             let ids = self.hl_ids.read().clone();
             let in_diagram = *self.mode.read() == Mode::Diagram;
-            let focus = graph.nodes.iter().find(|n| if in_diagram { ids.contains(&n.id) } else { crate::canvas::hl_hit(n, &hl) });
-            if let Some(n) = focus {
+            let lit: Vec<&iwr_core::views::VNode> = graph.nodes.iter().filter(|n| if in_diagram { ids.contains(&n.id) } else { crate::canvas::hl_hit(n, &hl) }).collect();
+            let zoom = *self.zoom.peek() == Some("");
+            if let Some(n) = lit.first() {
                 let (x, y, w, h) = (n.x, n.y, n.w, n.h);
                 self.fit(&graph);
-                let k = self.view.read().k.clamp(0.8, 1.2);
-                self.view.write().k = k;
-                self.center_on(x, y, w, h);
+                if zoom {
+                    self.frame(&lit);
+                } else {
+                    let k = self.view.read().k.clamp(0.8, 1.2);
+                    self.view.write().k = k;
+                    self.center_on(x, y, w, h);
+                }
             } else {
                 self.fit(&graph);
             }
         }
+    }
+
+    /// `+ zoom` on a graph: the camera as close as `nodes` all fit in the canvas, but no closer
+    /// than the box text (13 px) reaching ~17 px on a 1080p screen (15 to 22 px with the
+    /// canvas height, as `tutorial::Zoom`), and never farther than the whole graph's fit.
+    fn frame(&mut self, nodes: &[&iwr_core::views::VNode]) {
+        let (_, _, cw, ch) = *self.canvas_rect.read();
+        let cw = if cw > 0.0 { cw } else { 800.0 };
+        let ch = if ch > 0.0 { ch } else { 600.0 };
+        let (x1, y1) = nodes.iter().fold((f64::MAX, f64::MAX), |(x, y), n| (x.min(n.x), y.min(n.y)));
+        let (x2, y2) = nodes.iter().fold((f64::MIN, f64::MIN), |(x, y), n| (x.max(n.x + n.w), y.max(n.y + n.h)));
+        let (w, h) = ((x2 - x1).max(40.0), (y2 - y1).max(30.0));
+        let biggest_text = (ch / 42.0).clamp(15.0, 22.0);
+        let fit_k = self.view.read().k;
+        let k = (0.85 * cw / w).min(0.85 * ch / h).min(biggest_text / 13.0).max(fit_k);
+        self.view.write().k = k;
+        self.center_on(x1, y1, w, h);
     }
 }
 

@@ -167,16 +167,23 @@ pub fn Spot(name: String) -> Element {
     }
 }
 
-/// What `+ zoom` zooms onto, by priority: the glowing nodes of a graph, the highlighted blocks and
-/// lines of the Code view, the highlighted files and folders.
-const HIGHLIGHTS: &[&str] = &[".node.hi", ".blk.nar", ".iblk.nar", ".source-pane .line.nar", ".details .line.hl", ".ftree .frow.nar"];
+/// What `+ zoom` zooms onto outside the Code view and the graphs (those zoom themselves): the
+/// highlighted files and folders.
+const HIGHLIGHTS: &[&str] = &[".ftree .frow.nar"];
 
-/// The presenter's zoom: the middle of the screen (`.main`) is scaled and moved so that what the
-/// cue talks about fills it, the top bar and the player untouched. `on` is `""` for the highlight,
-/// else a panel or a spot ([`selector`]). Followed every 250 ms (views move under it).
+/// The presenter's zoom. `on` is `""` for the highlight, else a panel or a spot ([`selector`]).
+/// In the Code view each pane zooms in place onto its own highlighted blocks or lines (CSS
+/// `zoom` on its `.zoom-box`): the text reflows inside the pane, the panes keep their place and
+/// the sidebar narrows, so no code goes off screen. Elsewhere the middle of the screen (`.main`)
+/// is scaled and moved so that the target fills it, the top bar and the player untouched. (A
+/// graph's highlight is framed by the camera instead: [`State::camera`].) Either way the zoom
+/// stops where the target's biggest text reaches ~17 px on a 1080p screen (15 to 22 px with
+/// the window's height), so a small target is not blown up. Followed every 250 ms (views move
+/// under it).
 #[component]
 pub fn Zoom(on: String) -> Element {
-    let sels: Vec<&str> = if on.is_empty() { HIGHLIGHTS.to_vec() } else { selector(&on).into_iter().collect() };
+    let code = on.is_empty();
+    let sels: Vec<&str> = if code { HIGHLIGHTS.to_vec() } else { selector(&on).into_iter().collect() };
     let sels = serde_json::to_string(&sels).unwrap_or_else(|_| "[]".into());
     use_future(move || {
         let sels = sels.clone();
@@ -184,30 +191,81 @@ pub fn Zoom(on: String) -> Element {
             loop {
                 let js = format!(
                     r#"const main = document.querySelector('.main'); if (main) {{
-                    // measured with the transform it has right now (it may be animating)
-                    const t = getComputedStyle(main).transform;
-                    const k0 = t && t !== 'none' ? new DOMMatrix(t).a : 1;
-                    const m = main.getBoundingClientRect();
-                    const mw = m.width / k0, mh = m.height / k0;
-                    let els = [];
-                    for (const s of {sels}) {{ els = [...document.querySelectorAll(s)].filter(e => main.contains(e) && e.getBoundingClientRect().width > 0); if (els.length) break; }}
-                    let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
-                    for (const e of els) {{ const r = e.getBoundingClientRect(); x1 = Math.min(x1, (r.left - m.left) / k0); y1 = Math.min(y1, (r.top - m.top) / k0); x2 = Math.max(x2, (r.right - m.left) / k0); y2 = Math.max(y2, (r.bottom - m.top) / k0); }}
-                    let k = 1, tx = 0, ty = 0;
-                    if (els.length) {{
-                        x1 = Math.max(0, x1); y1 = Math.max(0, y1); x2 = Math.min(mw, x2); y2 = Math.min(mh, y2);
-                        // a tall target (a whole panel): its top half
-                        const w = Math.max(40, x2 - x1), h = Math.max(30, Math.min(y2 - y1, mh / 2));
-                        k = Math.max(1, Math.min(2.2, 0.85 * mw / w, 0.85 * mh / h));
-                        tx = Math.min(0, Math.max(mw - k * mw, mw / 2 - k * (x1 + x2) / 2));
-                        ty = Math.min(0, Math.max(mh - k * mh, mh / 2 - k * (y1 + h / 2)));
-                    }}
-                    // the target it is going to
-                    const kt = parseFloat(main.dataset.k || '1'), tx0 = parseFloat(main.dataset.tx || '0'), ty0 = parseFloat(main.dataset.ty || '0');
-                    if (Math.abs(k - kt) > 0.02 || Math.abs(tx - tx0) > 2 || Math.abs(ty - ty0) > 2) {{
-                        main.dataset.k = k; main.dataset.tx = tx; main.dataset.ty = ty;
-                        main.classList.add('zoomed');
-                        main.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + k + ')';
+                    // the biggest a zoom makes text: bigger on a taller screen
+                    const big = Math.min(22, Math.max(15, innerHeight / 56));
+                    // the biggest text shown inside `els`, in px before any zoom
+                    const textPx = (els) => {{
+                        let px = 0;
+                        for (const e of els) {{
+                            const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+                            for (let n = 0; n < 200 && w.nextNode();) {{
+                                const p = w.currentNode.parentElement;
+                                if (!w.currentNode.textContent.trim() || !p || !p.getClientRects().length) continue;
+                                n++; px = Math.max(px, parseFloat(getComputedStyle(p).fontSize) || 0);
+                            }}
+                        }}
+                        return px || 13;
+                    }};
+                    const boxes = [...document.querySelectorAll('.code-view .zoom-box')];
+                    const lit = {code} ? boxes.map(b => [b, [...b.querySelectorAll('.iblk.nar, .blk.nar, .line.nar')].filter(e => e.getClientRects().length)]) : [];
+                    if (lit.some(([, els]) => els.length)) {{
+                        // the Code view: each pane zooms in place, the screen itself does not move
+                        if (main.style.transform) {{ main.style.transform = ''; delete main.dataset.k; delete main.dataset.tx; delete main.dataset.ty; }}
+                        main.classList.add('zoom-code');
+                        for (const [box, els] of lit) {{
+                            const pane = box.parentElement;
+                            const z = parseFloat(box.style.zoom) || 1;
+                            let f = 1;
+                            if (els.length) {{
+                                f = Math.min(1.6, big / textPx(els));
+                                // source lines: the lit lines whole, without scrolling sideways
+                                if (pane.classList.contains('source-pane')) {{
+                                    let w = 0;
+                                    for (const l of els) {{
+                                        const c = l.querySelector('.code'); if (!c) continue;
+                                        const r = document.createRange(); r.selectNodeContents(c);
+                                        w = Math.max(w, (r.getBoundingClientRect().right - l.getBoundingClientRect().left) / z);
+                                    }}
+                                    if (w > 0) f = Math.min(f, pane.clientWidth / (w + 24));
+                                }}
+                                f = Math.max(1, f);
+                            }}
+                            if (Math.abs(f - z) > 0.03) {{
+                                box.style.zoom = f === 1 ? '' : f.toFixed(2);
+                                // the highlight moved with the new size: back in the middle of its pane
+                                if (els.length) {{
+                                    const r = els[0].getBoundingClientRect(), p = pane.getBoundingClientRect();
+                                    pane.scrollTo({{ top: pane.scrollTop + r.top - p.top - Math.max(0, (p.height - r.height) / 2), behavior: 'smooth' }});
+                                }}
+                            }}
+                        }}
+                    }} else {{
+                        if (main.classList.contains('zoom-code')) {{ main.classList.remove('zoom-code'); for (const b of boxes) b.style.zoom = ''; }}
+                        // measured with the transform it has right now (it may be animating)
+                        const t = getComputedStyle(main).transform;
+                        const k0 = t && t !== 'none' ? new DOMMatrix(t).a : 1;
+                        const m = main.getBoundingClientRect();
+                        const mw = m.width / k0, mh = m.height / k0;
+                        let els = [];
+                        for (const s of {sels}) {{ els = [...document.querySelectorAll(s)].filter(e => main.contains(e) && e.getBoundingClientRect().width > 0); if (els.length) break; }}
+                        let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+                        for (const e of els) {{ const r = e.getBoundingClientRect(); x1 = Math.min(x1, (r.left - m.left) / k0); y1 = Math.min(y1, (r.top - m.top) / k0); x2 = Math.max(x2, (r.right - m.left) / k0); y2 = Math.max(y2, (r.bottom - m.top) / k0); }}
+                        let k = 1, tx = 0, ty = 0;
+                        if (els.length) {{
+                            x1 = Math.max(0, x1); y1 = Math.max(0, y1); x2 = Math.min(mw, x2); y2 = Math.min(mh, y2);
+                            // a tall target (a whole panel): its top half
+                            const w = Math.max(40, x2 - x1), h = Math.max(30, Math.min(y2 - y1, mh / 2));
+                            k = Math.max(1, Math.min(2.2, 0.85 * mw / w, 0.85 * mh / h, big / textPx(els)));
+                            tx = Math.min(0, Math.max(mw - k * mw, mw / 2 - k * (x1 + x2) / 2));
+                            ty = Math.min(0, Math.max(mh - k * mh, mh / 2 - k * (y1 + h / 2)));
+                        }}
+                        // the target it is going to
+                        const kt = parseFloat(main.dataset.k || '1'), tx0 = parseFloat(main.dataset.tx || '0'), ty0 = parseFloat(main.dataset.ty || '0');
+                        if (Math.abs(k - kt) > 0.02 || Math.abs(tx - tx0) > 2 || Math.abs(ty - ty0) > 2) {{
+                            main.dataset.k = k; main.dataset.tx = tx; main.dataset.ty = ty;
+                            main.classList.add('zoomed');
+                            main.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + k + ')';
+                        }}
                     }}
                 }}"#
                 );
@@ -217,7 +275,7 @@ pub fn Zoom(on: String) -> Element {
         }
     });
     use_drop(|| {
-        document::eval("const m = document.querySelector('.main'); if (m) { m.style.transform = ''; delete m.dataset.k; delete m.dataset.tx; delete m.dataset.ty; setTimeout(() => m.classList.remove('zoomed'), 700); }");
+        document::eval("const m = document.querySelector('.main'); if (m) { m.style.transform = ''; delete m.dataset.k; delete m.dataset.tx; delete m.dataset.ty; m.classList.remove('zoom-code'); setTimeout(() => m.classList.remove('zoomed'), 700); } for (const b of document.querySelectorAll('.zoom-box')) b.style.zoom = '';");
     });
     rsx! {}
 }

@@ -367,7 +367,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .main.focus-files .ftree .fcount { font-size:12px; }
 .main.focus-items .sidebar .item { font-size:15px; padding:4px 8px; }
 .main.focus-view .sidebar, .main.focus-source .sidebar { width:150px !important; }
-.main.focus-view .details, .main.focus-view .side { width:260px !important; }
+.main.focus-view .details, .main.focus-view .side { width:clamp(260px, 24vw, 460px) !important; }
 .main.focus-view .blocks-pane.half { flex-basis:72% !important; }
 .main.focus-source .details { width:max(55vw, 420px) !important; }
 .main.focus-source .details .source { font-size:1.12em; }
@@ -384,6 +384,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 /* `+ zoom`: the presenter's zoom of the middle of the screen */
 .main { transform-origin:0 0; transition: transform .6s ease; }
 .main.zoomed { position:relative; z-index:0; }
+/* in the Code view the panes zoom in place (`.zoom-box`), the sidebar makes room */
+.main.zoom-code .sidebar { width:150px !important; }
 .spot-dim { position:fixed; z-index:60; background:rgba(0,0,0,.55); pointer-events:none; animation: spot-in .3s ease; }
 @keyframes spot-in { from { opacity:0; } }
 .app.spotting .guide { position:relative; z-index:61; }

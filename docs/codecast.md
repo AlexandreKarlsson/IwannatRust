@@ -371,11 +371,15 @@ the buttons.
 | `voice` · `lang` · `plan-button` | the voice picker, the language picker, the plan button |
 | `side` | the side panel (`\|` lines) |
 
-**Zoom like a presenter.** On a big page, `+ zoom` scales the middle of the screen onto what the
-cue highlights (`!`: glowing graph nodes, highlighted blocks and lines, files and folders), up to
-2.2×, the top bar and the player untouched; it follows the highlight as views move. `+ zoom files`,
-`+ zoom side`, `+ zoom search`… zoom onto a panel or a spot instead (a tall one: its top half).
-Same stickiness; `+` zooms back out.
+**Zoom like a presenter.** On a big page, `+ zoom` zooms onto what the cue highlights (`!`). In
+the Code view each pane zooms in place onto its own highlighted blocks or lines: the text grows and
+reflows inside the pane, lit lines fit the pane's width, the sidebar narrows, nothing goes off
+screen. On a graph or a diagram the camera frames every glowing node. Highlighted files and folders
+scale the middle of the screen onto them, the top bar and the player untouched. A zoom stops where
+the target's biggest text reaches ~17 px on a 1080p screen (15 to 22 px with the window's height),
+so a small target is not blown up; it follows the highlight as views move. `+ zoom files`,
+`+ zoom side`, `+ zoom search`… scale the middle of the screen onto a panel or a spot instead (a
+tall one: its top half). Same stickiness; `+` zooms back out.
 
 ```
 @ flow:crate::run
