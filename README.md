@@ -50,10 +50,10 @@ read them raw (the *Code* button) or in the player.
 
 <img src="images/shot-tour.png" alt="A codecast explaining the ? operator on the control-flow graph" width="100%">
 
-**▶ Watch a part (46 s, with sound):** [*The pipeline*](images/demo-pipeline.mp4), part 2 of
-IwannatRust's own tour, filmed by `codecast video`.
+**▶ Watch a part (46 s, with sound):** *The pipeline*, part 2 of IwannatRust's own tour, filmed
+by `codecast video`.
 
-[![The pipeline: a codecast part on the control-flow graph of analyze_sources](images/demo-pipeline.jpg)](images/demo-pipeline.mp4)
+https://github.com/user-attachments/assets/2b99506f-5d02-4b04-b611-26e007f69902
 
 ## What is in it
 
