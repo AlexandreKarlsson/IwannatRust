@@ -4,7 +4,9 @@
 
 # IwannatRust
 
-**Understand any Rust project in minutes, and give it a presentation that never goes out of date.**
+**Understand any codebase in minutes, and give it a presentation that never goes out of date.**
+
+*Rust today; [more languages](#supported-languages) on request.*
 
 [![Rust](https://img.shields.io/badge/Rust-stable-f59e0b?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Dioxus](https://img.shields.io/badge/UI-Dioxus%200.7%20%E2%86%92%20WASM-60a5fa)](https://dioxuslabs.com)
