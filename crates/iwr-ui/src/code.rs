@@ -175,6 +175,7 @@ pub fn CodeView() -> Element {
                         } else {
                             div { class: "path", "{sf.path}" }
                         }
+                        div { class: "lines", style: source::lines_style(&shaded),
                         for (i, line) in sf.content.lines().enumerate() {
                             {
                                 let ln = i + 1;
@@ -190,6 +191,7 @@ pub fn CodeView() -> Element {
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }

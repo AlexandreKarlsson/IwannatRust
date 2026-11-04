@@ -15,6 +15,8 @@ pub struct Shaded {
     pub lines: Vec<Line>,
     /// Per line: colour of the innermost item, colour of the deepest block.
     pub colors: Vec<(Option<&'static str>, Option<&'static str>)>,
+    /// Columns of the longest line (a tab counts 4): the panes size the code to fit it.
+    pub cols: usize,
 }
 
 /// Content address and length of the file it was computed from (a reloaded project has new contents), result.
@@ -45,7 +47,8 @@ pub fn shaded(p: &Project, file: FileId) -> Rc<Shaded> {
             *slot = (Some(color), block);
         }
     }
-    let s = Rc::new(Shaded { lines, colors });
+    let cols = sf.content.lines().map(|l| l.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum::<usize>()).max().unwrap_or(0).max(20);
+    let s = Rc::new(Shaded { lines, colors, cols });
     CACHE.with(|c| c.borrow_mut().insert(file, (key.0, key.1, s.clone())));
     s
 }
@@ -77,6 +80,12 @@ fn runs(line: &Line, mark: Option<(usize, usize)>) -> Vec<(&'static str, String,
         col += n;
     }
     out
+}
+
+/// Style of the box holding a pane's lines: the longest line's width, which the CSS turns
+/// into the font size that fits it in the pane (see `.source .lines` in `theme.rs`).
+pub fn lines_style(sh: &Shaded) -> String {
+    format!("--cols: {}", sh.cols)
 }
 
 /// Inside of a source line: number, gutter colours, coloured code.

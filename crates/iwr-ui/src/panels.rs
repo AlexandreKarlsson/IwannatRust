@@ -351,6 +351,7 @@ pub fn Details() -> Element {
                         let path = sf.path.clone();
                         rsx! {
                             div { class: "path", "{path}" }
+                            div { class: "lines", style: crate::source::lines_style(&shaded),
                             for (i, line) in sf.content.lines().enumerate() {
                                 {
                                     let ln = i + 1;
@@ -364,6 +365,7 @@ pub fn Details() -> Element {
                                         }
                                     }
                                 }
+                            }
                             }
                         }
                     }

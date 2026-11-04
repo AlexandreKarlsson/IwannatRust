@@ -27,6 +27,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   directory (`~/.cache/codecast`, `~/Library/Caches/codecast`, `%LOCALAPPDATA%\codecast`); an
   existing `~/.cache/iwr` is moved there. `CODECAST_KOKORO` / `CODECAST_TRANSLATE` replace the
   `IWR_…` variables, which are still read.
+- Source panes (Code view, details panel) size the code to their width: the longest line of the
+  file fills the pane (10 to 20 px). Below 10 px the size stops and long lines wrap instead.
+- A codecast's panel focus is gentler: the focused panel grows less, the others keep more room.
 - `+ zoom` fits the screen instead of blowing it up. In the Code view each pane zooms in place onto
   its own highlight (the text reflows, the source stays whole on screen, lit lines fit the pane's
   width, the sidebar narrows); a graph's highlight is framed by the camera (legend and details

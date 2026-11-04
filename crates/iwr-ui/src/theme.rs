@@ -361,18 +361,16 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .main .sidebar, .main .details, .main .side { transition: width .45s ease; }
 .main .blocks-pane.half { transition: flex-basis .45s ease; }
 .ftree .frow, .sidebar .item { transition: font-size .3s, padding .3s, background .3s, box-shadow .3s; }
-.main.focus-files .sidebar, .main.focus-items .sidebar { width:max(30vw, 300px) !important; }
+.main.focus-files .sidebar, .main.focus-items .sidebar { width:max(22vw, 260px) !important; }
 .main.focus-files .ftree .frow { font-size:16px; padding:4px 8px; }
 .main.focus-files .ftree .fic { font-size:15px; width:36px; }
 .main.focus-files .ftree .fcount { font-size:12px; }
 .main.focus-items .sidebar .item { font-size:15px; padding:4px 8px; }
 .main.focus-view .sidebar, .main.focus-source .sidebar { width:150px !important; }
-.main.focus-view .details, .main.focus-view .side { width:clamp(260px, 24vw, 460px) !important; }
-.main.focus-view .blocks-pane.half { flex-basis:72% !important; }
-.main.focus-source .details, .main.focus-source .side { width:max(55vw, 420px) !important; }
-.main.focus-source .details .source { font-size:1.12em; }
-.main.focus-source .blocks-pane.half { flex-basis:38% !important; }
-.main.focus-source .source-pane { font-size:1.08em; }
+.main.focus-view .details, .main.focus-view .side { width:clamp(300px, 33vw, 600px) !important; }
+.main.focus-view .blocks-pane.half { flex-basis:62% !important; }
+.main.focus-source .details, .main.focus-source .side { width:max(50vw, 400px) !important; }
+.main.focus-source .blocks-pane.half { flex-basis:44% !important; }
 /* first start: the welcome dialog and the tutorial */
 .tut-backdrop { position:fixed; inset:0; z-index:80; }
 .tut-backdrop.dim { background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
@@ -519,7 +517,12 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .details h4 { margin:8px 0 2px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
 .source { flex:1; overflow:auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background:var(--panel2); }
 .source .path, .source-pane .path { position:sticky; top:0; background:var(--panel); padding:4px 10px; color:var(--muted); border-bottom:1px solid var(--border); font-size:11px; z-index:1; }
-.source .line, .source-pane .line { display:flex; white-space:pre; }
+.source, .source-pane { container-type:inline-size; }
+.source .line, .source-pane .line { display:flex; white-space:pre-wrap; tab-size:4; }
+/* the code's size follows the pane: the longest line (`--cols`, see `source::lines_style`) fills
+   its width, after the 58 px of line number and gutter; a monospace char is ~0.61 em wide. Under
+   10 px the size stops shrinking and the long lines wrap instead (fewer chars per line). */
+.source .lines .code, .source-pane .lines .code { font-size:clamp(10px, calc((100cqw - 64px) / (var(--cols, 80) * 0.61)), 20px); overflow-wrap:anywhere; min-width:0; }
 .source .line .ln, .source-pane .line .ln { width:44px; text-align:right; padding-right:8px; color:var(--muted); opacity:.6; user-select:none; flex:none; }
 .source .line.hl, .source-pane .line.hl { background:var(--hl-line); box-shadow: inset 3px 0 0 var(--hi); }
 .source .line.hl .ln, .source-pane .line.hl .ln { color:var(--hi); opacity:1; }
