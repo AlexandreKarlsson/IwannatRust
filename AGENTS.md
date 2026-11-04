@@ -11,5 +11,7 @@
   (summary of `docs/commenting.md`, with how to check the result). It ships to users as a Claude
   Code plugin (`.claude-plugin/`); keep it in step with `docs/commenting.md` and generic (no
   `scripts/`, no repo-relative links).
+- Interface text is translated (English, Japanese): never write an English UI string in Rust, add a
+  key to `crates/iwr-ui/i18n/` or `crates/iwr-core/i18n/` in every language (`docs/i18n.md`).
 - Build with `scripts/iwr build`; `scripts/iwr` lists everything else. Tests: `scripts/iwr test`.
 - Core must stay UI-free and compile with `--no-default-features` (it runs in the browser as wasm).

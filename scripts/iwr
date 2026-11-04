@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # IwannatRust launcher. No argument: menu of everything you can do. `scripts/iwr <cmd> [args]` runs one.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# through a symlink on PATH too (~/.local/bin/iwr): the repository is where the real file is
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CALLER="$PWD"
 cd "$ROOT"
 BIN="$ROOT/target/release/codecast"
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -9,7 +11,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 have_bin() { [ -x "$BIN" ]; }
 need_bin() { have_bin || { echo "iwr not built yet → scripts/iwr build" >&2; exit 1; }; }
 # Project path for a command: a path, or `self` (this repository, the default).
-proj() { case "${1:-self}" in self|repo|iwr) echo "$ROOT" ;; *) echo "$1" ;; esac; }
+# A relative path is taken from where iwr was called, not from the repository.
+abs() { case "$1" in /*) echo "$1" ;; *) echo "$CALLER/$1" ;; esac; }
+proj() { case "${1:-self}" in self|repo|iwr) echo "$ROOT" ;; *) abs "$1" ;; esac; }
 
 commands() {
 cat <<'MENU'
@@ -25,6 +29,7 @@ cat <<'MENU'
   🎤  voice  [P] [args]     Record a project's codecast/ with Kokoro TTS (Opus + cue times per part)
   🔍  summary [P] Text dump: modules, items, calls, block trees, views, guide steps
   🧪  test        Run tests and clippy
+  🎬  video  [P] [args]     Film each part of <P>/codecast/ as an MP4 (codecast video: records what --voice lacks, Docker if no Chromium)
   🖼️  shot  [P]   Headless screenshot of the UI (needs google-chrome)
   🧹  clean       Remove build outputs
 MENU
@@ -75,13 +80,18 @@ case "$cmd" in
   guide)   need_bin; exec "$BIN" guide "$(proj "${1:-}")" "${@:2}" ;;
   speak)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr speak SCRIPT" >&2; exit 1; }; exec "$BIN" speak "$1" ;;
   voice)   need_bin; exec "$BIN" voice "$(proj "${1:-}")/codecast" "${@:2}" ;;
-  check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$1" --path "$(proj "${2:-}")" ;;
+  check)   need_bin; [ -n "${1:-}" ] || { echo "usage: scripts/iwr check SCRIPT [PROJECT]" >&2; exit 1; }; exec "$BIN" check "$(abs "$1")" --path "$(proj "${2:-}")" ;;
   summary) need_bin; exec "$BIN" summary "$(proj "${1:-}")" ;;
   test)
     cargo test -p iwr-core
+    cargo test -p iwr-i18n-gen
     cargo clippy --workspace --exclude iwr-ui -- -D warnings
     cargo check -p iwr-ui --target wasm32-unknown-unknown
     echo "✔ tests + clippy + wasm check" ;;
+  video)
+    # codecast video records what --voice is missing, then films here or in Docker by itself
+    need_bin; P="$(proj "${1:-}")"; shift || true
+    exec "$BIN" video "$P/codecast" --path "$P" "$@" ;;
   shot)
     need_bin; P="$(proj "${1:-}")"; OUT="${2:-iwr-shot.png}"
     "$BIN" serve "$P" --port 4399 --no-open >/dev/null 2>&1 & pid=$!

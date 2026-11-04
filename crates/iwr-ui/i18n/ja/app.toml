@@ -1,0 +1,9 @@
+# The app shell (`main.rs`): load status, empty diagram and chart views.
+
+loading = "読み込み中…"
+ready = "準備完了"
+reloaded = "再読み込みしました"
+load_failed = "読み込みに失敗しました：{error}"
+server_returned = "サーバーがエラーを返しました（{status}）"
+no_diagram = "ここには図がありません。コードキャストでは ```mermaid ブロックと `@ diagram` で図を描きます。"
+no_chart = "ここにはチャートがありません。コードキャストでは ```chart ブロックと `@ chart` でチャートを描きます。"

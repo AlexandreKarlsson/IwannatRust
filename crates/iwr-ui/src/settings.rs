@@ -1,6 +1,7 @@
 //! Settings page: theme, analysis view toggles, code view, codecast voice and tour,
 //! layout, keyboard reference. Everything here is remembered in `localStorage`.
 
+use crate::i18n::t;
 use crate::icons::Icon;
 use crate::player::Voice;
 use crate::theme::THEMES;
@@ -55,6 +56,9 @@ pub struct Saved {
     pub tts_voice: String,
     #[serde(default)]
     pub tts_voice2: String,
+    /// language of the subtitle under the caption, `""` = none
+    #[serde(default)]
+    pub sub_lang: String,
 }
 
 async fn fetch_config(url: &str) -> Option<Config> {
@@ -97,6 +101,7 @@ impl State {
             rec_voice: self.rec_voice.read().clone(),
             tts_voice: self.tts_voice.read().clone(),
             tts_voice2: self.tts_voice2.read().clone(),
+            sub_lang: self.sub_lang.read().clone(),
         };
         if let Ok(json) = serde_json::to_string(&s) {
             document::eval(&format!("localStorage.setItem('iwr-settings', {});", serde_json::to_string(&json).unwrap_or_default()));
@@ -124,6 +129,10 @@ impl State {
         self.rec_voice.set(s.rec_voice);
         self.tts_voice.set(s.tts_voice);
         self.tts_voice2.set(s.tts_voice2);
+        if s.sub_lang.is_empty() || iwr_core::i18n::lang(&s.sub_lang).is_some() {
+            self.sub_lang.set(s.sub_lang);
+            self.build_subtitles();
+        }
     }
 
     /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `codecast serve`, `codecast.json`
@@ -235,7 +244,7 @@ pub fn KindChips(compact: bool) -> Element {
     let hidden = state.hidden_kinds.read().clone();
     let any_hidden = !hidden.is_empty();
     rsx! {
-        span { class: if compact { "kinds compact" } else { "kinds" }, title: "which kinds of items the Structure view shows",
+        span { class: if compact { "kinds compact" } else { "kinds" }, title: t::settings::kinds_tip(),
             for k in KINDS.iter().copied() {
                 label { class: if hidden.contains(&k) { "kind off" } else { "kind" },
                     input { r#type: "checkbox", checked: !hidden.contains(&k), onchange: move |_| state.toggle_kind(k) }
@@ -243,9 +252,9 @@ pub fn KindChips(compact: bool) -> Element {
                 }
             }
             if any_hidden {
-                button { class: "small", title: "show every kind", onclick: move |_| { state.hidden_kinds.set(Default::default()); state.save_settings(); }, "all" }
+                button { class: "small", title: t::settings::kinds_all_tip(), onclick: move |_| { state.hidden_kinds.set(Default::default()); state.save_settings(); }, {t::settings::kinds_all()} }
             }
-            button { class: "small", title: "functions and methods only", onclick: move |_| { state.hidden_kinds.set(KINDS.iter().copied().filter(|k| !matches!(k, ItemKind::Function | ItemKind::Method)).collect()); state.save_settings(); }, "fns only" }
+            button { class: "small", title: t::settings::kinds_fns_tip(), onclick: move |_| { state.hidden_kinds.set(KINDS.iter().copied().filter(|k| !matches!(k, ItemKind::Function | ItemKind::Method)).collect()); state.save_settings(); }, {t::settings::kinds_fns()} }
         }
     }
 }
@@ -284,19 +293,19 @@ pub fn ThemeGrid(value: String, #[props(default = false)] locked: bool, #[props(
     let f = *filter.read();
     rsx! {
         div { class: "chips",
-            for (i, l) in [(0u8, "All"), (1, "Dark"), (2, "Light")] {
+            for (i, l) in [(0u8, t::settings::themes_all()), (1, t::settings::themes_dark()), (2, t::settings::themes_light())] {
                 button { class: if f == i { "chip-btn sel" } else { "chip-btn" }, onclick: move |_| filter.set(i), "{l}" }
             }
-            span { class: "count", "{THEMES.len()} themes" }
+            span { class: "count", {t::settings::themes_count(THEMES.len())} }
         }
         div { class: if locked { "themes locked" } else { "themes" },
             if allow_none {
                 div { class: if value.is_empty() { "tcard none sel" } else { "tcard none" }, onclick: move |_| if !locked { onpick.call(String::new()) },
-                    div { class: "mock", div { class: "none-text", "viewer's choice" } }
-                    div { class: "name", span { "None" } }
+                    div { class: "mock", div { class: "none-text", {t::settings::themes_viewers_choice()} } }
+                    div { class: "name", span { {t::settings::themes_none()} } }
                 }
             }
-            for (id, label, dark) in THEMES.iter().copied().filter(|t| f == 0 || (f == 1) == t.2) {
+            for (id, label, dark) in THEMES.iter().copied().filter(|t| f == 0 || (f == 1) == t.2).map(|(id, label, dark)| (id, theme_name(id, label), dark)) {
                 div { class: format!("tcard theme-{}{}", id, if value == id { " sel" } else { "" }), title: "{label}", onclick: move |_| if !locked { onpick.call(id.to_string()) },
                     div { class: "mock",
                         div { class: "mbar", i { class: "dot" } i { class: "pill" } i { class: "pill short" } }
@@ -319,35 +328,35 @@ pub fn ThemeGrid(value: String, #[props(default = false)] locked: bool, #[props(
 
 /// A card per bundled font, drawn in that font; `""` = the theme's own font.
 #[component]
-pub fn FontGrid(value: String, sample: String, #[props(default = false)] locked: bool, #[props(default = "the theme's")] none_label: &'static str, onpick: EventHandler<String>) -> Element {
+pub fn FontGrid(value: String, sample: String, #[props(default = false)] locked: bool, #[props(default = false)] viewer: bool, onpick: EventHandler<String>) -> Element {
     use iwr_core::config::{FontKind, FONTS};
     let mut kind = use_signal(|| None::<FontKind>);
     let k = *kind.read();
     let custom = !value.is_empty() && iwr_core::config::font(&value).is_none();
     rsx! {
         div { class: "chips",
-            button { class: if k.is_none() { "chip-btn sel" } else { "chip-btn" }, onclick: move |_| kind.set(None), "All" }
+            button { class: if k.is_none() { "chip-btn sel" } else { "chip-btn" }, onclick: move |_| kind.set(None), {t::settings::fonts_all()} }
             for fk in [FontKind::Display, FontKind::Script, FontKind::Text] {
-                button { class: if k == Some(fk) { "chip-btn sel" } else { "chip-btn" }, onclick: move |_| kind.set(Some(fk)), "{fk.label()}" }
+                button { class: if k == Some(fk) { "chip-btn sel" } else { "chip-btn" }, onclick: move |_| kind.set(Some(fk)), {font_kind(fk)} }
             }
-            span { class: "count", "{FONTS.len()} fonts" }
+            span { class: "count", {t::settings::fonts_count(FONTS.len())} }
         }
         div { class: if locked { "fonts locked" } else { "fonts" },
             div { class: if value.is_empty() { "fcard sel" } else { "fcard" }, onclick: move |_| if !locked { onpick.call(String::new()) },
                 div { class: "aa", "Aa" }
-                div { class: "fname", "Default" }
-                div { class: "fsample", "{none_label} font" }
+                div { class: "fname", {t::settings::fonts_default()} }
+                div { class: "fsample", if viewer { {t::settings::fonts_viewer_font()} } else { {t::settings::fonts_theme_font()} } }
             }
             if custom {
                 div { class: "fcard sel",
                     div { class: "aa", "Aa" }
-                    div { class: "fname", "Custom" }
+                    div { class: "fname", {t::settings::fonts_custom()} }
                     div { class: "fsample", "{value}" }
                 }
             }
             for f in FONTS.iter().filter(|f| k.is_none() || Some(f.kind) == k) {
                 { let id = f.id; let fam = crate::fonts::family(id); rsx! {
-                    div { class: if value == id { "fcard sel" } else { "fcard" }, style: "font-family:\"{fam}\", system-ui", title: "{f.name} · {f.kind.label()}", onclick: move |_| if !locked { onpick.call(id.to_string()) },
+                    div { class: if value == id { "fcard sel" } else { "fcard" }, style: "font-family:\"{fam}\", system-ui", title: "{f.name} · {font_kind(f.kind)}", onclick: move |_| if !locked { onpick.call(id.to_string()) },
                         div { class: "aa", "Aa" }
                         div { class: "fname", "{f.name}" }
                         div { class: "fsample", "{sample}" }
@@ -358,16 +367,50 @@ pub fn FontGrid(value: String, sample: String, #[props(default = false)] locked:
     }
 }
 
-/// Sections of the page: (anchor, icon, title).
-const SECTIONS: [(&str, &str, &str); 7] = [
-    ("look", "palette", "Appearance"),
-    ("cast", "codecast", "Codecast"),
-    ("design", "tour", "Codecast design"),
-    ("views", "calls", "Analysis views"),
-    ("code", "code", "Code view"),
-    ("layout", "panel", "Layout"),
-    ("keys", "info", "Keyboard"),
+/// Sections of the page: (anchor, icon); the title comes from [`section_title`].
+const SECTIONS: [(&str, &str); 7] = [
+    ("look", "palette"),
+    ("cast", "codecast"),
+    ("design", "tour"),
+    ("views", "calls"),
+    ("code", "code"),
+    ("layout", "panel"),
+    ("keys", "info"),
 ];
+
+/// The title of a section of the page, in the interface language.
+fn section_title(id: &str) -> &'static str {
+    match id {
+        "look" => t::settings::section_look(),
+        "cast" => t::settings::section_cast(),
+        "design" => t::settings::section_design(),
+        "views" => t::settings::section_views(),
+        "code" => t::settings::section_code(),
+        "layout" => t::settings::section_layout(),
+        _ => t::settings::section_keys(),
+    }
+}
+
+/// A theme's display name in the interface language; proper names (Nord, Dracula…) stay as
+/// `label`, the core's English name.
+pub fn theme_name(id: &str, label: &'static str) -> &'static str {
+    match id {
+        "dark" => t::settings::theme_dark(),
+        "light" => t::settings::theme_light(),
+        "contrast" => t::settings::theme_contrast(),
+        _ => label,
+    }
+}
+
+/// A kind of bundled font (`FontKind::label` is the core's English name).
+fn font_kind(k: iwr_core::config::FontKind) -> &'static str {
+    use iwr_core::config::FontKind;
+    match k {
+        FontKind::Display => t::settings::font_kind_display(),
+        FontKind::Script => t::settings::font_kind_script(),
+        FontKind::Text => t::settings::font_kind_text(),
+    }
+}
 
 #[component]
 fn Head(icon: &'static str, title: &'static str, sub: String) -> Element {
@@ -410,8 +453,8 @@ pub fn SettingsPage() -> Element {
     let (own1, own2) = (state.tts_voice.read().clone(), state.tts_voice2.read().clone());
     let cfg = state.config.read().clone();
     let auto = |c: &Option<String>| match c {
-        Some(n) => format!("the codecast's ({n})"),
-        None => "automatic".to_string(),
+        Some(n) => t::settings::cast_auto_codecast(n),
+        None => t::settings::cast_automatic().to_string(),
     };
     let (auto1, auto2) = (auto(&cfg.tts_voice), auto(&cfg.tts_voice2));
     // recorded voices of the codecast, in this language
@@ -436,7 +479,7 @@ pub fn SettingsPage() -> Element {
                await new Promise(() => {});"#,
         );
         while let Ok(id) = ev.recv::<String>().await {
-            if let Some((s, _, _)) = SECTIONS.iter().find(|(s, _, _)| *s == id) {
+            if let Some((s, _)) = SECTIONS.iter().find(|(s, _)| *s == id) {
                 active.set(s);
             }
         }
@@ -451,59 +494,62 @@ pub fn SettingsPage() -> Element {
         div { class: "settings",
             div { class: "shell",
                 nav { class: "snav",
-                    div { class: "sbrand", crate::icons::Logo { size: 24 } span { "Settings" } }
-                    for (id, icon, label) in SECTIONS {
+                    div { class: "sbrand", crate::icons::Logo { size: 24 } span { {t::settings::title()} } }
+                    for (id, icon) in SECTIONS {
                         button { class: if *active.read() == id { "snav-item sel" } else { "snav-item" },
                             onclick: move |_| {
                                 active.set(id);
                                 document::eval(&format!("document.getElementById('s-{id}')?.scrollIntoView({{behavior:'smooth', block:'start'}});"));
                             },
                             Icon { name: icon, size: 15 }
-                            span { "{label}" }
+                            span { {section_title(id)} }
                         }
                     }
                     div { class: "spacer" }
-                    button { class: "snav-back", title: "Back to the code (Esc)", onclick: move |_| state.close_pages(), Icon { name: "back", size: 15 } span { "Back" } }
+                    button { class: "snav-back", title: t::settings::back_tip(), onclick: move |_| state.close_pages(), Icon { name: "back", size: 15 } span { {t::settings::back()} } }
                 }
                 div { class: "scontent",
                     div { class: "shero",
-                        h2 { "Make it yours" }
-                        p { "Colours, fonts, voice and views. Everything is remembered in this browser." }
+                        h2 { {t::settings::hero_title()} }
+                        p { {t::settings::hero_text()} }
                         if locked {
-                            div { class: "lockline", "🔒 This codecast sets its own theme, fonts, language and voice." }
+                            div { class: "lockline", {t::settings::locked()} }
                         }
                     }
 
                     section { id: "s-look", class: "card",
-                        Head { icon: "palette", title: "Appearance", sub: "The colours of the whole interface, graphs included, and the fonts.".to_string() }
-                        h4 { "Theme" }
+                        Head { icon: "palette", title: section_title("look"), sub: t::settings::look_sub().to_string() }
+                        Row { title: t::settings::ui_lang().to_string(), desc: t::settings::ui_lang_desc().to_string(),
+                            crate::i18n::LangPicker {}
+                        }
+                        h4 { {t::settings::look_theme()} }
                         ThemeGrid { value: theme.clone(), locked, onpick: move |id: String| state.set_theme(&id) }
-                        h4 { "Fonts" }
+                        h4 { {t::settings::look_fonts()} }
                         div { class: "seg",
-                            button { class: if role == 0 { "sel" } else { "" }, onclick: move |_| font_role.set(0), "Box titles" }
-                            button { class: if role == 1 { "sel" } else { "" }, onclick: move |_| font_role.set(1), "Interface text" }
+                            button { class: if role == 0 { "sel" } else { "" }, onclick: move |_| font_role.set(0), {t::settings::look_box_titles()} }
+                            button { class: if role == 1 { "sel" } else { "" }, onclick: move |_| font_role.set(1), {t::settings::look_interface_text()} }
                         }
                         if role == 0 {
-                            FontGrid { value: font_title.clone(), sample: "Parse the task list".to_string(), locked, onpick: move |v: String| { state.font_title.set(v); state.save_settings(); } }
+                            FontGrid { value: font_title.clone(), sample: "Parse the task list".to_string(), locked, onpick: move |v: String| { state.font_title.set(v); state.save_settings(); } } // i18n: sample drawn in Latin-only fonts
                         } else {
-                            FontGrid { value: font_text.clone(), sample: "The scheduler picks the heaviest task".to_string(), locked, onpick: move |v: String| { state.font_text.set(v); state.save_settings(); } }
+                            FontGrid { value: font_text.clone(), sample: "The scheduler picks the heaviest task".to_string(), locked, onpick: move |v: String| { state.font_text.set(v); state.save_settings(); } } // i18n: sample drawn in Latin-only fonts
                         }
                     }
 
                     section { id: "s-cast", class: "card",
-                        Head { icon: "codecast", title: "Codecast", sub: "How the spoken tour plays.".to_string() }
-                        Row { title: "Voice", desc: if locked { "set by this codecast".to_string() } else { "a recording, when the codecast ships one, is picked automatically".to_string() },
+                        Head { icon: "codecast", title: section_title("cast"), sub: t::settings::cast_sub().to_string() }
+                        Row { title: t::settings::cast_voice(), desc: if locked { t::settings::cast_voice_locked().to_string() } else { t::settings::cast_voice_desc().to_string() },
                             select { class: "theme-select", disabled: locked, value: if voice == Voice::Read { "read" } else { "tts" },
                                 onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(if e.value() == "read" { Voice::Read } else { Voice::Tts }); state.save_settings(); },
-                                option { value: "tts", "🔊 spoken by the browser" }
-                                option { value: "read", "📖 read silently, advance on a timer" }
+                                option { value: "tts", {t::settings::cast_voice_tts()} }
+                                option { value: "read", {t::settings::cast_voice_read()} }
                             }
                         }
                         for second in [false, true] {
                             { let (title, desc, own, auto) = if second {
-                                  ("Second browser voice", if has_second { "says the sp: lines and asks the questions you click" } else { "asks the questions you click (and says the sp: lines, in codecasts that have them)" }, own2.clone(), auto2.clone())
+                                  (t::settings::cast_second_voice(), if has_second { t::settings::cast_second_voice_desc_sp() } else { t::settings::cast_second_voice_desc() }, own2.clone(), auto2.clone())
                               } else {
-                                  ("Browser voice", "speaks the codecast when there is no recording", own1.clone(), auto1.clone())
+                                  (t::settings::cast_browser_voice(), t::settings::cast_browser_voice_desc(), own1.clone(), auto1.clone())
                               };
                               let list = tts_list.read().clone();
                               let lang = lang.clone();
@@ -521,22 +567,22 @@ pub fn SettingsPage() -> Element {
                                             option { value: "{name}", selected: name == own, "{name} ({l})" }
                                         }
                                     }
-                                    button { class: "small", title: "hear it", onclick: move |_| crate::player::speak_sample(&lang, &state.tts_names(), *state.tts_rate.peek(), second), "▶" }
+                                    button { class: "small", title: t::settings::cast_hear(), onclick: move |_| crate::player::speak_sample(&lang, &state.tts_names(), *state.tts_rate.peek(), second), "▶" }
                                 }
                             } }
                         }
                         if recorded.len() > 1 || recorded.first().is_some_and(|(v, _)| !v.is_empty()) {
-                            Row { title: "Recorded voice", desc: "the recording that plays; a pair (A & B) is a codecast with two voices".to_string(),
+                            Row { title: t::settings::cast_rec_voice(), desc: t::settings::cast_rec_voice_desc().to_string(),
                                 select { class: "theme-select", disabled: locked, value: "{rec_now}",
                                     onchange: move |e| state.set_rec_voice(&e.value()),
                                     for (id, n) in recorded.iter().cloned() {
                                         option { value: "{id}", selected: id == rec_now,
-                                            if id.is_empty() { "Original ({n} part{plural(n)})" } else { "{iwr_core::voice::voice_label(&id).0} ({n} part{plural(n)})" } }
+                                            if id.is_empty() { {t::settings::cast_rec_original(n)} } else { {t::settings::cast_rec_named(n, iwr_core::voice::voice_label(&id).0)} } }
                                     }
                                 }
                             }
                         }
-                        Row { title: "Language", desc: "translated when played, offline (codecast serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (codecast translate --pieces, see the docs)".to_string(),
+                        Row { title: t::settings::cast_language(), desc: t::settings::cast_language_desc().to_string(),
                             select { class: "theme-select", disabled: locked, value: "{lang}",
                                 onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                                 for l in iwr_core::i18n::LANGS {
@@ -544,41 +590,45 @@ pub fn SettingsPage() -> Element {
                                 }
                             }
                         }
-                        Row { title: "Speech rate",
+                        Row { title: t::settings::cast_subtitles(), desc: t::settings::cast_subtitles_desc().to_string(),
+                            crate::subtitles::SubPicker { full: true }
+                        }
+                        crate::subtitles::SubHelp {}
+                        Row { title: t::settings::cast_speech_rate(),
                             input { r#type: "range", min: "0.6", max: "1.6", step: "0.1", value: "{rate}", oninput: move |e| { if let Ok(v) = e.value().parse::<f64>() { state.tts_rate.set(v); state.save_settings(); } } }
                             span { class: "val", "{rate:.1}×" }
                         }
-                        Row { title: "Reading time per cue", desc: "silent mode only".to_string(),
+                        Row { title: t::settings::cast_read_time(), desc: t::settings::cast_read_time_desc().to_string(),
                             input { r#type: "range", min: "2", max: "12", step: "1", value: "{delay}", oninput: move |e| { if let Ok(v) = e.value().parse::<f64>() { state.read_delay.set(v); state.save_settings(); } } }
-                            span { class: "val", "{delay:.0} s" }
+                            span { class: "val", {t::settings::cast_seconds(format!("{delay:.0}"))} }
                         }
-                        Row { title: "Full tour", desc: "when a part ends, continue with the next one".to_string(),
+                        Row { title: t::settings::cast_full_tour(), desc: t::settings::cast_full_tour_desc().to_string(),
                             Toggle { checked: tour, onchange: move |v| { state.tour.set(v); state.save_settings(); } }
                         }
-                        Row { title: "Show how code is spoken", desc: "\"crate::parser::parse_all\" → \"parse all\" in parentheses; hover a dotted token to hear it. Fix a word with `pronounce: written = spoken`.".to_string(),
+                        Row { title: t::settings::cast_spoken(), desc: t::settings::cast_spoken_desc().to_string(),
                             Toggle { checked: speech_parens, onchange: move |v| { state.speech_parens.set(v); state.save_settings(); } }
                         }
-                        Row { title: "Glossary questions", desc: format!("offer \"what is a…?\" when a cue says a Rust term ({n_terms} terms, each once); script questions always show"),
+                        Row { title: t::settings::cast_glossary(), desc: t::settings::cast_glossary_desc(n_terms),
                             if n_asked > 0 {
-                                button { class: "small", onclick: move |_| state.asked.set(vec![]), "forget the {n_asked} answered" }
+                                button { class: "small", onclick: move |_| state.asked.set(vec![]), {t::settings::cast_forget(n_asked)} }
                             }
                             Toggle { checked: glossary_on, onchange: move |v| { state.glossary_on.set(v); state.save_settings(); } }
                         }
                         div { class: "cta",
-                            button { class: "big", onclick: move |_| { state.close_pages(); state.start_tour(); }, Icon { name: "tour", size: 16 } "Start the full tour" }
-                            span { class: "sd", if has_script { "the loaded codecast, from its first part" } else { "no script loaded: the built-in tour of the project" } }
+                            button { class: "big", onclick: move |_| { state.close_pages(); state.start_tour(); }, Icon { name: "tour", size: 16 } {t::settings::cast_start_tour()} }
+                            span { class: "sd", if has_script { {t::settings::cast_start_tour_loaded()} } else { {t::settings::cast_start_tour_builtin()} } }
                         }
                     }
 
                     crate::design::DesignEditor {}
 
                     section { id: "s-views", class: "card",
-                        Head { icon: "calls", title: "Analysis views", sub: "What the graph views include. Off by default to keep the diagrams small.".to_string() }
-                        Row { title: "External crates and calls", Toggle { checked: flags.external, onchange: move |v| set_flag(|f, v| f.external = v, v) } }
-                        Row { title: "Macro invocations", Toggle { checked: flags.macros, onchange: move |v| set_flag(|f, v| f.macros = v, v) } }
-                        Row { title: "Constructors", Toggle { checked: flags.constructs, onchange: move |v| set_flag(|f, v| f.constructs = v, v) } }
-                        Row { title: "Tests", Toggle { checked: flags.tests, onchange: move |v| set_flag(|f, v| f.tests = v, v) } }
-                        Row { title: "Call tree depth", desc: "levels opened from the root function".to_string(),
+                        Head { icon: "calls", title: section_title("views"), sub: t::settings::views_sub().to_string() }
+                        Row { title: t::settings::views_external(), Toggle { checked: flags.external, onchange: move |v| set_flag(|f, v| f.external = v, v) } }
+                        Row { title: t::settings::views_macros(), Toggle { checked: flags.macros, onchange: move |v| set_flag(|f, v| f.macros = v, v) } }
+                        Row { title: t::settings::views_constructors(), Toggle { checked: flags.constructs, onchange: move |v| set_flag(|f, v| f.constructs = v, v) } }
+                        Row { title: t::settings::views_tests(), Toggle { checked: flags.tests, onchange: move |v| set_flag(|f, v| f.tests = v, v) } }
+                        Row { title: t::settings::views_depth(), desc: t::settings::views_depth_desc().to_string(),
                             div { class: "stepper",
                                 button { onclick: move |_| { let d = *state.depth.read(); state.depth.set(d.saturating_sub(1).max(1)); state.save_settings(); }, "−" }
                                 span { "{depth}" }
@@ -586,28 +636,28 @@ pub fn SettingsPage() -> Element {
                             }
                         }
                         div { class: "srow block",
-                            div { class: "sl", div { class: "st", "Structure shows" } div { class: "sd", "untick a kind to hide it; hiding impl puts the methods in their module" } }
+                            div { class: "sl", div { class: "st", {t::settings::views_structure()} } div { class: "sd", {t::settings::views_structure_desc()} } }
                             KindChips { compact: false }
                         }
                     }
 
                     section { id: "s-code", class: "card",
-                        Head { icon: "code", title: "Code view", sub: "The blocks of a function, and its source.".to_string() }
-                        Row { title: "Show the source next to the blocks", desc: "hover either side to highlight both".to_string(),
+                        Head { icon: "code", title: section_title("code"), sub: t::settings::code_sub().to_string() }
+                        Row { title: t::settings::code_show_source(), desc: t::settings::code_show_source_desc().to_string(),
                             Toggle { checked: show_source, onchange: move |v| { state.show_source.set(v); state.save_settings(); } }
                         }
                     }
 
                     section { id: "s-layout", class: "card",
-                        Head { icon: "panel", title: "Layout", sub: "Panel edges are draggable; sizes are remembered.".to_string() }
-                        Row { title: "Files / items panel", Toggle { checked: sidebar_open, onchange: move |v| { state.sidebar_open.set(v); state.save_layout(); } } }
-                        Row { title: "Panel sizes", button { class: "small", onclick: move |_| state.reset_layout(), "reset" } }
+                        Head { icon: "panel", title: section_title("layout"), sub: t::settings::layout_sub().to_string() }
+                        Row { title: t::settings::layout_sidebar(), Toggle { checked: sidebar_open, onchange: move |v| { state.sidebar_open.set(v); state.save_layout(); } } }
+                        Row { title: t::settings::layout_sizes(), button { class: "small", onclick: move |_| state.reset_layout(), {t::settings::layout_reset()} } }
                     }
 
                     section { id: "s-keys", class: "card",
-                        Head { icon: "info", title: "Keyboard", sub: "Shortcuts everywhere outside text fields.".to_string() }
+                        Head { icon: "info", title: section_title("keys"), sub: t::settings::keys_sub().to_string() }
                         div { class: "keys",
-                            for (k, what) in [("← →", "previous / next cue"), ("space", "play / pause"), ("g", "start / stop the codecast"), ("t", "start the full tour"), ("f", "fit the graph to the view"), (",", "open / close this page"), ("Esc", "close the player or this page")] {
+                            for (k, what) in [("← →", t::settings::keys_prev_next()), ("space", t::settings::keys_play_pause()), ("g", t::settings::keys_codecast()), ("t", t::settings::keys_tour()), ("f", t::settings::keys_fit()), (",", t::settings::keys_page()), ("Esc", t::settings::keys_close())] {
                                 div { class: "key",
                                     span { for part in k.split(' ') { span { class: "kbd", "{part}" } } }
                                     span { "{what}" }
@@ -619,9 +669,4 @@ pub fn SettingsPage() -> Element {
             }
         }
     }
-}
-
-/// `s` after a count other than one.
-fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
 }

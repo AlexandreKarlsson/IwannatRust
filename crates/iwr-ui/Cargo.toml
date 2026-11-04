@@ -12,3 +12,7 @@ serde_json = { workspace = true }
 dioxus = { version = "0.7", features = ["web"] }
 gloo-net = { version = "0.6", default-features = false, features = ["http", "json"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator", "Document", "Element", "Location", "UrlSearchParams"] }
+
+[build-dependencies]
+iwr-i18n-gen = { path = "../iwr-i18n-gen" }

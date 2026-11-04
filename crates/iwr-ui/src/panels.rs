@@ -1,5 +1,6 @@
 //! Top bar, sidebar (item tree), details/source panel, guide bar.
 
+use crate::i18n::{core_lang, t};
 use crate::icons::{self, IconButton};
 use crate::State;
 use dioxus::prelude::*;
@@ -24,24 +25,25 @@ pub fn TopBar() -> Element {
     let live = *state.live.read();
     let (to_record, recording, stale) = crate::generate::badge(&state);
     let tour_on = *state.tour.read() && has_guide && *state.playing.read();
+    let cl = core_lang();
     rsx! {
         div { class: "topbar",
-            IconButton { name: "panel", tip: "Files and items panel".to_string(), active: sidebar_open, onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); } }
+            IconButton { name: "panel", tip: t::panels::top_sidebar_tip().to_string(), active: sidebar_open, onclick: move |_| { let v = *state.sidebar_open.read(); state.sidebar_open.set(!v); state.save_layout(); } }
             div { class: "brand", icons::Logo { size: 24 } "IwannatRust" span { "{name}" } }
             div { class: "tabs",
-                IconButton { name: "code", tip: Mode::Code.description().to_string(), active: mode == Mode::Code && !page_open, text: "Code", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Code); state.views_open.set(false); } }
-                button { class: if views_open { "active" } else { "" }, title: "Show the analysis views", onclick: move |_| { let v = *state.views_open.read(); state.views_open.set(!v); },
-                    if views_open { "Views ▾" } else { "Views ▸" }
+                IconButton { name: "code", tip: Mode::Code.description_in(cl).to_string(), active: mode == Mode::Code && !page_open, text: Mode::Code.label_in(cl), onclick: move |_| { state.close_pages(); state.set_mode(Mode::Code); state.views_open.set(false); } }
+                button { class: if views_open { "active" } else { "" }, title: t::panels::top_views_tip(), onclick: move |_| { let v = *state.views_open.read(); state.views_open.set(!v); },
+                    if views_open { {t::panels::top_views_open()} } else { {t::panels::top_views_closed()} }
                 }
                 if views_open {
                     for m in Mode::GRAPHS {
-                        button { class: if m == mode && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{m.label()} — {m.description()}", "aria-label": "{m.label()}",
+                        button { class: if m == mode && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": t::panels::top_view_tip(m.label_in(cl), m.description_in(cl)), "aria-label": m.label_in(cl),
                             onclick: move |_| { state.close_pages(); state.set_mode(m) },
                             img { class: "ico", src: icons::uri(icons::for_mode(m)), width: "18", height: "18", alt: "", draggable: false }
                         }
                     }
                     if has_diagram {
-                        button { class: if mode == Mode::Diagram && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": "{Mode::Diagram.label()} — {Mode::Diagram.description()}", "aria-label": "{Mode::Diagram.label()}",
+                        button { class: if mode == Mode::Diagram && !page_open { "ibtn view active" } else { "ibtn view" }, "data-tip": t::panels::top_view_tip(Mode::Diagram.label_in(cl), Mode::Diagram.description_in(cl)), "aria-label": Mode::Diagram.label_in(cl),
                             onclick: move |_| { state.close_pages(); state.set_mode(Mode::Diagram) },
                             img { class: "ico", src: icons::uri("diagram"), width: "18", height: "18", alt: "", draggable: false }
                         }
@@ -49,19 +51,19 @@ pub fn TopBar() -> Element {
                 }
             }
             if mode == Mode::Code {
-                IconButton { name: "split", tip: "Show the source next to the blocks (hover either side to highlight both)".to_string(), active: show_source, onclick: move |_| { let v = *state.show_source.read(); state.show_source.set(!v); state.save_settings(); } }
+                IconButton { name: "split", tip: t::panels::top_split_tip().to_string(), active: show_source, onclick: move |_| { let v = *state.show_source.read(); state.show_source.set(!v); state.save_settings(); } }
             }
             div { class: "spacer" }
-            input { r#type: "text", placeholder: "search items…", value: "{search}", oninput: move |e| state.search.set(e.value()) }
+            input { r#type: "text", placeholder: t::panels::top_search(), value: "{search}", oninput: move |e| state.search.set(e.value()) }
             div { class: "sep" }
-            IconButton { name: "codecast", tip: if has_guide { "Stop the codecast (g)".to_string() } else { "Play the codecast (g): the loaded script, or the built-in tour. Load your own from the player bar.".to_string() }, active: has_guide, text: if has_guide { "stop".to_string() } else { "codecast".to_string() },
+            IconButton { name: "codecast", tip: if has_guide { t::panels::top_stop_tip().to_string() } else { t::panels::top_play_tip().to_string() }, active: has_guide, text: if has_guide { t::panels::top_stop().to_string() } else { t::panels::top_codecast().to_string() },
                 onclick: move |_| { if has_guide { state.stop_script() } else { state.start_codecast() } } }
-            IconButton { name: "tour", tip: "Full tour (t): play every part of the codecast in a row, from the welcome to the last function".to_string(), active: tour_on, onclick: move |_| { state.close_pages(); state.start_tour() } }
+            IconButton { name: "tour", tip: t::panels::top_tour_tip().to_string(), active: tour_on, onclick: move |_| { state.close_pages(); state.start_tour() } }
             if live {
-                button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { "Generating the voice… (open to follow it)".to_string() } else if stale > 0 { format!("Generate the voice: the text changed since {stale} recording(s) — regenerate or delete them") } else if to_record > 0 { format!("Generate the voice: {to_record} part(s) without an up-to-date recording") } else { "Generate the voice: record the codecast with Kokoro (voice, language, speed)".to_string() }, "aria-label": "Generate the voice",
+                button { class: if generate_open { "ibtn tip-left gen-btn active" } else { "ibtn tip-left gen-btn" }, "data-tip": if recording.is_some() { t::panels::top_gen_running().to_string() } else if stale > 0 { t::panels::top_gen_stale(stale) } else if to_record > 0 { t::panels::top_gen_todo(to_record) } else { t::panels::top_gen_idle().to_string() }, "aria-label": t::panels::top_gen_label(),
                     onclick: move |_| { state.close_pages(); state.generate_open.set(!generate_open); },
                     img { class: "ico", src: icons::uri("voice"), width: "16", height: "16", alt: "", draggable: false }
-                    span { "generate" }
+                    span { {t::panels::top_generate()} }
                     if let Some(pct) = recording {
                         span { class: "gen-ring", style: "--p:{pct}" }
                     } else if stale > 0 {
@@ -71,8 +73,9 @@ pub fn TopBar() -> Element {
                     }
                 }
             }
-            IconButton { name: "question", tip: "Help: the tutorial, a codecast about the app".to_string(), active: *state.welcome_open.read(), onclick: move |_| { state.close_pages(); state.welcome_open.set(true); } }
-            IconButton { name: "settings", tip: "Settings (,): theme, views, voice, layout".to_string(), active: settings_open, onclick: move |_| { state.close_pages(); state.settings_open.set(!settings_open); } }
+            crate::i18n::LangPicker { compact: true }
+            IconButton { name: "question", tip: t::panels::top_help_tip().to_string(), active: *state.welcome_open.read(), onclick: move |_| { state.close_pages(); state.welcome_open.set(true); } }
+            IconButton { name: "settings", tip: t::panels::top_settings_tip().to_string(), active: settings_open, onclick: move |_| { state.close_pages(); state.settings_open.set(!settings_open); } }
         }
     }
 }
@@ -98,7 +101,7 @@ pub fn Sidebar() -> Element {
     let _scope = *state.scope.read();
     let project = state.project.read().clone();
     let Some(p) = project else {
-        return rsx! { div { class: "sidebar", style: "width:10vw", div { class: "status", "loading project…" } } };
+        return rsx! { div { class: "sidebar", style: "width:10vw", div { class: "status", {t::panels::side_loading()} } } };
     };
     let search = state.search.read().to_lowercase();
     let selected = *state.selected.read();
@@ -116,8 +119,8 @@ pub fn Sidebar() -> Element {
     rsx! {
         div { class: "sidebar", style: "width:{w * 100.0:.2}vw",
             div { class: "sbtabs",
-                button { class: if files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(true), "📁 files" }
-                button { class: if !files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(false), "☰ items" }
+                button { class: if files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(true), {t::panels::side_files()} }
+                button { class: if !files_tab { "small active" } else { "small" }, onclick: move |_| state.files_tab.set(false), {t::panels::side_items()} }
             }
             if files_tab {
                 FileTree {}
@@ -135,7 +138,7 @@ pub fn Sidebar() -> Element {
                     let scoped = *state.scope.read() == Some(m);
                     rsx! {
                         if !items.is_empty() {
-                            div { class: if scoped { "mod scoped" } else { "mod" }, title: "click to scope the module views to this module",
+                            div { class: if scoped { "mod scoped" } else { "mod" }, title: t::panels::side_scope_tip(),
                                 onclick: move |_| { let mut st = state; st.set_scope(if scoped { None } else { Some(m) }); },
                                 "{mpath}"
                             }
@@ -237,7 +240,7 @@ fn FileTree() -> Element {
                         let icon = if f.rust { "🦀" } else if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" };
                         let cls = format!("frow file{}{}{}", if current == Some(id) { " sel" } else { "" }, if nar_files.contains(&id) { " nar" } else { "" }, if f.rust { "" } else { " other" });
                         rsx! {
-                            div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", title: if f.rust { format!("{} items", count) } else { name.clone() },
+                            div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", title: if f.rust { t::panels::side_file_items(count) } else { name.clone() },
                                 onclick: move |_| { state.code_file.set(Some(id)); state.set_mode(Mode::Code); state.selected.set(None); state.selected_span.set(None); },
                                 span { class: "fic", "{icon}" }
                                 span { "{name}" }
@@ -284,7 +287,7 @@ pub fn Details() -> Element {
     let selected = *state.selected.read();
     let span = *state.selected_span.read();
     let Some(p) = project else { return rsx! { div { class: "details" } } };
-    let info = selected.map(|id| views::item_info(&p, id));
+    let info = selected.map(|id| views::item_info_in(&p, id, crate::i18n::core_lang()));
     let item_span = selected.map(|id| p.item(id).span);
     let file = span.or(item_span).map(|s| s.file);
     let mode = *state.mode.read();
@@ -308,37 +311,37 @@ pub fn Details() -> Element {
                     if let Some(d) = &info.doc { div { class: "doc", "{d}" } } else { div { "{info.summary}" } }
                     div { for f in info.facts.iter() { span { class: "pill", "{f}" } } }
                     if !info.params.is_empty() {
-                        h4 { if info.kind == "struct" { "fields" } else if info.kind == "enum" { "variants" } else if info.kind == "trait" { "methods" } else { "parameters" } }
+                        h4 { if info.kind == "struct" { {t::panels::details_fields()} } else if info.kind == "enum" { {t::panels::details_variants()} } else if info.kind == "trait" { {t::panels::details_methods()} } else { {t::panels::details_parameters()} } }
                         table { for pa in info.params.iter() { tr { td { class: "n", "{pa.name}" } td { class: "ty", crate::source::RustText { text: pa.ty.clone() } } } } }
                     }
-                    if let Some(r) = &info.ret { h4 { "returns" } div { class: "sig", crate::source::RustText { text: r.clone() } } }
+                    if let Some(r) = &info.ret { h4 { {t::panels::details_returns()} } div { class: "sig", crate::source::RustText { text: r.clone() } } }
                     if !info.calls.is_empty() {
-                        h4 { "calls" }
+                        h4 { {t::panels::details_calls()} }
                         div { class: "links", for (id, l) in info.calls.iter() { {let id = *id; rsx!{ a { onclick: move |_| state.select_item(id), "{l}" } }} } }
                     }
                     if !info.called_by.is_empty() {
-                        h4 { "called by" }
+                        h4 { {t::panels::details_called_by()} }
                         div { class: "links", for (id, l) in info.called_by.iter() { {let id = *id; rsx!{ a { onclick: move |_| state.select_item(id), "{l}" } }} } }
                     }
                     if !info.related.is_empty() {
-                        h4 { "related" }
+                        h4 { {t::panels::details_related()} }
                         div { class: "links", for (id, l) in info.related.iter() { {let id = *id; rsx!{ a { onclick: move |_| state.select_item(id), "{l}" } }} } }
                     }
                     if let Some(id) = selected {
                         if p.item(id).is_callable() && p.item(id).fn_info().map(|f| f.cfg.is_some()).unwrap_or(false) {
                             div { style: "margin-top:8px; display:flex; gap:4px",
-                                button { class: "small", onclick: move |_| { state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, "control flow" }
-                                button { class: "small", onclick: move |_| { state.set_mode(Mode::BranchTree); state.set_root(Some(id)); }, "branches" }
-                                button { class: "small", onclick: move |_| { state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "call tree" }
-                                button { class: "small", onclick: move |_| { state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, "sequence" }
+                                button { class: "small", onclick: move |_| { state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, {t::panels::details_control_flow()} }
+                                button { class: "small", onclick: move |_| { state.set_mode(Mode::BranchTree); state.set_root(Some(id)); }, {t::panels::details_branches()} }
+                                button { class: "small", onclick: move |_| { state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, {t::panels::details_call_tree()} }
+                                button { class: "small", onclick: move |_| { state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, {t::panels::details_sequence()} }
                                 if mode != Mode::ControlFlow {
-                                    button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), "codecast from here" }
+                                    button { class: "small", onclick: move |_| state.start_builtin_guide(Some(id)), {t::panels::details_from_here()} }
                                 }
                             }
                         }
                     }
                 } else {
-                    div { class: "status", "Click a node or an item in the sidebar to see its details and source. Hover for a quick summary." }
+                    div { class: "status", {t::panels::details_empty()} }
                 }
             }
             div { class: "source", onmouseleave: move |_| state.hover_span.set(None),
@@ -370,7 +373,7 @@ pub fn Details() -> Element {
                         }
                     }
                 } else {
-                    div { class: "path", "source" }
+                    div { class: "path", {t::panels::details_source()} }
                 }
             }
         }

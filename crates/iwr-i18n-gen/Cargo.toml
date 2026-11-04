@@ -1,0 +1,9 @@
+[package]
+name = "iwr-i18n-gen"
+description = "Build-time generator of typed, compile-checked translation functions for IwannatRust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+toml = "0.8"

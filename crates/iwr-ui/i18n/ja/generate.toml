@@ -1,0 +1,155 @@
+# 生成ページ（generate.rs）：Kokoro でコードキャストの音声を録音する。
+reading = "コードキャストを読み込み中…"
+kicker = "Kokoro · オフライン音声合成"
+title = "音声を生成"
+intro = "コードキャストのすべてのパートを、このマシン上で動く自然な音声で録音します。各パートはスクリプトの隣に小さな Opus ファイルとして保存され、ブラウザ音声の代わりに再生されます。テキストを変更すると、すぐに音声合成（TTS）での読み上げに戻ります。"
+parts = "{n} パート"
+cues = "{n} キュー"
+
+[stat]
+by = "{voice} で録音"
+audio = "音声の長さ"
+disk = "ディスク使用量"
+
+[empty]
+title = "録音できるものがまだありません"
+tree = "codecast/\n├── index.md          タイトルとパートの一覧（順番どおり）\n├── 01-welcome.md     1 ファイルに 1 つの ## パート\n└── 02-pipeline.md"
+then = "そのあと codecast serve を再度実行するか、ターミナルで `codecast voice codecast/` を実行して録音してください。"
+
+[coverage]
+tip = "{voice}：録音済み {rec} · 変更あり {stale} · 未録音 {missing} · 手動録音 {own}"
+recorded = "{voice} で録音済み {n}"
+stale = "変更あり {n}"
+missing = "未録音 {n}"
+own = "手動録音 {n}"
+
+[banner]
+title = "初回は Kokoro をセットアップします"
+text = " — Python 環境（uv 経由。なければ取得します）と約 90 MB のモデルを、~/.cache/codecast/kokoro に一度だけダウンロードします。インターネット接続が必要で、1〜2 分かかります。"
+
+[language]
+title = "言語"
+text = "英語以外の言語は英語のパートからオフラインで翻訳され、英語版と常に同期します。"
+warn = "⚠ オフライン翻訳の品質は今のところ粗めです。質の高い翻訳が必要な場合は、別のツール（DeepL、LLM など）で翻訳してください：`codecast translate codecast/ --lang ja --pieces > ja.json` で書き出して値を埋め、`codecast/translations/ja.json` として保存すると、モデルの訳よりそちらが優先されます。"
+done = "{done}/{n} パート"
+
+[voices]
+title = "音声"
+text = "スロットをクリックしてから音声を選ぶか、音声をスロットにドラッグします。▶ でサンプルを再生します。音声（またはペア）ごとに録音が別々に保存され、視聴者はプレーヤーで選べます。"
+main = "メイン音声"
+second = "2 番目の音声"
+note_main = "すべての行を読み上げ"
+note_none = "sp: 行を担当（このコードキャストにはまだありません）"
+note_same = "sp: 行を担当（同じ音声を高めの声で）"
+note_auto = "sp: 行を担当（自動選択）"
+note_second = "sp: 行を担当"
+pick_for_me = "自動で選ぶ"
+swap = "2 つの音声を入れ替え"
+best = "Kokoro のおすすめ音声"
+has = "この音声で録音済みのパート"
+sample = "サンプルを聞く"
+preview_error = "試聴：{error}"
+
+[accent]
+american = "アメリカ英語"
+british = "イギリス英語"
+japanese = "日本語"
+french = "フランス語"
+spanish = "スペイン語"
+italian = "イタリア語"
+brazilian = "ブラジル・ポルトガル語"
+
+[delivery]
+title = "読み上げ方"
+text = "話し方と保存のしかたを設定します。"
+speed = "速度"
+calm = "ゆったり"
+brisk = "きびきび"
+gap = "キュー間の間"
+tight = "短め"
+airy = "長め"
+compression = "圧縮"
+cleaner = "高音質"
+smaller = "小さく（0.95 ≈ 18 kbps）"
+
+[pick]
+title = "パート"
+text = "チェックしたパートは、最新かどうかにかかわらず録音されます。変更のないキューはキャッシュからすぐに取り込まれます。"
+needs = "要録音（{n}）"
+all = "すべて"
+none = "なし"
+also_by = "{voices} でも録音済み"
+
+[pill]
+skip = "録音不可"
+recorded = "録音済み"
+stale = "テキスト変更"
+own = "手動録音"
+missing = "未録音"
+
+[action]
+nothing = "何も選択されていません"
+retranslate = "↻ 再翻訳"
+retranslate_tip = "チェックしたパートを（キャッシュを使わずに）翻訳し直してから録音します"
+rerecord = "↻ 再録音"
+rerecord_tip = "チェックしたパートのすべてのキューを（キャッシュを使わずに）合成し直します"
+generate = "生成"
+generate_n = "{n} パートを生成"
+
+[job]
+starting = "開始中"
+recording = "{part} を録音中"
+failed = "録音に失敗しました"
+cancelled = "キャンセルしました — {n} パートを保持"
+up_to_date = "すべて最新の状態でした"
+done = "{n} パートを録音 · 音声 {audio} · {size}"
+cue = "キュー {done}/{total} · "
+elapsed = "経過 {time}"
+left = " · 残り約 {time}"
+cancel = "キャンセル"
+play = "コードキャストを再生"
+hide = "閉じる"
+chip = "{done}/{n} キュー"
+hide_details = "詳細を隠す ▾"
+details = "詳細（{n}）▸"
+
+[outdated]
+title = "{n} 件の録音が古くなっています（テキストが変更されました）"
+clean_title = "整理できる古い録音"
+browser = "これらのパートは、再録音するまでブラウザ音声で読み上げられます。"
+orphans = "{n} 件の録音は、すでに存在しないパートのものです。"
+group = "{n} パート：{list}"
+regenerate = "↻ 再生成"
+delete_files = "{n} 個のファイルを削除？"
+delete = "削除"
+gone = "なくなったパート"
+gone_note = "下のどちらの操作でも削除されます"
+regenerate_all = "↻ 古い録音をすべて再生成"
+confirm_all = "はい、{n} 件の録音を削除"
+keep = "残す"
+delete_all = "古い録音をすべて削除"
+delete_them = "すべて削除"
+
+[sets]
+title = "録音済みの音声"
+text = "音声やペアごとに録音は別々に保存されます。「補完」は、足りないパート（変更されたもの・新しいもの）を、作成時と同じ音声と読み上げ方で録音します。"
+recorded = "録音済み {done}/{total}"
+changed = "変更 {n}"
+missing = "未録音 {n}"
+select = "選択"
+select_tip = "この音声・言語・読み上げ方を下のフォームに設定します"
+nothing = "録音するものはありません"
+record = "{parts} を録音"
+complete = "✓ 完了"
+complete_n = "↻ {n} パートを補完"
+delete_n = "{n} 件の録音を削除？"
+complete_all = "↻ {n} 個の音声をすべて補完"
+
+# iwr_core::voice::VOICE_LANGS が英語で持つ録音言語名
+[voice_lang]
+en_us = "英語（米国）"
+en_gb = "英語（英国）"
+
+[problem]
+no_codecast = "プロジェクトの隣にコードキャストがありません。index.md とパートごとのファイルを入れた codecast/ を作成してください。"
+single_file = "{path} は単一のファイルです。録音はパートごとに行うため、codecast/ ディレクトリ（index.md とパートごとのファイル）が必要です。"

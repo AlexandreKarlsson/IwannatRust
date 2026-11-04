@@ -1,6 +1,7 @@
 //! "Code" view: the source as simple nested blocks, side by side with the real
 //! source. Hovering a block highlights its lines and vice versa.
 
+use crate::i18n::t;
 use crate::source::{self, RustText};
 use crate::theme::node_color;
 use crate::State;
@@ -84,7 +85,7 @@ fn contains(outer: &Span, inner: &Span) -> bool {
 pub fn CodeView() -> Element {
     let mut state = use_context::<State>();
     let project = state.project.read().clone();
-    let Some(p) = project else { return rsx! { div { class: "code-view", div { class: "status", "loading…" } } } };
+    let Some(p) = project else { return rsx! { div { class: "code-view", div { class: "status", {t::code::loading()} } } } };
     // which file?
     let file = (*state.code_file.read())
         .or_else(|| (*state.selected.read()).map(|id| p.item(id).span.file))
@@ -150,13 +151,13 @@ pub fn CodeView() -> Element {
                     div { class: "zoom-box",
                         div { class: "file-bar",
                             FilePick { file, files: files.clone() }
-                            span { class: "status", "{items.len()} items · click a block to open it" }
+                            span { class: "status", {t::code::items(items.len())} }
                         }
                         if let Some(d) = module_doc {
                             div { class: "moddoc", "{d}" }
                         }
                         if !sf.text {
-                            div { class: "status", style: "margin-top:20px", "Binary or large file: not shown." }
+                            div { class: "status", style: "margin-top:20px", {t::code::binary()} }
                         }
                         for it in items {
                             ItemBlock { id: it.id, hover, sel_span, hl: hl_refs.clone() }
@@ -271,7 +272,7 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
         if f.returns_result { b.push("Result".into()); }
         if f.returns_option { b.push("Option".into()); }
         if f.is_async { b.push("async".into()); }
-        if f.is_recursive { b.push("↻ recursive".into()); }
+        if f.is_recursive { b.push(t::code::recursive().into()); }
         b
     }).unwrap_or_default();
     rsx! {
@@ -299,9 +300,9 @@ fn ItemBlock(id: usize, hover: Option<Span>, sel_span: Option<Span>, hl: Vec<Res
                     span { class: "count", if open { "▾" } else { "▸ {n_children}" } }
                 }
                 if it.is_callable() {
-                    span { class: "chip act", title: "control flow of this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, "flow" }
-                    span { class: "chip act", title: "call tree from this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, "calls" }
-                    span { class: "chip act", title: "sequence diagram of the calls made from this function", onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, "sequence" }
+                    span { class: "chip act", title: t::code::go_flow_tip(), onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::ControlFlow); state.set_root(Some(id)); }, {t::code::go_flow()} }
+                    span { class: "chip act", title: t::code::go_calls_tip(), onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::CallTree); state.set_root(Some(id)); }, {t::code::go_calls()} }
+                    span { class: "chip act", title: t::code::go_sequence_tip(), onclick: move |e| { e.stop_propagation(); state.set_mode(Mode::Sequence); state.set_root(Some(id)); }, {t::code::go_sequence()} }
                 }
             }
             if let Some(d) = doc {
@@ -367,10 +368,10 @@ fn BlockView(item: usize, block: Rc<Block>, hover: Option<Span>, depth: usize, h
                 } else {
                     span { class: "label", "{label}" }
                 }
-                for d in block.defines.iter() { span { class: "chip def", title: "defines {d}", "{d}" } }
-                for u in uses.iter() { span { class: "chip var", title: "uses {u}", "{u}" } }
+                for d in block.defines.iter() { span { class: "chip def", title: t::code::defines(d), "{d}" } }
+                for u in uses.iter() { span { class: "chip var", title: t::code::uses(u), "{u}" } }
                 for (cid, name) in calls.iter() {
-                    { let cid = *cid; rsx! { span { class: "chip call", title: "open {name}", onclick: move |e| { e.stop_propagation(); state.open_in_code(cid); }, "→ {name}" } } }
+                    { let cid = *cid; rsx! { span { class: "chip call", title: t::code::open(name), onclick: move |e| { e.stop_propagation(); state.open_in_code(cid); }, "→ {name}" } } }
                 }
                 if compound {
                     span { class: "count", if open { "▾" } else { "▸ {n}" } }

@@ -1,0 +1,128 @@
+ui_lang = "Interface language"
+ui_lang_desc = "Buttons, menus and settings. The codecast keeps its own language (see Codecast below)."
+title = "Settings"
+back = "Back"
+back_tip = "Back to the code (Esc)"
+hero_title = "Make it yours"
+hero_text = "Colours, fonts, voice and views. Everything is remembered in this browser."
+locked = "🔒 This codecast sets its own theme, fonts, language and voice."
+
+[section]
+look = "Appearance"
+cast = "Codecast"
+design = "Codecast design"
+views = "Analysis views"
+code = "Code view"
+layout = "Layout"
+keys = "Keyboard"
+
+[kinds]
+tip = "which kinds of items the Structure view shows"
+all = "all"
+all_tip = "show every kind"
+fns = "fns only"
+fns_tip = "functions and methods only"
+
+[themes]
+all = "All"
+dark = "Dark"
+light = "Light"
+count = { one = "{n} theme", other = "{n} themes" }
+viewers_choice = "viewer's choice"
+none = "None"
+
+# display names of the built-in themes that are plain words (the others are proper names)
+[theme]
+dark = "Dark"
+light = "Light"
+contrast = "High Contrast"
+
+[fonts]
+all = "All"
+count = { one = "{n} font", other = "{n} fonts" }
+default = "Default"
+custom = "Custom"
+theme_font = "the theme's font"
+viewer_font = "the viewer's font"
+
+[font_kind]
+display = "Display"
+script = "Handwritten"
+text = "Text"
+
+[look]
+sub = "The colours of the whole interface, graphs included, and the fonts."
+theme = "Theme"
+fonts = "Fonts"
+box_titles = "Box titles"
+interface_text = "Interface text"
+
+[cast]
+sub = "How the spoken tour plays."
+voice = "Voice"
+voice_locked = "set by this codecast"
+voice_desc = "a recording, when the codecast ships one, is picked automatically"
+voice_tts = "🔊 spoken by the browser"
+voice_read = "📖 read silently, advance on a timer"
+browser_voice = "Browser voice"
+browser_voice_desc = "speaks the codecast when there is no recording"
+second_voice = "Second browser voice"
+second_voice_desc_sp = "says the sp: lines and asks the questions you click"
+second_voice_desc = "asks the questions you click (and says the sp: lines, in codecasts that have them)"
+auto_codecast = "the codecast's ({name})"
+automatic = "automatic"
+hear = "hear it"
+rec_voice = "Recorded voice"
+rec_voice_desc = "the recording that plays; a pair (A & B) is a codecast with two voices"
+rec_original = { one = "Original ({n} part)", other = "Original ({n} parts)" }
+rec_named = { one = "{name} ({n} part)", other = "{name} ({n} parts)" }
+language = "Codecast language"
+language_desc = "translated when played, offline (codecast serve), spoken by a browser voice of that language; recordings and code stay English. ⚠ The offline translation is rough for now: for a good one, translate with another tool (codecast translate --pieces, see the docs)"
+subtitles = "Subtitles"
+subtitles_desc = "the caption again in a second language, under the one that plays (talk in Japanese, follow in English). Only text that already exists: the English source, codecast/translations/<lang>.json, or translations made before"
+speech_rate = "Speech rate"
+read_time = "Reading time per cue"
+read_time_desc = "silent mode only"
+seconds = "{s} s"
+full_tour = "Full tour"
+full_tour_desc = "when a part ends, continue with the next one"
+spoken = "Show how code is spoken"
+spoken_desc = '"crate::parser::parse_all" → "parse all" in parentheses; hover a dotted token to hear it. Fix a word with `pronounce: written = spoken`.'
+glossary = "Glossary questions"
+glossary_desc = { one = 'offer "what is a…?" when a cue says a Rust term ({n} term, each once); script questions always show', other = 'offer "what is a…?" when a cue says a Rust term ({n} terms, each once); script questions always show' }
+forget = "forget the {n} answered"
+start_tour = "Start the full tour"
+start_tour_loaded = "the loaded codecast, from its first part"
+start_tour_builtin = "no script loaded: the built-in tour of the project"
+
+[views]
+sub = "What the graph views include. Off by default to keep the diagrams small."
+external = "External crates and calls"
+macros = "Macro invocations"
+constructors = "Constructors"
+tests = "Tests"
+depth = "Call tree depth"
+depth_desc = "levels opened from the root function"
+structure = "Structure shows"
+structure_desc = "untick a kind to hide it; hiding impl puts the methods in their module"
+
+[code]
+sub = "The blocks of a function, and its source."
+show_source = "Show the source next to the blocks"
+show_source_desc = "hover either side to highlight both"
+
+[layout]
+sub = "Panel edges are draggable; sizes are remembered."
+sidebar = "Files / items panel"
+sizes = "Panel sizes"
+reset = "reset"
+
+[keys]
+sub = "Shortcuts everywhere outside text fields."
+prev_next = "previous / next cue"
+play_pause = "play / pause"
+codecast = "start / stop the codecast"
+tour = "start the full tour"
+fit = "fit the graph to the view"
+page = "open / close this page"
+close = "close the player or this page"

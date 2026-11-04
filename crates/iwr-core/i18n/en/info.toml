@@ -1,0 +1,44 @@
+# The details of an item (`views::item_info_in`, `Item::summary_in`): the Details panel and the
+# graph tooltips.
+
+[summary]
+entry_point = "program entry point"
+async = "async"
+fallible = "fallible (returns Result)"
+maybe_nothing = "may return nothing (Option)"
+recursive = "recursive"
+loops = "{n} loop(s)"
+branches = "{n} branch(es)"
+struct = "struct with {n} field(s)"
+enum = "enum with {n} variant(s)"
+trait = "trait with {n} method(s)"
+impl_trait = "impl {name} for {target}"
+impl_inherent = "inherent impl for {target}"
+alias = "alias of {target}"
+constant = "constant of type {ty}"
+module = "module"
+sep = ", "
+
+[fact]
+lines = "{n} lines"
+trait = "trait {name}"
+fields = "{n} fields"
+derive = "derive {names}"
+variants = "{n} variants"
+
+[rel]
+impl = "impl: {name}"
+on = "on {name}"
+contains = "contains {name}"
+implements = "implements {name}"
+requires = "requires {name}"
+alias_of = "alias of {name}"
+field_of = "field of {name}"
+implemented_by = "implemented by {name}"
+supertrait_of = "supertrait of {name}"
+aliased_as = "aliased as {name}"
+used_by = "used by {name}"
+method = "method {name}"
+
+[note]
+sequence_cut = "Cut at {max} messages: lower the depth or start from a deeper function."

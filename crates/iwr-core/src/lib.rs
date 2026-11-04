@@ -22,6 +22,7 @@ pub mod tours;
 pub mod glossary;
 pub mod highlight;
 pub mod i18n;
+pub mod tr;
 pub mod speech;
 pub mod voice;
 pub mod layout;

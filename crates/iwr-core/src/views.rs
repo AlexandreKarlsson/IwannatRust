@@ -1,6 +1,8 @@
 //! Build a positioned, colour-coded graph for each visualization mode from a
 //! [`Project`]. The UI only draws what comes out of here.
 
+use crate::tr::t::views as tv;
+use crate::tr::Lang;
 use crate::layout::{self, LayoutEdge, LayoutNode, LayoutOptions, TreeNode};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
@@ -33,36 +35,48 @@ impl Mode {
     /// Graph modes built from the project (everything except `Code` and `Diagram`).
     pub const GRAPHS: [Mode; 8] = [Mode::CallTree, Mode::Sequence, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
     pub const ALL: [Mode; 9] = [Mode::Code, Mode::CallTree, Mode::Sequence, Mode::ControlFlow, Mode::Architecture, Mode::BranchTree, Mode::Structure, Mode::Types, Mode::ErrorFlow];
+    /// The view's name, in English (the CLI, the docs); [`Mode::label_in`] for the interface.
     pub fn label(&self) -> &'static str {
+        self.label_in(Lang::En)
+    }
+    /// The view's name in `lang`.
+    pub fn label_in(&self, lang: Lang) -> &'static str {
+        use crate::tr::t::views as t;
         match self {
-            Mode::Code => "Code",
-            Mode::CallTree => "Call tree",
-            Mode::ControlFlow => "Control flow",
-            Mode::Architecture => "Architecture",
-            Mode::BranchTree => "Branch tree",
-            Mode::Structure => "Structure",
-            Mode::Types => "Types & traits",
-            Mode::ErrorFlow => "Error flow",
-            Mode::Diagram => "Diagram",
-            Mode::Sequence => "Sequence",
-            Mode::Chart => "Chart",
-            Mode::Plan => "Plan",
+            Mode::Code => t::label_code(lang),
+            Mode::CallTree => t::label_call_tree(lang),
+            Mode::ControlFlow => t::label_control_flow(lang),
+            Mode::Architecture => t::label_architecture(lang),
+            Mode::BranchTree => t::label_branch_tree(lang),
+            Mode::Structure => t::label_structure(lang),
+            Mode::Types => t::label_types(lang),
+            Mode::ErrorFlow => t::label_error_flow(lang),
+            Mode::Diagram => t::label_diagram(lang),
+            Mode::Sequence => t::label_sequence(lang),
+            Mode::Chart => t::label_chart(lang),
+            Mode::Plan => t::label_plan(lang),
         }
     }
+    /// What the view shows, in English; [`Mode::description_in`] for the interface.
     pub fn description(&self) -> &'static str {
+        self.description_in(Lang::En)
+    }
+    /// What the view shows, in `lang`.
+    pub fn description_in(&self, lang: Lang) -> &'static str {
+        use crate::tr::t::views as t;
         match self {
-            Mode::Code => "The code itself as simple nested blocks: functions, loops, branches, calls. Click to open.",
-            Mode::CallTree => "Which function calls which, starting from the entry point. Expand nodes to go deeper.",
-            Mode::ControlFlow => "Statement-level flow of one function: branches, loops, early returns, error exits.",
-            Mode::Architecture => "Modules and their dependencies. Expand a module to see its items.",
-            Mode::BranchTree => "Every possible path through a function as a tree. Expand calls to inline the callee.",
-            Mode::Structure => "Files, modules, impl blocks and items as nested blocks.",
-            Mode::Types => "Structs, enums, traits and how they relate (fields, impls, supertraits).",
-            Mode::ErrorFlow => "Where errors are created, propagated with ?, handled, or turned into panics.",
-            Mode::Sequence => "The calls made from the root function, in time order: one column per type or module, loops and branches as frames.",
-            Mode::Diagram => "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows.",
-            Mode::Chart => "A chart drawn by the codecast: a number that changed, a share of a whole.",
-            Mode::Plan => "The plan of the codecast: its parts in order, one line each. Click one to jump there.",
+            Mode::Code => t::desc_code(lang),
+            Mode::CallTree => t::desc_call_tree(lang),
+            Mode::ControlFlow => t::desc_control_flow(lang),
+            Mode::Architecture => t::desc_architecture(lang),
+            Mode::BranchTree => t::desc_branch_tree(lang),
+            Mode::Structure => t::desc_structure(lang),
+            Mode::Types => t::desc_types(lang),
+            Mode::ErrorFlow => t::desc_error_flow(lang),
+            Mode::Diagram => t::desc_diagram(lang),
+            Mode::Sequence => t::desc_sequence(lang),
+            Mode::Chart => t::desc_chart(lang),
+            Mode::Plan => t::desc_plan(lang),
         }
     }
     /// Does this mode need a selected function as its root?
@@ -354,6 +368,9 @@ pub struct ViewOptions {
     pub show_tests: bool,
     pub show_constructs: bool,
     pub max_nodes: usize,
+    /// Language of the notes shown when a view has nothing to draw.
+    #[serde(skip)]
+    pub lang: Lang,
     /// Item kinds hidden in the Structure view (empty = show everything). Hiding `Impl`
     /// flattens the methods of impl blocks into their module; hiding `Method` hides them.
     pub hidden_kinds: HashSet<ItemKind>,
@@ -372,6 +389,7 @@ impl Default for ViewOptions {
             show_tests: false,
             show_constructs: false,
             max_nodes: 400,
+            lang: Lang::En,
             hidden_kinds: HashSet::new(),
         }
     }
@@ -616,7 +634,7 @@ pub fn build(p: &Project, mode: Mode, opts: &ViewOptions) -> Graph {
         Mode::Types => types(p, opts),
         Mode::ErrorFlow => error_flow(p, opts),
         Mode::Sequence => crate::sequence::view(p, opts),
-        Mode::Diagram => Graph { note: Some("Diagrams are drawn by a codecast: `@ diagram` after a ```mermaid block.".into()), ..Default::default() },
+        Mode::Diagram => Graph { note: Some(tv::note_diagram(opts.lang).into()), ..Default::default() },
         Mode::Plan | Mode::Chart => Graph::default(),
     };
     g.mode = Some(mode);
@@ -633,7 +651,7 @@ pub fn default_root(p: &Project) -> Option<ItemId> {
 fn call_tree(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     let Some(root) = opts.root.or_else(|| default_root(p)) else {
-        g.note = Some("No functions found.".into());
+        g.note = Some(tv::note_no_functions(opts.lang).into());
         return g;
     };
     let mut count = 0usize;
@@ -744,7 +762,7 @@ fn call_tree(p: &Project, opts: &ViewOptions) -> Graph {
     let res = layout::tree(&tree, &LayoutOptions { layer_gap: 56.0, node_gap: 22.0, ..Default::default() });
     apply_layout(&mut g, &res);
     if count >= opts.max_nodes {
-        g.note = Some(format!("Tree truncated at {} nodes; collapse or change the root.", opts.max_nodes));
+        g.note = Some(tv::note_truncated(opts.lang, opts.max_nodes));
     }
     g
 }
@@ -1067,12 +1085,12 @@ fn cfg_into(p: &Project, opts: &ViewOptions, g: &mut Graph, fn_item: ItemId, cfg
 fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     let Some(root) = opts.root.or_else(|| default_root(p)) else {
-        g.note = Some("Select a function.".into());
+        g.note = Some(tv::note_select_function(opts.lang).into());
         return g;
     };
     let it = p.item(root);
     let Some(cfg) = it.fn_info().and_then(|f| f.cfg.as_ref()) else {
-        g.note = Some(format!("{} has no body to show.", it.name));
+        g.note = Some(tv::note_no_body(opts.lang, &it.name));
         return g;
     };
     let mut frames = vec![];
@@ -1158,7 +1176,7 @@ fn control_flow(p: &Project, opts: &ViewOptions) -> Graph {
 fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     let Some(root) = opts.root.or_else(|| default_root(p)) else {
-        g.note = Some("Select a function.".into());
+        g.note = Some(tv::note_select_function(opts.lang).into());
         return g;
     };
     let mut count = 0usize;
@@ -1212,7 +1230,7 @@ fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
     }
     let it = p.item(root);
     let Some(cfg) = it.fn_info().and_then(|f| f.cfg.as_ref()) else {
-        g.note = Some(format!("{} has no body to show.", it.name));
+        g.note = Some(tv::note_no_body(opts.lang, &it.name));
         return g;
     };
     let mut path = Vec::new();
@@ -1221,7 +1239,7 @@ fn branch_tree(p: &Project, opts: &ViewOptions) -> Graph {
     let res = layout::tree(&tree, &LayoutOptions { layer_gap: 48.0, node_gap: 18.0, ..Default::default() });
     apply_layout(&mut g, &res);
     if count >= opts.max_nodes {
-        g.note = Some(format!("Tree truncated at {} nodes.", opts.max_nodes));
+        g.note = Some(tv::note_truncated_short(opts.lang, opts.max_nodes));
     }
     g
 }
@@ -1619,7 +1637,7 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
     let mut g = Graph::default();
     let type_items: Vec<&Item> = p.items.iter().filter(|i| i.is_type() && opts.in_scope(p, i.module)).collect();
     if type_items.is_empty() {
-        g.note = Some("No structs, enums or traits found.".into());
+        g.note = Some(tv::note_no_types(opts.lang).into());
         return g;
     }
     let mut present: HashSet<ItemId> = HashSet::new();
@@ -1722,7 +1740,7 @@ fn error_flow(p: &Project, opts: &ViewOptions) -> Graph {
         }
     }
     if ids.is_empty() {
-        g.note = Some("No Result/Option-returning functions or panics found.".into());
+        g.note = Some(tv::note_no_errors(opts.lang).into());
         return g;
     }
     let mut sorted: Vec<ItemId> = ids.iter().copied().collect();
@@ -1831,13 +1849,20 @@ pub struct ItemInfo {
     pub related: Vec<(ItemId, String)>,
 }
 
+/// What the Details panel and the tooltips show about an item, in English.
 pub fn item_info(p: &Project, id: ItemId) -> ItemInfo {
+    item_info_in(p, id, Lang::En)
+}
+
+/// [`item_info`] in `lang`: the words around names and types translated, code as written.
+pub fn item_info_in(p: &Project, id: ItemId, lang: Lang) -> ItemInfo {
+    use crate::tr::t::info as ti;
     let it = p.item(id);
     let mut info = ItemInfo {
         title: item_label(it),
         kind: it.kind.label().to_string(),
         signature: it.signature.clone(),
-        summary: it.summary(),
+        summary: it.summary_in(lang),
         doc: it.doc.clone(),
         location: format!("{}:{}", p.file(it.span.file).path, it.span.line_start),
         ..Default::default()
@@ -1849,9 +1874,9 @@ pub fn item_info(p: &Project, id: ItemId) -> ItemInfo {
         if f.self_kind != SelfKind::None {
             info.facts.insert(0, match f.self_kind { SelfKind::Ref => "&self", SelfKind::RefMut => "&mut self", SelfKind::Owned => "self", SelfKind::None => "" }.into());
         }
-        info.facts.push(format!("{} lines", f.body_lines));
+        info.facts.push(ti::fact_lines(lang, f.body_lines));
         if let Some(t) = &f.trait_name {
-            info.facts.push(format!("trait {}", t));
+            info.facts.push(ti::fact_trait(lang, t));
         }
         let mut seen = HashSet::new();
         for c in p.callees(id) {
@@ -1873,26 +1898,26 @@ pub fn item_info(p: &Project, id: ItemId) -> ItemInfo {
                 for other in p.items.iter() {
                     if let Some(of) = other.fn_info() {
                         if of.trait_id == Some(tid) && of.impl_id.is_some() && other.name == it.name {
-                            info.related.push((other.id, format!("impl: {}", item_label(other))));
+                            info.related.push((other.id, ti::rel_impl(lang, item_label(other))));
                         }
                     }
                 }
             }
         }
         if let Some(o) = f.owner_type {
-            info.related.push((o, format!("on {}", p.item(o).name)));
+            info.related.push((o, ti::rel_on(lang, &p.item(o).name)));
         }
     }
     match &it.extra {
         ItemExtra::Struct(s) => {
-            info.facts.push(format!("{} fields", s.fields.len()));
+            info.facts.push(ti::fact_fields(lang, s.fields.len()));
             if !s.derives.is_empty() {
-                info.facts.push(format!("derive {}", s.derives.join(", ")));
+                info.facts.push(ti::fact_derive(lang, s.derives.join(", ")));
             }
             info.params = s.fields.iter().map(|f| Param { name: f.name.clone(), ty: f.ty.clone() }).collect();
         }
         ItemExtra::Enum(e) => {
-            info.facts.push(format!("{} variants", e.variants.len()));
+            info.facts.push(ti::fact_variants(lang, e.variants.len()));
             info.params = e.variants.iter().map(|v| Param { name: v.name.clone(), ty: v.fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>().join(", ") }).collect();
         }
         ItemExtra::Trait(t) => {
@@ -1904,20 +1929,20 @@ pub fn item_info(p: &Project, id: ItemId) -> ItemInfo {
         for r in &p.type_rels {
             if r.from == id {
                 let l = match r.kind {
-                    TypeRelKind::Contains => format!("contains {}", p.item(r.to).name),
-                    TypeRelKind::Implements => format!("implements {}", p.item(r.to).name),
-                    TypeRelKind::Supertrait => format!("requires {}", p.item(r.to).name),
-                    TypeRelKind::Aliases => format!("alias of {}", p.item(r.to).name),
+                    TypeRelKind::Contains => ti::rel_contains(lang, &p.item(r.to).name),
+                    TypeRelKind::Implements => ti::rel_implements(lang, &p.item(r.to).name),
+                    TypeRelKind::Supertrait => ti::rel_requires(lang, &p.item(r.to).name),
+                    TypeRelKind::Aliases => ti::rel_alias_of(lang, &p.item(r.to).name),
                     TypeRelKind::UsesInSignature => continue,
                 };
                 info.related.push((r.to, l));
             } else if r.to == id {
                 let l = match r.kind {
-                    TypeRelKind::Contains => format!("field of {}", p.item(r.from).name),
-                    TypeRelKind::Implements => format!("implemented by {}", p.item(r.from).name),
-                    TypeRelKind::Supertrait => format!("supertrait of {}", p.item(r.from).name),
-                    TypeRelKind::Aliases => format!("aliased as {}", p.item(r.from).name),
-                    TypeRelKind::UsesInSignature => format!("used by {}", item_label(p.item(r.from))),
+                    TypeRelKind::Contains => ti::rel_field_of(lang, &p.item(r.from).name),
+                    TypeRelKind::Implements => ti::rel_implemented_by(lang, &p.item(r.from).name),
+                    TypeRelKind::Supertrait => ti::rel_supertrait_of(lang, &p.item(r.from).name),
+                    TypeRelKind::Aliases => ti::rel_aliased_as(lang, &p.item(r.from).name),
+                    TypeRelKind::UsesInSignature => ti::rel_used_by(lang, item_label(p.item(r.from))),
                 };
                 info.related.push((r.from, l));
             }
@@ -1926,7 +1951,7 @@ pub fn item_info(p: &Project, id: ItemId) -> ItemInfo {
             if let ItemExtra::Impl(i) = &it2.extra {
                 if i.target_id == Some(id) {
                     for m in &i.methods {
-                        info.related.push((*m, format!("method {}", p.item(*m).name)));
+                        info.related.push((*m, ti::rel_method(lang, &p.item(*m).name)));
                     }
                 }
             }

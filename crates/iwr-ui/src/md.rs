@@ -1,6 +1,7 @@
 //! Tiny markdown subset renderer for guide text: fenced code, bullets, `code`, **bold**.
 //! Code is shown as written and carries its spoken form (see `iwr_core::speech`).
 
+use crate::i18n::t;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::speech::{self, Segment};
@@ -44,7 +45,7 @@ fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element
         .map(|seg| match seg {
             Segment::Text(t) => rsx! { "{t}" },
             Segment::Code { code, say } => {
-                let tip = format!("spoken: {}", say);
+                let tip = t::md::spoken(&say);
                 let same = say.eq_ignore_ascii_case(code.trim());
                 let backtick_like = code.contains(' ') || code.contains("::") || code.contains('(') || code.contains('<') || code.starts_with('&') || code.starts_with('#');
                 rsx! {

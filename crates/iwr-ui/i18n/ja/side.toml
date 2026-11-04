@@ -1,0 +1,14 @@
+close_tip = "サイドパネルを閉じる（次の `|` 行で再び開きます）"
+
+[kind]
+bytes = "バイト"
+notes = "メモ"
+diagram = "図"
+chart = "チャート"
+
+[bytes]
+field = "フィールド"
+at = "位置"
+size = "サイズ"
+value = "値"
+rest = "残り"

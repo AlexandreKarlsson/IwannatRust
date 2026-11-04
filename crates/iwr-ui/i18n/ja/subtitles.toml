@@ -1,0 +1,16 @@
+# 字幕（subtitles.rs）：キャプションを別の言語でもう一度表示する。
+load_first = "先にコードキャストを読み込んでください"
+off = "オフ"
+none = "💬 字幕なし"
+tip = "字幕：キャプションを別の言語でも表示します（テキストがすでにある言語のみ）。"
+tip_none = "ほかの言語のテキストはまだありません：{how}"
+no_text = "{name} — テキストなし"
+partial = "{name}（{have}/{n} 行）"
+same_lang = "⚠ コードキャストはすでに {name} で再生されています。再生する言語か字幕を別のものにしてください。"
+partial_help = "⚠ {name} のテキストは {n} 行中 {have} 行です。残りの行には字幕が表示されません。"
+missing = "テキストなし：{langs}"
+lang_label = "{name}："
+
+[how]
+live = "一度作成してください：`codecast translate codecast/ --lang {code}` を実行する（オフラインモデル、キャッシュされます）か、その言語でコードキャストを一度再生します。確認済みの翻訳にするには、`codecast translate codecast/ --lang {code} --pieces > codecast/translations/{code}.json` を実行して値を埋めてください。"
+export = "このエクスポートには {code} のテキストがありません：`codecast export … --lang {code}` でエクスポートし直してください。"

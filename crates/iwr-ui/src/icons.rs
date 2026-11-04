@@ -61,7 +61,7 @@ pub fn Icon(name: String, #[props(default = 16)] size: u32) -> Element {
 pub fn IconButton(name: String, tip: String, #[props(default = false)] active: bool, #[props(default)] text: String, onclick: EventHandler<MouseEvent>) -> Element {
     let src = uri(&name);
     rsx! {
-        button { class: if active { "ibtn active" } else { "ibtn" }, "data-tip": "{tip}", "aria-label": "{tip}", onclick: move |e| onclick.call(e),
+        button { class: if active { "ibtn active" } else { "ibtn" }, "data-tip": "{tip}", "aria-label": "{tip}", "data-icon": "{name}", onclick: move |e| onclick.call(e),
             img { class: "ico", src: "{src}", width: "16", height: "16", alt: "", draggable: false }
             if !text.is_empty() { span { "{text}" } }
         }

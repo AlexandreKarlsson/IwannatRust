@@ -1,0 +1,16 @@
+# Subtitles (subtitles.rs): the caption again in a second language.
+load_first = "load a codecast first"
+off = "off"
+none = "💬 no subtitles"
+tip = "Subtitles: the caption again in another language (only languages whose text already exists)"
+tip_none = "No other language has text yet: {how}"
+no_text = "{name} — no text yet"
+partial = { one = "{name} ({have}/{n} line)", other = "{name} ({have}/{n} lines)" }
+same_lang = "⚠ The codecast already plays in {name}: pick another language to play, or another subtitle."
+partial_help = { one = "⚠ {name} has {have} of {n} line; the others show no subtitle. ", other = "⚠ {name} has {have} of {n} lines; the others show no subtitle. " }
+missing = "No text yet: {langs}"
+lang_label = "{name}: "
+
+[how]
+live = "make it once: `codecast translate codecast/ --lang {code}` (offline model, cached), or play the codecast in that language once; for a reviewed one, `codecast translate codecast/ --lang {code} --pieces > codecast/translations/{code}.json` and fill in the values"
+export = "this export has no {code} text: export it again with `codecast export … --lang {code}`"

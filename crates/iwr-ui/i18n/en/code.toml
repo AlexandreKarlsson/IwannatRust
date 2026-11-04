@@ -1,0 +1,16 @@
+# The Code view (code.rs): the source as nested blocks beside the real source.
+loading = "loading…"
+items = { one = "{n} item · click a block to open it", other = "{n} items · click a block to open it" }
+binary = "Binary or large file: not shown."
+recursive = "↻ recursive"
+defines = "defines {name}"
+uses = "uses {name}"
+open = "open {name}"
+
+[go]
+flow = "flow"
+flow_tip = "control flow of this function"
+calls = "calls"
+calls_tip = "call tree from this function"
+sequence = "sequence"
+sequence_tip = "sequence diagram of the calls made from this function"

@@ -2,7 +2,9 @@
 //! Pick a language, a voice (previewed on click), the delivery and the parts, then follow the
 //! recording; the job runs on the server, so it survives leaving the page or reloading it.
 
+use crate::i18n::t;
 use crate::icons::Icon;
+use crate::subtitles::Cmd;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::voice::{self as v, PartStatus, VoiceJob, VoiceRequest, VoiceStatus};
@@ -134,14 +136,24 @@ fn size(kb: u64) -> String {
 /// Where a voice comes from, by the first letter of its id.
 pub fn accent(id: &str) -> &'static str {
     match id.chars().next() {
-        Some('a') => "American",
-        Some('b') => "British",
-        Some('j') => "Japanese",
-        Some('f') => "French",
-        Some('e') => "Spanish",
-        Some('i') => "Italian",
-        Some('p') => "Brazilian",
+        Some('a') => t::generate::accent_american(),
+        Some('b') => t::generate::accent_british(),
+        Some('j') => t::generate::accent_japanese(),
+        Some('f') => t::generate::accent_french(),
+        Some('e') => t::generate::accent_spanish(),
+        Some('i') => t::generate::accent_italian(),
+        Some('p') => t::generate::accent_brazilian(),
         _ => "",
+    }
+}
+
+/// A recording language's name in the interface language (`VOICE_LANGS` names English ones in
+/// English; the others in their own language, kept as they are).
+fn voice_lang_name(l: &v::VoiceLang) -> &'static str {
+    match l.arg {
+        "en-us" => t::generate::voice_lang_en_us(),
+        "en-gb" => t::generate::voice_lang_en_gb(),
+        _ => l.name,
     }
 }
 
@@ -209,7 +221,7 @@ pub fn GeneratePage() -> Element {
 
     let status = state.voice_status.read().clone();
     let Some(status) = status else {
-        return rsx! { div { class: "gen", div { class: "gen-wrap", div { class: "gen-loading", span { class: "gen-spin" } "Reading the codecast…" } } } };
+        return rsx! { div { class: "gen", div { class: "gen-wrap", div { class: "gen-loading", span { class: "gen-spin" } {t::generate::reading()} } } } };
     };
     let r = req.read().clone();
     let lang = v::voice_lang(&r.lang).copied().unwrap_or(v::VOICE_LANGS[0]);
@@ -265,38 +277,41 @@ pub fn GeneratePage() -> Element {
                 // ---- hero: what is there, in the picked language
                 div { class: "gen-hero",
                     div { class: "gen-hero-text",
-                        div { class: "gen-kicker", Icon { name: "voice", size: 14 } "Kokoro · offline text-to-speech" }
-                        h2 { "Generate the voice" }
-                        p { "Record every part of the codecast with a natural voice that runs on this machine. Each part becomes a small Opus file next to its script, played instead of the browser's voice — and spoken by TTS again as soon as its text changes." }
+                        div { class: "gen-kicker", Icon { name: "voice", size: 14 } {t::generate::kicker()} }
+                        h2 { {t::generate::title()} }
+                        p { {t::generate::intro()} }
                     }
                     if status.problem.is_none() {
                         div { class: "gen-stats",
-                            div { class: "gen-stat", b { "{n_rec}" span { "/{recordable.len()}" } } span { "by {voice_name}" } }
-                            div { class: "gen-stat", b { "{clock(audio)}" } span { "of audio" } }
-                            div { class: "gen-stat", b { "{size(kb)}" } span { "on disk" } }
+                            div { class: "gen-stat", b { "{n_rec}" span { "/{recordable.len()}" } } span { {t::generate::stat_by(&voice_name)} } }
+                            div { class: "gen-stat", b { "{clock(audio)}" } span { {t::generate::stat_audio()} } }
+                            div { class: "gen-stat", b { "{size(kb)}" } span { {t::generate::stat_disk()} } }
                         }
                     }
                 }
                 if let Some(problem) = status.problem.clone() {
                     div { class: "gen-card gen-empty",
                         div { class: "gen-empty-icon", Icon { name: "voice", size: 34 } }
-                        h3 { "Nothing to record yet" }
-                        p { "{problem}" }
-                        pre { class: "gen-tree", "codecast/\n├── index.md          title + the parts, in order\n├── 01-welcome.md     one ## part per file\n└── 02-pipeline.md" }
-                        p { class: "gen-muted", "Then run codecast serve again, or record from the terminal with " code { "codecast voice codecast/" } "." }
+                        h3 { {t::generate::empty_title()} }
+                        p { {match problem {
+                            iwr_core::voice::VoiceProblem::NoCodecast => t::generate::problem_no_codecast().to_string(),
+                            iwr_core::voice::VoiceProblem::SingleFile { path } => t::generate::problem_single_file(path),
+                        }} }
+                        pre { class: "gen-tree", {t::generate::empty_tree()} }
+                        p { class: "gen-muted", Cmd { text: t::generate::empty_then().to_string() } }
                     }
                 } else {
-                    div { class: "gen-coverage", title: "{voice_name}: {n_rec} recorded · {n_stale} changed since · {n_missing} missing · {n_own} hand-made",
+                    div { class: "gen-coverage", title: t::generate::coverage_tip(&voice_name, n_rec, n_stale, n_missing, n_own),
                         i { class: "ok", style: "flex:{n_rec}" }
                         i { class: "stale", style: "flex:{n_stale}" }
                         i { class: "own", style: "flex:{n_own}" }
                         i { class: "missing", style: "flex:{n_missing + total - total.min(n_rec + n_stale + n_own + n_missing)}" }
                     }
                     div { class: "gen-legend",
-                        span { i { class: "ok" } "{n_rec} recorded by {voice_name}" }
-                        span { i { class: "stale" } "{n_stale} changed since" }
-                        span { i { class: "missing" } "{n_missing} missing" }
-                        if n_own > 0 { span { i { class: "own" } "{n_own} hand-made" } }
+                        span { i { class: "ok" } {t::generate::coverage_recorded(n_rec, &voice_name)} }
+                        span { i { class: "stale" } {t::generate::coverage_stale(n_stale)} }
+                        span { i { class: "missing" } {t::generate::coverage_missing(n_missing)} }
+                        if n_own > 0 { span { i { class: "own" } {t::generate::coverage_own(n_own)} } }
                     }
                     if !status.stale.is_empty() || !status.orphans.is_empty() {
                         Outdated { status: status.clone(), running, message }
@@ -308,15 +323,15 @@ pub fn GeneratePage() -> Element {
                         div { class: "gen-banner",
                             Icon { name: "info", size: 16 }
                             div {
-                                b { "First run sets Kokoro up" }
-                                span { " — a Python environment (through uv, fetched if missing) and the ~90 MB model, downloaded once into ~/.cache/codecast/kokoro. Needs an internet connection; takes a minute or two." }
+                                b { {t::generate::banner_title()} }
+                                span { {t::generate::banner_text()} }
                             }
                         }
                     }
 
                     // ---- 1. language
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "1" } div { h3 { "Language" } p { "Other languages are translated offline from the English parts, and stay in sync with them." } p { class: "gen-warn", "⚠ The offline translation is rough for now. For a good one, translate with another tool (DeepL, an LLM…): " code { "codecast translate codecast/ --lang ja --pieces > ja.json" } ", fill in the values, save it as " code { "codecast/translations/ja.json" } "; those pieces win over the model." } } }
+                        div { class: "gen-step", span { "1" } div { h3 { {t::generate::language_title()} } p { {t::generate::language_text()} } p { class: "gen-warn", Cmd { text: t::generate::language_warn().to_string() } } } }
                         div { class: "gen-langs",
                             for l in v::VOICE_LANGS.iter().copied() {
                                 { let done = parts.iter().filter(|p| p.recorded_in(l.code)).count();
@@ -325,9 +340,9 @@ pub fn GeneratePage() -> Element {
                                   rsx! {
                                     button { class: if l.arg == lang.arg { "gen-lang sel" } else { "gen-lang" }, disabled: running,
                                         onclick: move |_| { stop_preview(); picked.set(None); req.with_mut(|r| { r.lang = l.arg.into(); r.voice = l.default_voice.into(); r.voice2 = None; }); },
-                                        span { class: "name", "{l.name}" }
+                                        span { class: "name", {voice_lang_name(&l)} }
                                         span { class: "bar", i { style: "width:{pct}%" } }
-                                        span { class: "sub", "{done}/{recordable.len()} parts" }
+                                        span { class: "sub", {t::generate::language_done(recordable.len(), done)} }
                                     }
                                 } }
                             }
@@ -336,7 +351,7 @@ pub fn GeneratePage() -> Element {
 
                     // ---- 2. voice
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "2" } div { h3 { "Voices" } p { "Click a slot, then a voice, or drag a voice onto a slot. ▶ plays a sample. Every voice (or pair) keeps its own recordings: listeners pick one in the player." } } }
+                        div { class: "gen-step", span { "2" } div { h3 { {t::generate::voices_title()} } p { {t::generate::voices_text()} } } }
                         div { class: "gen-slots",
                             for n in [1u8, 2] {
                                 { let (id, auto_pick) = if n == 1 { (r.voice.clone(), false) } else { (voice2.clone(), r.voice2.is_none()) };
@@ -344,13 +359,13 @@ pub fn GeneratePage() -> Element {
                                   let same = n == 2 && id == r.voice;
                                   let active = *slot.read() == n;
                                   let off = n == 2 && !status.second;
-                                  let title = if n == 1 { "Main voice" } else { "Second voice" };
+                                  let title = if n == 1 { t::generate::voices_main() } else { t::generate::voices_second() };
                                   let note = match (n, off, same, auto_pick) {
-                                      (1, ..) => "says every line".to_string(),
-                                      (_, true, _, _) => "says the sp: lines: this codecast has none yet".to_string(),
-                                      (_, _, true, _) => "the sp: lines, same voice spoken higher".to_string(),
-                                      (_, _, _, true) => "the sp: lines (picked for you)".to_string(),
-                                      _ => "says the sp: lines".to_string(),
+                                      (1, ..) => t::generate::voices_note_main(),
+                                      (_, true, _, _) => t::generate::voices_note_none(),
+                                      (_, _, true, _) => t::generate::voices_note_same(),
+                                      (_, _, _, true) => t::generate::voices_note_auto(),
+                                      _ => t::generate::voices_note_second(),
                                   };
                                   let class = format!("gen-slot{}{}", if active { " active" } else { "" }, if off { " off" } else { "" });
                                   rsx! {
@@ -373,13 +388,13 @@ pub fn GeneratePage() -> Element {
                                             div { class: "vtags", "{note}" }
                                         }
                                         if n == 2 && !auto_pick {
-                                            button { class: "slot-x", title: "pick for me", disabled: running,
+                                            button { class: "slot-x", title: t::generate::voices_pick_for_me(), disabled: running,
                                                 onclick: move |e| { e.stop_propagation(); req.with_mut(|r| r.voice2 = None); }, "✕" }
                                         }
                                     }
                                 } }
                             }
-                            button { class: "gen-swap", title: "swap the two voices", disabled: running,
+                            button { class: "gen-swap", title: t::generate::voices_swap(), disabled: running,
                                 onclick: { let v2 = voice2.clone(); move |_| { let v2 = v2.clone(); req.with_mut(|r| { let v1 = std::mem::replace(&mut r.voice, v2); r.voice2 = Some(v1); }); } },
                                 "⇄" }
                         }
@@ -404,12 +419,12 @@ pub fn GeneratePage() -> Element {
                                             span { class: "vslot", if sel && sel2 { "1·2" } else if sel { "1" } else { "2" } }
                                         }
                                         div { class: "who",
-                                            div { class: "vname", "{name}" if featured { span { class: "star", title: "one of the best Kokoro voices", "★" } } }
+                                            div { class: "vname", "{name}" if featured { span { class: "star", title: t::generate::voices_best(), "★" } } }
                                             div { class: "vtags", if female { "♀ " } else { "♂ " } "{accent(id)}"
-                                                if has > 0 { span { class: "vhas", title: "parts recorded with this voice", "● {has}/{recordable.len()}" } }
+                                                if has > 0 { span { class: "vhas", title: t::generate::voices_has(), "● {has}/{recordable.len()}" } }
                                             }
                                         }
-                                        button { class: match &pv { Some((_, true)) => "play loading", Some(_) => "play on", None => "play" }, title: "hear a sample",
+                                        button { class: match &pv { Some((_, true)) => "play loading", Some(_) => "play on", None => "play" }, title: t::generate::voices_sample(),
                                             onclick: move |e| {
                                                 e.stop_propagation();
                                                 if previewing.read().as_ref().is_some_and(|(p, _)| p == id) {
@@ -432,7 +447,7 @@ pub fn GeneratePage() -> Element {
                                                         previewing.set(None);
                                                     }
                                                     if let Err(e) = res {
-                                                        message.set(format!("preview: {e}"));
+                                                        message.set(t::generate::voices_preview_error(e));
                                                     }
                                                 });
                                             },
@@ -446,22 +461,22 @@ pub fn GeneratePage() -> Element {
 
                     // ---- 3. delivery
                     section { class: "gen-card",
-                        div { class: "gen-step", span { "3" } div { h3 { "Delivery" } p { "How it is spoken and stored." } } }
+                        div { class: "gen-step", span { "3" } div { h3 { {t::generate::delivery_title()} } p { {t::generate::delivery_text()} } } }
                         div { class: "gen-sliders",
                             label { class: "gen-slider",
-                                div { span { "Speed" } b { "{r.speed:.2}×" } }
+                                div { span { {t::generate::delivery_speed()} } b { "{r.speed:.2}×" } }
                                 input { r#type: "range", min: "0.7", max: "1.4", step: "0.05", value: "{r.speed}", disabled: running, oninput: move |e| if let Ok(x) = e.value().parse() { req.with_mut(|r| r.speed = x) } }
-                                div { class: "ends", span { "calm" } span { "brisk" } }
+                                div { class: "ends", span { {t::generate::delivery_calm()} } span { {t::generate::delivery_brisk()} } }
                             }
                             label { class: "gen-slider",
-                                div { span { "Pause between cues" } b { "{r.gap:.1} s" } }
+                                div { span { {t::generate::delivery_gap()} } b { "{r.gap:.1} s" } }
                                 input { r#type: "range", min: "0", max: "1.5", step: "0.1", value: "{r.gap}", disabled: running, oninput: move |e| if let Ok(x) = e.value().parse() { req.with_mut(|r| r.gap = x) } }
-                                div { class: "ends", span { "tight" } span { "airy" } }
+                                div { class: "ends", span { {t::generate::delivery_tight()} } span { {t::generate::delivery_airy()} } }
                             }
                             label { class: "gen-slider",
-                                div { span { "Compression" } b { "{r.level:.2}" } }
+                                div { span { {t::generate::delivery_compression()} } b { "{r.level:.2}" } }
                                 input { r#type: "range", min: "0.5", max: "1", step: "0.05", value: "{r.level}", disabled: running, oninput: move |e| if let Ok(x) = e.value().parse() { req.with_mut(|r| r.level = x) } }
-                                div { class: "ends", span { "cleaner" } span { "smaller (0.95 ≈ 18 kbps)" } }
+                                div { class: "ends", span { {t::generate::delivery_cleaner()} } span { {t::generate::delivery_smaller()} } }
                             }
                         }
                     }
@@ -469,11 +484,11 @@ pub fn GeneratePage() -> Element {
                     // ---- 4. parts
                     section { class: "gen-card",
                         div { class: "gen-step", span { "4" }
-                            div { h3 { "Parts" } p { "Ticked parts are recorded, up to date or not. Unchanged cues come from the cache, instantly." } }
+                            div { h3 { {t::generate::pick_title()} } p { {t::generate::pick_text()} } }
                             div { class: "gen-quick",
-                                button { class: if picked.read().is_none() { "sel" } else { "" }, disabled: running, onclick: move |_| picked.set(None), "Needs it ({n_auto})" }
-                                button { disabled: running, onclick: { let all: HashSet<String> = recordable.iter().map(|p| p.stem.clone()).collect(); move |_| picked.set(Some(all.clone())) }, "All" }
-                                button { disabled: running, onclick: move |_| picked.set(Some(HashSet::new())), "None" }
+                                button { class: if picked.read().is_none() { "sel" } else { "" }, disabled: running, onclick: move |_| picked.set(None), {t::generate::pick_needs(n_auto)} }
+                                button { disabled: running, onclick: { let all: HashSet<String> = recordable.iter().map(|p| p.stem.clone()).collect(); move |_| picked.set(Some(all.clone())) }, {t::generate::pick_all()} }
+                                button { disabled: running, onclick: move |_| picked.set(Some(HashSet::new())), {t::generate::pick_none()} }
                             }
                         }
                         div { class: "gen-parts",
@@ -485,11 +500,11 @@ pub fn GeneratePage() -> Element {
                                   let sel = sel.clone();
                                   let on = sel.contains(&p.stem) && p.skip.is_none();
                                   let (pill, pill_class) = match (&p.skip, rec.as_ref().map(|r| r.state.as_str())) {
-                                      (Some(_), _) => ("can't record", "skip"),
-                                      (_, Some("recorded")) => ("recorded", "ok"),
-                                      (_, Some("stale")) => ("text changed", "stale"),
-                                      (_, _) if own => ("hand-made", "own"),
-                                      (_, _) => ("missing", "missing"),
+                                      (Some(_), _) => (t::generate::pill_skip(), "skip"),
+                                      (_, Some("recorded")) => (t::generate::pill_recorded(), "ok"),
+                                      (_, Some("stale")) => (t::generate::pill_stale(), "stale"),
+                                      (_, _) if own => (t::generate::pill_own(), "own"),
+                                      (_, _) => (t::generate::pill_missing(), "missing"),
                                   };
                                   let meta = match &rec {
                                       Some(r) => {
@@ -510,10 +525,10 @@ pub fn GeneratePage() -> Element {
                                         span { class: "num", "{i + 1:02}" }
                                         div { class: "what",
                                             div { class: "pname", if p.name.is_empty() { "{p.stem}" } else { "{p.name}" } }
-                                            div { class: "pmeta", code { "{p.stem}.md" } " · {p.cues} cues" if !meta.is_empty() { " · {meta}" } }
+                                            div { class: "pmeta", code { "{p.stem}.md" } " · {t::generate::cues(p.cues)}" if !meta.is_empty() { " · {meta}" } }
                                         }
                                         if !others.is_empty() {
-                                            span { class: "gen-others", title: "also recorded by {others.iter().map(|o| v::voice_label(o).0).collect::<Vec<_>>().join(\", \")}",
+                                            span { class: "gen-others", title: t::generate::pick_also_by(others.iter().map(|o| v::voice_label(o).0).collect::<Vec<_>>().join(", ")),
                                                 for o in others.iter() {
                                                     span { class: "avatar", style: "--h:{hue(o)}", "{v::voice_label(o).0.chars().next().unwrap_or('?')}" }
                                                 }
@@ -538,24 +553,24 @@ pub fn GeneratePage() -> Element {
                     if !running {
                         div { class: "gen-action",
                             div { class: "gen-summary",
-                                b { {if n_sel == 0 { "Nothing ticked".to_string() } else { format!("{n_sel} part(s) · {cues_sel} cues") }} }
-                                span { "{voice_name} · {lang.name} · {r.speed:.2}×" }
+                                b { {if n_sel == 0 { t::generate::action_nothing().to_string() } else { format!("{} · {}", t::generate::parts(n_sel), t::generate::cues(cues_sel)) }} }
+                                span { "{voice_name} · {voice_lang_name(&lang)} · {r.speed:.2}×" }
                                 if !message.read().is_empty() { span { class: "gen-error", "{message}" } }
                             }
                             div { class: "gen-buttons",
                                 if code != "en" {
                                     button { class: "gen-again", disabled: n_sel == 0, onclick: generate(true, false),
-                                        title: "translate the ticked parts again (not from the cache), then record them",
-                                        "↻ Retranslate"
+                                        title: t::generate::action_retranslate_tip(),
+                                        {t::generate::action_retranslate()}
                                     }
                                 }
                                 button { class: "gen-again", disabled: n_sel == 0, onclick: generate(false, true),
-                                    title: "synthesize every cue of the ticked parts again (not from the cache)",
-                                    "↻ Rerecord"
+                                    title: t::generate::action_rerecord_tip(),
+                                    {t::generate::action_rerecord()}
                                 }
                                 button { class: "gen-go", disabled: n_sel == 0, onclick: generate(false, false),
                                     Icon { name: "voice", size: 18 }
-                                    if n_sel == 0 { "Generate" } else { "Generate {n_sel} part(s)" }
+                                    if n_sel == 0 { {t::generate::action_generate()} } else { {t::generate::action_generate_n(n_sel)} }
                                 }
                             }
                         }
@@ -583,17 +598,19 @@ fn Progress(job: VoiceJob, show_log: Signal<bool>) -> Element {
     let class = if job.running { "gen-job running" } else if failed { "gen-job failed" } else if job.stage == "cancelled" { "gen-job cancelled" } else { "gen-job done" };
     let title = if job.running {
         match cur.and_then(|i| job.parts.get(i)) {
-            Some(p) if job.stage == "recording" => format!("Recording {}", p.stem),
+            Some(p) if job.stage == "recording" => t::generate::job_recording(&p.stem),
+            // the stage the page sets itself; the server's own stages show as it writes them
+            _ if job.stage == "starting" => t::generate::job_starting().to_string(),
             _ => job.stage.clone(),
         }
     } else if failed {
-        "Recording failed".into()
+        t::generate::job_failed().into()
     } else if job.stage == "cancelled" {
-        format!("Cancelled — {n_done} part(s) kept")
+        t::generate::job_cancelled(n_done)
     } else if job.parts.is_empty() {
-        "Everything was already up to date".into()
+        t::generate::job_up_to_date().into()
     } else {
-        format!("{n_done} part(s) recorded · {} of audio · {}", clock(audio), size(kb))
+        t::generate::job_done(n_done, clock(audio), size(kb))
     };
     rsx! {
         div { class: "{class}",
@@ -602,19 +619,19 @@ fn Progress(job: VoiceJob, show_log: Signal<bool>) -> Element {
                 div { class: "gen-job-title",
                     b { "{title}" }
                     span {
-                        if total > 0 { "cue {done}/{total} · " }
-                        "{clock(job.elapsed)} elapsed"
-                        if let Some(e) = eta { " · about {clock(e)} left" }
+                        if total > 0 { {t::generate::job_cue(done, total)} }
+                        {t::generate::job_elapsed(clock(job.elapsed))}
+                        if let Some(e) = eta { {t::generate::job_left(clock(e))} }
                     }
                 }
                 if job.running {
                     b { class: "gen-pct", "{pct:.0}%" }
-                    button { class: "gen-cancel", onclick: move |_| { spawn(async move { let _ = gloo_net::http::Request::post("/api/voice/cancel").send().await; }); }, "Cancel" }
+                    button { class: "gen-cancel", onclick: move |_| { spawn(async move { let _ = gloo_net::http::Request::post("/api/voice/cancel").send().await; }); }, {t::generate::job_cancel()} }
                 } else {
                     if !failed && n_done > 0 {
-                        button { class: "gen-play", onclick: move |_| { state.close_pages(); state.start_tour(); }, Icon { name: "codecast", size: 14 } "Play the codecast" }
+                        button { class: "gen-play", onclick: move |_| { state.close_pages(); state.start_tour(); }, Icon { name: "codecast", size: 14 } {t::generate::job_play()} }
                     }
-                    button { class: "gen-dismiss", title: "hide", onclick: move |_| state.voice_job.set(None), "✕" }
+                    button { class: "gen-dismiss", title: t::generate::job_hide(), onclick: move |_| state.voice_job.set(None), "✕" }
                 }
             }
             div { class: if indeterminate { "gen-bar indeterminate" } else { "gen-bar" },
@@ -626,7 +643,7 @@ fn Progress(job: VoiceJob, show_log: Signal<bool>) -> Element {
                         { let st = if p.duration.is_some() { "done" } else if job.running && Some(i) == cur { "cur" } else { "wait" };
                           let w = if p.cues > 0 { p.done * 100 / p.cues } else { 0 };
                           rsx! {
-                            div { class: "gen-chip {st}", title: "{p.done}/{p.cues} cues",
+                            div { class: "gen-chip {st}", title: t::generate::job_chip(p.cues, p.done),
                                 span { class: "mark", match st { "done" => "✓", "cur" => "●", _ => "○" } }
                                 span { "{p.stem}" }
                                 if let Some(d) = p.duration { em { "{clock(d)}" } }
@@ -640,7 +657,7 @@ fn Progress(job: VoiceJob, show_log: Signal<bool>) -> Element {
                 if failed { pre { class: "gen-err", "{e}" } }
             }
             if !job.log.is_empty() {
-                button { class: "gen-logbtn", onclick: move |_| { let v = *show_log.read(); show_log.set(!v); }, if *show_log.read() { "hide details ▾" } else { "details ({job.log.len()}) ▸" } }
+                button { class: "gen-logbtn", onclick: move |_| { let v = *show_log.read(); show_log.set(!v); }, if *show_log.read() { {t::generate::job_hide_details()} } else { {t::generate::job_details(job.log.len())} } }
                 if *show_log.read() {
                     pre { class: "gen-log", for l in job.log.iter() { "{l}\n" } }
                 }
@@ -680,17 +697,17 @@ fn Outdated(status: Rc<VoiceStatus>, running: bool, message: Signal<String>) -> 
             }
         });
     };
-    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| l.name.to_string()).unwrap_or_else(|| code.to_string());
+    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| voice_lang_name(l).to_string()).unwrap_or_else(|| code.to_string());
     let all_confirm = confirm.read().as_deref() == Some("*");
     rsx! {
         section { class: "gen-card gen-outdated",
             div { class: "gen-out-head",
                 span { class: "gen-out-icon", "↻" }
                 div {
-                    h3 { if n_rec > 0 { "{n_rec} recording(s) out of date: their text changed" } else { "Old recordings to clean up" } }
+                    h3 { if n_rec > 0 { {t::generate::outdated_title(n_rec)} } else { {t::generate::outdated_clean_title()} } }
                     p {
-                        if n_rec > 0 { "Those parts are spoken by the browser voice until they are recorded again. " }
-                        if n_orphans > 0 { "{n_orphans} recording(s) belong to parts that no longer exist." }
+                        if n_rec > 0 { {t::generate::outdated_browser()} }
+                        if n_orphans > 0 { {t::generate::outdated_orphans(n_orphans)} }
                     }
                 }
             }
@@ -706,13 +723,13 @@ fn Outdated(status: Rc<VoiceStatus>, running: bool, message: Signal<String>) -> 
                             span { class: "avatar", style: "--h:{hue(&g.voice)}", "{name.chars().next().unwrap_or('?')}" }
                             div { class: "what",
                                 b { "{name} · {lang_name(&g.lang)}" }
-                                span { title: "{parts}", "{g.parts.len()} part(s): {parts}" }
+                                span { title: "{parts}", {t::generate::outdated_group(g.parts.len(), &parts)} }
                             }
-                            button { class: "gen-mini go", disabled: running, onclick: move |_| refresh(vec![k1.clone()]), "↻ Regenerate" }
+                            button { class: "gen-mini go", disabled: running, onclick: move |_| refresh(vec![k1.clone()]), {t::generate::outdated_regenerate()} }
                             if asking {
-                                button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![k2.clone()]), "Delete {g.parts.len()} file(s)?" }
+                                button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![k2.clone()]), {t::generate::outdated_delete_files(g.parts.len())} }
                             } else {
-                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), "Delete" }
+                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), {t::generate::outdated_delete()} }
                             }
                         }
                     } }
@@ -721,22 +738,22 @@ fn Outdated(status: Rc<VoiceStatus>, running: bool, message: Signal<String>) -> 
                     div { class: "gen-out-row",
                         span { class: "avatar trash", "🗑" }
                         div { class: "what",
-                            b { "Parts that are gone" }
+                            b { {t::generate::outdated_gone()} }
                             span { title: "{status.orphans.join(\", \")}", "{status.orphans.join(\", \")}" }
                         }
-                        span { class: "gen-out-note", "deleted with either action below" }
+                        span { class: "gen-out-note", {t::generate::outdated_gone_note()} }
                     }
                 }
             }
             div { class: "gen-out-foot",
                 if n_rec > 0 {
-                    button { class: "gen-mini go big", disabled: running, onclick: move |_| refresh(vec![]), "↻ Regenerate all out-of-date" }
+                    button { class: "gen-mini go big", disabled: running, onclick: move |_| refresh(vec![]), {t::generate::outdated_regenerate_all()} }
                 }
                 if all_confirm {
-                    button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![]), "Yes, delete {n_rec + n_orphans} recording(s)" }
-                    button { class: "gen-mini", onclick: move |_| confirm.set(None), "Keep them" }
+                    button { class: "gen-mini danger", disabled: running, onclick: move |_| clean(vec![]), {t::generate::outdated_confirm_all(n_rec + n_orphans)} }
+                    button { class: "gen-mini", onclick: move |_| confirm.set(None), {t::generate::outdated_keep()} }
                 } else {
-                    button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some("*".into())), if n_rec > 0 { "Delete all out-of-date" } else { "Delete them" } }
+                    button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some("*".into())), if n_rec > 0 { {t::generate::outdated_delete_all()} } else { {t::generate::outdated_delete_them()} } }
                 }
             }
         }
@@ -772,7 +789,7 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
             }
         });
     };
-    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| l.name.to_string()).unwrap_or_else(|| code.to_string());
+    let lang_name = |code: &str| v::VOICE_LANGS.iter().find(|l| l.code == code).map(|l| voice_lang_name(l).to_string()).unwrap_or_else(|| code.to_string());
     let n_todo = status.sets.iter().filter(|g| !g.todo().is_empty()).count();
     let total = status.parts.iter().filter(|p| p.skip.is_none()).count();
     rsx! {
@@ -780,8 +797,8 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
             div { class: "gen-out-head",
                 span { class: "gen-out-icon", Icon { name: "voice", size: 14 } }
                 div {
-                    h3 { "Recorded voices" }
-                    p { "Each voice or pair keeps its own recordings. Complete records the parts it lacks — changed or new — with the voice and delivery it was made with." }
+                    h3 { {t::generate::sets_title()} }
+                    p { {t::generate::sets_text()} }
                 }
             }
             div { class: "gen-out-list",
@@ -790,9 +807,9 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
                       let (name, _) = v::voice_label(&g.voice);
                       let todo = g.todo().len();
                       let asking = confirm.read().as_deref() == Some(key.as_str());
-                      let mut detail = vec![format!("{}/{} recorded", g.recorded.len(), total)];
-                      if !g.stale.is_empty() { detail.push(format!("{} changed", g.stale.len())); }
-                      if !g.missing.is_empty() { detail.push(format!("{} missing", g.missing.len())); }
+                      let mut detail = vec![t::generate::sets_recorded(g.recorded.len(), total)];
+                      if !g.stale.is_empty() { detail.push(t::generate::sets_changed(g.stale.len())); }
+                      if !g.missing.is_empty() { detail.push(t::generate::sets_missing(g.missing.len())); }
                       detail.push(format!("{:.2}×", g.speed));
                       let detail = detail.join(" · ");
                       let lacking = g.todo().join(", ");
@@ -807,7 +824,7 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
                                 span { title: "{lacking}", "{detail}" }
                             }
                             if !cur {
-                                button { class: "gen-mini", disabled: running, title: "pick this voice, language and delivery in the form below",
+                                button { class: "gen-mini", disabled: running, title: t::generate::sets_select_tip(),
                                     onclick: move |_| {
                                         let (first, second) = v::split_pair(&pick.voice);
                                         picked.set(None);
@@ -820,17 +837,17 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
                                             r.level = pick.level;
                                         });
                                     },
-                                    "Select"
+                                    {t::generate::sets_select()}
                                 }
                             }
-                            button { class: "gen-mini go", disabled: running || todo == 0, title: if todo == 0 { "nothing to record".to_string() } else { format!("record {lacking}") },
+                            button { class: "gen-mini go", disabled: running || todo == 0, title: if todo == 0 { t::generate::sets_nothing().to_string() } else { t::generate::sets_record(&lacking) },
                                 onclick: move |_| complete(vec![k1.clone()]),
-                                if todo == 0 { "✓ Complete" } else { "↻ Complete {todo} part(s)" }
+                                if todo == 0 { {t::generate::sets_complete()} } else { {t::generate::sets_complete_n(todo)} }
                             }
                             if asking {
-                                button { class: "gen-mini danger", disabled: running, onclick: move |_| remove(k2.clone()), "Delete {g.files.len() / 2} recording(s)?" }
+                                button { class: "gen-mini danger", disabled: running, onclick: move |_| remove(k2.clone()), {t::generate::sets_delete_n(g.files.len() / 2)} }
                             } else {
-                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), "Delete" }
+                                button { class: "gen-mini", disabled: running, onclick: move |_| confirm.set(Some(k3.clone())), {t::generate::outdated_delete()} }
                             }
                         }
                     } }
@@ -838,7 +855,7 @@ fn Sets(status: Rc<VoiceStatus>, running: bool, current: String, req: Signal<Voi
             }
             if n_todo > 1 {
                 div { class: "gen-out-foot",
-                    button { class: "gen-mini go big", disabled: running, onclick: move |_| complete(status.sets.iter().filter(|g| !g.todo().is_empty()).map(|g| g.key()).collect()), "↻ Complete all {n_todo} voices" }
+                    button { class: "gen-mini go big", disabled: running, onclick: move |_| complete(status.sets.iter().filter(|g| !g.todo().is_empty()).map(|g| g.key()).collect()), {t::generate::sets_complete_all(n_todo)} }
                 }
             }
         }

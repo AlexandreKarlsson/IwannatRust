@@ -1,0 +1,16 @@
+# コードビュー（code.rs）：ソースを入れ子のブロックで表示し、実際のソースと並べる。
+loading = "読み込み中…"
+items = "{n} アイテム · ブロックをクリックすると開きます"
+binary = "バイナリまたは大きなファイルのため表示しません。"
+recursive = "↻ 再帰"
+defines = "{name} を定義"
+uses = "{name} を使用"
+open = "{name} を開く"
+
+[go]
+flow = "フロー"
+flow_tip = "この関数の制御フロー"
+calls = "呼び出し"
+calls_tip = "この関数からの呼び出しツリー"
+sequence = "シーケンス"
+sequence_tip = "この関数が行う呼び出しのシーケンス図"

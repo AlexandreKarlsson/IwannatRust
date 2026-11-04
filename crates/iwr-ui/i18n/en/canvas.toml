@@ -1,0 +1,45 @@
+# The graph canvas (`canvas.rs`): zoom bar, view options, node tooltips.
+
+fit = "Fit"
+root = "root:"
+depth = "depth"
+scope = "scope: {scope} ✕"
+nodes = { one = "{n} node · {status}", other = "{n} nodes · {status}" }
+show = "show"
+
+[hint]
+fit = "fit"
+codecast = "codecast"
+tour = "tour"
+steps = "steps"
+
+[tip]
+depth = "how many call levels to open from the root"
+scope = "clear module scope"
+kinds = "tick what the {view} view shows"
+
+[tooltip]
+returns = "returns"
+calls = "calls:"
+called_by = "called by:"
+propagate = "On Err/None this function returns early to its caller."
+panic = "May abort with a panic instead of returning an error."
+loop_body = "Body repeats; exits on the 'done' edge or a break."
+folded = "Folded: click ⊕ to show the steps inside."
+fold_callee = "click ⊖ to fold the callee"
+unfold_callee = "click ⊕ to unfold the callee here"
+expand = "click ⊕ to expand"
+click = "click: show source · double-click: {action}"
+open_callee = "open callee"
+open_modules = "open the modules inside"
+expand_open = "expand / open in control flow"
+
+# node badges and sub-labels written by iwr-core (see `shown`)
+[badge]
+loops = "{n}× loop"
+branches = "{n}× branch"
+inside = "+{n} inside"
+steps_inside = { one = "{n} step inside", other = "{n} steps inside" }
+recursive = "↻ recursive"
+test = "test"
+external_crate = "external crate"

@@ -1,5 +1,6 @@
 //! Colours and CSS. Everything visual lives here so it can be re-skinned.
 
+use crate::i18n::t;
 use iwr_core::views::{EdgeKind, Mode, NodeKind};
 
 pub fn node_color(k: NodeKind) -> &'static str {
@@ -48,45 +49,45 @@ pub fn node_color(k: NodeKind) -> &'static str {
 
 pub fn node_kind_label(k: NodeKind) -> &'static str {
     match k {
-        NodeKind::Main => "entry point",
-        NodeKind::Function => "function",
-        NodeKind::Method => "method",
-        NodeKind::Struct => "struct",
-        NodeKind::Enum => "enum",
-        NodeKind::ErrorType => "error type",
-        NodeKind::Trait => "trait",
-        NodeKind::TypeAlias => "type alias",
-        NodeKind::Const => "const",
-        NodeKind::Module => "module",
-        NodeKind::Impl => "impl block",
-        NodeKind::External => "external",
-        NodeKind::Macro => "macro",
-        NodeKind::Entry => "entry",
-        NodeKind::Exit => "exit",
-        NodeKind::Block => "statements",
-        NodeKind::If => "if",
-        NodeKind::Match => "match",
-        NodeKind::Loop => "loop",
-        NodeKind::Call => "call",
-        NodeKind::Return => "return",
-        NodeKind::ReturnErr => "return error",
-        NodeKind::Halt => "program stops",
-        NodeKind::Let => "new variable",
-        NodeKind::Assign => "changes state",
-        NodeKind::Io => "input / output",
-        NodeKind::Log => "log",
-        NodeKind::Jump => "break / continue",
-        NodeKind::Propagate => "? propagation",
-        NodeKind::Panic => "panic",
-        NodeKind::Await => "await",
-        NodeKind::File => "file",
-        NodeKind::Note => "note",
-        NodeKind::Box => "box",
-        NodeKind::Round => "round",
-        NodeKind::Pill => "pill",
-        NodeKind::Diamond => "diamond",
-        NodeKind::Cylinder => "store",
-        NodeKind::Group => "group",
+        NodeKind::Main => t::theme::node_main(),
+        NodeKind::Function => t::theme::node_function(),
+        NodeKind::Method => t::theme::node_method(),
+        NodeKind::Struct => t::theme::node_struct(),
+        NodeKind::Enum => t::theme::node_enum(),
+        NodeKind::ErrorType => t::theme::node_error_type(),
+        NodeKind::Trait => t::theme::node_trait(),
+        NodeKind::TypeAlias => t::theme::node_type_alias(),
+        NodeKind::Const => t::theme::node_const(),
+        NodeKind::Module => t::theme::node_module(),
+        NodeKind::Impl => t::theme::node_impl(),
+        NodeKind::External => t::theme::node_external(),
+        NodeKind::Macro => t::theme::node_macro(),
+        NodeKind::Entry => t::theme::node_entry(),
+        NodeKind::Exit => t::theme::node_exit(),
+        NodeKind::Block => t::theme::node_block(),
+        NodeKind::If => t::theme::node_if(),
+        NodeKind::Match => t::theme::node_match(),
+        NodeKind::Loop => t::theme::node_loop(),
+        NodeKind::Call => t::theme::node_call(),
+        NodeKind::Return => t::theme::node_return(),
+        NodeKind::ReturnErr => t::theme::node_return_err(),
+        NodeKind::Halt => t::theme::node_halt(),
+        NodeKind::Let => t::theme::node_let(),
+        NodeKind::Assign => t::theme::node_assign(),
+        NodeKind::Io => t::theme::node_io(),
+        NodeKind::Log => t::theme::node_log(),
+        NodeKind::Jump => t::theme::node_jump(),
+        NodeKind::Propagate => t::theme::node_propagate(),
+        NodeKind::Panic => t::theme::node_panic(),
+        NodeKind::Await => t::theme::node_await(),
+        NodeKind::File => t::theme::node_file(),
+        NodeKind::Note => t::theme::node_note(),
+        NodeKind::Box => t::theme::node_box(),
+        NodeKind::Round => t::theme::node_round(),
+        NodeKind::Pill => t::theme::node_pill(),
+        NodeKind::Diamond => t::theme::node_diamond(),
+        NodeKind::Cylinder => t::theme::node_cylinder(),
+        NodeKind::Group => t::theme::node_group(),
     }
 }
 
@@ -182,35 +183,35 @@ fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
 
 pub fn edge_kind_label(k: EdgeKind) -> &'static str {
     match k {
-        EdgeKind::Call => "call",
-        EdgeKind::CallInLoop => "call inside loop",
-        EdgeKind::CallInBranch => "conditional call",
-        EdgeKind::Recursion => "recursion",
-        EdgeKind::Propagate => "error propagated (?)",
-        EdgeKind::Unwrap => "unwrap / expect",
-        EdgeKind::Await => "await",
-        EdgeKind::Construct => "constructs",
-        EdgeKind::Next => "next",
-        EdgeKind::True => "true",
-        EdgeKind::False => "false / done",
-        EdgeKind::Arm => "match arm",
-        EdgeKind::LoopBody => "loop body",
-        EdgeKind::LoopBack => "next iteration",
-        EdgeKind::Break => "break",
-        EdgeKind::Continue => "continue",
-        EdgeKind::Error => "error exit",
-        EdgeKind::Return => "return",
-        EdgeKind::Contains => "contains",
-        EdgeKind::Implements => "implements",
-        EdgeKind::Supertrait => "supertrait",
-        EdgeKind::Uses => "used by",
-        EdgeKind::Aliases => "alias / From",
-        EdgeKind::Dependency => "depends on",
-        EdgeKind::Handles => "error handled",
-        EdgeKind::Arrow | EdgeKind::Line => "link",
-        EdgeKind::Dotted | EdgeKind::DottedLine => "dotted link",
-        EdgeKind::Lifeline => "lifeline",
-        EdgeKind::Thick | EdgeKind::ThickLine => "strong link",
+        EdgeKind::Call => t::theme::edge_call(),
+        EdgeKind::CallInLoop => t::theme::edge_call_in_loop(),
+        EdgeKind::CallInBranch => t::theme::edge_call_in_branch(),
+        EdgeKind::Recursion => t::theme::edge_recursion(),
+        EdgeKind::Propagate => t::theme::edge_propagate(),
+        EdgeKind::Unwrap => t::theme::edge_unwrap(),
+        EdgeKind::Await => t::theme::edge_await(),
+        EdgeKind::Construct => t::theme::edge_construct(),
+        EdgeKind::Next => t::theme::edge_next(),
+        EdgeKind::True => t::theme::edge_true(),
+        EdgeKind::False => t::theme::edge_false(),
+        EdgeKind::Arm => t::theme::edge_arm(),
+        EdgeKind::LoopBody => t::theme::edge_loop_body(),
+        EdgeKind::LoopBack => t::theme::edge_loop_back(),
+        EdgeKind::Break => t::theme::edge_break(),
+        EdgeKind::Continue => t::theme::edge_continue(),
+        EdgeKind::Error => t::theme::edge_error(),
+        EdgeKind::Return => t::theme::edge_return(),
+        EdgeKind::Contains => t::theme::edge_contains(),
+        EdgeKind::Implements => t::theme::edge_implements(),
+        EdgeKind::Supertrait => t::theme::edge_supertrait(),
+        EdgeKind::Uses => t::theme::edge_uses(),
+        EdgeKind::Aliases => t::theme::edge_aliases(),
+        EdgeKind::Dependency => t::theme::edge_dependency(),
+        EdgeKind::Handles => t::theme::edge_handles(),
+        EdgeKind::Arrow | EdgeKind::Line => t::theme::edge_arrow(),
+        EdgeKind::Dotted | EdgeKind::DottedLine => t::theme::edge_dotted(),
+        EdgeKind::Lifeline => t::theme::edge_lifeline(),
+        EdgeKind::Thick | EdgeKind::ThickLine => t::theme::edge_thick(),
     }
 }
 
@@ -252,9 +253,9 @@ pub fn is_theme(id: &str) -> bool {
 
 /// Where each `[fonts]` role of `codecast.toml` applies.
 const FONT_TARGETS: [(&str, &str, &str); 3] = [
-    ("title", ".node text.title, .settings .shero h2, .settings .chead h3, .plan h2, .plan .name, .side-head .title, .cast-title, .tut-card h2", "system-ui, sans-serif"),
-    ("text", "&, button, input, select, .bhead .label.note", "system-ui, sans-serif"),
-    ("code", "code, pre, .source-pane, .ihead .sig, .bhead, .chip.var, .chip.def, .chip.call, .node text.sub, .node text.cap", "ui-monospace, Menlo, Consolas, monospace"),
+    ("title", ".node text.title, .settings .shero h2, .settings .chead h3, .plan h2, .plan .name, .side-head .title, .cast-title, .tut-card h2", "system-ui, \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", \"Yu Gothic UI\", Meiryo, \"Noto Sans CJK JP\", \"Noto Sans JP\", sans-serif"),
+    ("text", "&, button, input, select, .bhead .label.note", "system-ui, \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", \"Yu Gothic UI\", Meiryo, \"Noto Sans CJK JP\", \"Noto Sans JP\", sans-serif"),
+    ("code", "code, pre, .source-pane, .ihead .sig, .bhead, .chip.var, .chip.def, .chip.call, .node text.sub, .node text.cap", "ui-monospace, Menlo, Consolas, \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", \"Yu Gothic UI\", Meiryo, \"Noto Sans CJK JP\", \"Noto Sans JP\", monospace"),
 ];
 
 /// CSS for the chosen fonts (box titles and text: the viewer's, which a `codecast.toml` sets by
@@ -319,13 +320,13 @@ pub const CSS: &str = r#"
 .theme-light, .theme-paper, .theme-solar { --t-kw:#a626a4; --t-bi:#986801; --t-ty:#b07600; --t-fn:#4078f2; --t-mac:#0184bc; --t-str:#50a14f; --t-num:#986801; --t-lt:#e45649; --t-com:#8b8c92; --t-doc:#5f7f4f; --t-attr:#696c77; --t-var:#e45649; }
 .app { color:var(--text); background:var(--bg); }
 * { box-sizing: border-box; }
-html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; overflow:hidden; }
 button { background:var(--panel3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 9px; cursor:pointer; font-size:12px; }
 button:hover { filter:brightness(1.15); }
 button.active { background:var(--accent); color:var(--panel); border-color:var(--accent); font-weight:600; }
 button.small { padding:2px 6px; font-size:11px; }
 input[type=text], select { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-size:12px; }
-code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:12px; }
 .app { display:flex; flex-direction:column; height:100vh; overflow:clip; }
 .topbar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); background:var(--panel); flex-wrap:wrap; position:relative; z-index:20; }
@@ -349,6 +350,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .cam.anim .node, .cam.anim .edge { animation: node-in .5s ease-out; }
 .edge path { transition: stroke .35s, stroke-width .35s, opacity .35s; }
 .sbtabs { display:flex; gap:4px; margin:2px 0 6px; }
+.sbtabs button { white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .ftree .frow { display:flex; align-items:center; gap:5px; padding:2px 6px; border-radius:4px; cursor:pointer; white-space:nowrap; font-size:12px; }
 .ftree .frow:hover { background:var(--panel3); }
 .ftree .frow.sel { background:var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); color:var(--text); font-weight:600; }
@@ -406,13 +408,13 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .edge.dim { opacity:.18; }
 .edge.hub.dim { opacity:0; }
 .node .chip-dot { pointer-events:all; cursor:pointer; }
-.node .chip-dot text { fill:#0b1020; font-weight:800; pointer-events:none; font-family: system-ui, sans-serif; }
+.node .chip-dot text { fill:#0b1020; font-weight:800; pointer-events:none; font-family: system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; }
 .node .chip-dot:hover circle { stroke:var(--text); }
 .edge.dim .edge-label, .edge.dim .edge-label-bg { display:none; }
 .edge.near path { stroke-width:3 !important; opacity:1; }
 .hud .chip { background:var(--hl-bg); color:var(--hi); border-radius:999px; padding:1px 8px; font-size:11px; cursor:pointer; }
 .kinds { display:inline-flex; gap:4px; flex-wrap:wrap; align-items:center; }
-.kinds .kind { display:inline-flex; align-items:center; gap:3px; border:1px solid var(--border); border-radius:999px; padding:0 7px 0 4px; font-size:11px; line-height:18px; cursor:pointer; color:var(--text); background:var(--panel3); user-select:none; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.kinds .kind { display:inline-flex; align-items:center; gap:3px; border:1px solid var(--border); border-radius:999px; padding:0 7px 0 4px; font-size:11px; line-height:18px; cursor:pointer; color:var(--text); background:var(--panel3); user-select:none; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .kinds .kind.off { color:var(--muted); background:transparent; text-decoration:line-through; }
 .kinds .kind input { margin:0; width:11px; height:11px; accent-color:var(--accent); }
 .kinds .kind:hover { border-color:var(--accent); }
@@ -422,9 +424,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .code-view { display:flex; flex:1; min-width:0; min-height:0; }
 .blocks-pane { flex:1; min-width:0; overflow:auto; padding:10px 14px 40px; }
 .blocks-pane.half { flex:0 0 50%; border-right:1px solid var(--border); }
-.source-pane { flex:1; min-width:0; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; background:var(--panel2); }
+.source-pane { flex:1; min-width:0; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; background:var(--panel2); }
 .file-bar { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
-.file-bar .path { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--muted); }
+.file-bar .path { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--muted); }
 .moddoc { color:var(--muted); font-style:italic; margin:0 0 10px 2px; white-space:pre-wrap; }
 .iblk { border-left:4px solid var(--c); background:color-mix(in srgb, var(--c) 10%, var(--panel)); border-radius:8px; margin:6px 0; transition: box-shadow .35s; }
 .iblk.hl { box-shadow: 0 0 0 2px var(--hi), 0 0 14px color-mix(in srgb, var(--hi) 45%, transparent); background:color-mix(in srgb, var(--hi) 12%, var(--panel)); }
@@ -434,34 +436,34 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .ihead:hover { background:color-mix(in srgb, var(--c) 18%, var(--panel)); border-radius:0 8px 8px 0; }
 .ihead .tag, .bhead .tag { background:var(--c); color:var(--panel); font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:.4px; flex:none; }
 .ihead .name { font-weight:700; font-size:14px; }
-.ihead .sig { color:var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size:11px; }
+.ihead .sig { color:var(--muted); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:11px; }
 .ihead .count, .bhead .count { margin-left:auto; color:var(--muted); font-size:11px; flex:none; }
 .idoc { color:var(--muted); padding:0 10px 6px 34px; font-size:12px; }
 .chips { padding:0 10px 8px 34px; display:flex; gap:4px; flex-wrap:wrap; }
 .ibody { padding:2px 10px 8px 22px; }
 .chip { display:inline-block; border-radius:999px; padding:0 7px; font-size:11px; line-height:17px; border:1px solid transparent; }
-.chip.var { background:var(--panel3); color:var(--text); font-family: ui-monospace, Menlo, Consolas, monospace; }
-.chip.def { background:var(--hl-bg); color:var(--hi); font-family: ui-monospace, Menlo, Consolas, monospace; border-color:var(--hi); }
+.chip.var { background:var(--panel3); color:var(--text); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
+.chip.def { background:var(--hl-bg); color:var(--hi); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; border-color:var(--hi); }
 .chip.def::before { content:"＋ "; font-size:9px; }
-.chip.call { background:color-mix(in srgb, #3b82f6 25%, var(--panel)); color:var(--accent); cursor:pointer; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.chip.call { background:color-mix(in srgb, #3b82f6 25%, var(--panel)); color:var(--accent); cursor:pointer; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .chip.call:hover { filter:brightness(1.2); text-decoration:underline; }
 .chip.fact { background:var(--panel3); color:var(--muted); }
 .chip.act { background:transparent; border-color:var(--border); color:var(--muted); cursor:pointer; }
 .chip.act:hover { color:var(--accent); border-color:var(--accent); }
 .blk { border-left:4px solid var(--c); background:color-mix(in srgb, var(--c) 9%, var(--panel)); border-radius:6px; margin:4px 0; transition: box-shadow .35s; }
 .blk.hl { box-shadow: 0 0 0 2px var(--hi), 0 0 12px color-mix(in srgb, var(--hi) 45%, transparent); background:color-mix(in srgb, var(--hi) 16%, var(--panel)); }
-.bhead { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer; flex-wrap:wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
+.bhead { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer; flex-wrap:wrap; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; }
 .bhead:hover { background:color-mix(in srgb, var(--c) 20%, var(--panel)); border-radius:0 6px 6px 0; }
 .bhead .label { white-space:pre-wrap; }
-.bhead .label.note { font-family: system-ui, sans-serif; font-weight:600; font-size:13.5px; color:var(--text); }
+.bhead .label.note { font-family: system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; font-weight:600; font-size:13.5px; color:var(--text); }
 /* commented blocks and items: the comment is what you read; the rest is small, details on hover */
 .blk.has-note > .bhead .tag, .iblk.has-note > .ihead .tag { font-size:8.5px; padding:0 4px; opacity:.8; }
 .blk.has-note > .bhead .chip, .iblk.has-note > .ihead .chip, .iblk.has-note > .ihead .sig { display:none; }
 .blk.has-note > .bhead:hover .chip, .iblk.has-note > .ihead:hover .chip { display:inline-block; }
 .iblk.has-note > .ihead:hover .sig { display:inline; }
 .ihead .note { font-weight:700; font-size:14.5px; }
-.ihead .name.small { font-size:11px; font-weight:500; color:var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
-.blk.k-loop > .bhead, .blk.k-if > .bhead, .blk.k-else-if > .bhead, .blk.k-else > .bhead, .blk.k-match > .bhead { font-family: system-ui, sans-serif; font-weight:600; }
+.ihead .name.small { font-size:11px; font-weight:500; color:var(--muted); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
+.blk.k-loop > .bhead, .blk.k-if > .bhead, .blk.k-else-if > .bhead, .blk.k-else > .bhead, .blk.k-match > .bhead { font-family: system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; font-weight:600; }
 .blk.k-arm { border-left-style:dashed; }
 .blk.k-closure { border-left-style:dotted; }
 .bbody { padding:2px 6px 6px 14px; }
@@ -480,9 +482,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .node.hi .body { stroke:var(--hi) !important; stroke-width:3.5; filter: drop-shadow(0 0 8px rgba(251,191,36,.8)); }
 .node.dim { opacity:.35; }
 .node text { fill:var(--text); font-size:13px; pointer-events:none; }
-.node text.sub { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.node text.sub { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .node text.cont { font-weight:700; }
-.node text.cap { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.node text.cap { fill:var(--muted); font-size:13px; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .node.hi text.cap, .node.sel text.cap, .node:hover text.cap { fill:var(--text); }
 .node text.fn-title { font-weight:700; }
 .node .expander circle { fill:var(--bg); stroke:var(--muted); stroke-width:1.2; }
@@ -500,22 +502,22 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .canvas-note { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); color:var(--muted); background:var(--panel); padding:10px 16px; border-radius:8px; border:1px solid var(--border); }
 .tooltip { position:fixed; z-index:50; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px 10px; max-width:420px; pointer-events:none; box-shadow:0 8px 24px rgba(0,0,0,.5); font-size:12px; }
 .tooltip .t { font-weight:700; margin-bottom:2px; }
-.tooltip .sig { color:var(--code); font-family: ui-monospace, Menlo, Consolas, monospace; white-space:pre-wrap; margin:3px 0; }
+.tooltip .sig { color:var(--code); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; white-space:pre-wrap; margin:3px 0; }
 .tooltip .doc { color:var(--muted); white-space:pre-wrap; margin-top:4px; }
 .tooltip pre { margin:4px 0 0; background:var(--panel2); padding:6px; border-radius:6px; max-height:160px; overflow:hidden; font-size:11px; }
 .pill { display:inline-block; background:var(--panel3); border-radius:999px; padding:0 7px; font-size:11px; margin:2px 3px 0 0; color:var(--text); }
 .details { width:45vw; min-width:240px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
 .details .info { padding:10px; border-bottom:1px solid var(--border); overflow:auto; max-height:45%; }
 .details h3 { margin:0 0 4px; font-size:14px; }
-.details .sig { color:var(--code); font-family: ui-monospace, Menlo, Consolas, monospace; white-space:pre-wrap; font-size:12px; margin:4px 0; }
+.details .sig { color:var(--code); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; white-space:pre-wrap; font-size:12px; margin:4px 0; }
 .details .doc { color:var(--text); opacity:.85; white-space:pre-wrap; margin:6px 0; font-size:12px; }
 .details table { border-collapse:collapse; font-size:12px; margin:4px 0; }
 .details td { padding:1px 8px 1px 0; vertical-align:top; }
-.details td.n { color:var(--hi); font-family: ui-monospace, Menlo, Consolas, monospace; }
-.details td.ty { color:var(--code); font-family: ui-monospace, Menlo, Consolas, monospace; }
+.details td.n { color:var(--hi); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
+.details td.ty { color:var(--code); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .details .links a { display:inline-block; margin:2px 6px 0 0; color:var(--accent); cursor:pointer; text-decoration:underline dotted; }
 .details h4 { margin:8px 0 2px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
-.source { flex:1; overflow:auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background:var(--panel2); }
+.source { flex:1; overflow:auto; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; background:var(--panel2); }
 .source .path, .source-pane .path { position:sticky; top:0; background:var(--panel); padding:4px 10px; color:var(--muted); border-bottom:1px solid var(--border); font-size:11px; z-index:1; }
 .source, .source-pane { container-type:inline-size; }
 .source .line, .source-pane .line { display:flex; white-space:pre-wrap; tab-size:4; }
@@ -531,7 +533,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .guide { border-top:1px solid var(--border); background:var(--panel); padding:8px 12px; display:flex; gap:12px; align-items:flex-start; max-height:34vh; position:relative; }
 .guide .pop { position:absolute; bottom:calc(100% + 10px); right:16px; z-index:20; max-width:min(560px, calc(100vw - 32px)); background:var(--panel2); border:1px solid var(--border); border-left:3px solid var(--hi); border-radius:8px; padding:8px 30px 8px 12px; box-shadow:0 6px 24px rgba(0,0,0,.35); animation: qs-in .3s ease-out; }
 .guide .pop .pop-row { margin:2px 0; overflow-wrap:anywhere; }
-.guide .pop .pop-row > code { font: 13px ui-monospace, Menlo, Consolas, monospace; color:var(--code); }
+.guide .pop .pop-row > code { font: 13px ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--code); }
 .guide .pop .pop-row .md p { margin:0; }
 .guide .pop .x { position:absolute; top:4px; right:4px; border:none; background:none; color:var(--muted); cursor:pointer; font-size:12px; padding:2px 6px; }
 .guide .pop .x:hover { color:var(--hi); }
@@ -559,7 +561,19 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .guide .qs button:hover { border-color:var(--hi); color:var(--hi); }
 .guide .qs button.own { border-color:color-mix(in srgb, var(--hi) 60%, var(--border)); }
 @keyframes qs-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.guide .say.sub { margin-top:4px; padding-top:4px; border-top:1px dashed var(--border); color:var(--muted); font-size:0.92em; }
+.guide .sub-pick { max-width:100%; }
+.settings .sub-help { margin:-4px 0 8px; font-size:12px; color:var(--muted); }
+.settings .sub-help p { margin:4px 0; overflow-wrap:anywhere; }
+.settings .sub-help summary { cursor:pointer; }
+.settings .sub-help code { font-size:11px; background:var(--panel2); padding:1px 4px; border-radius:4px; }
 .guide .say.second { margin-left:24px; padding-left:10px; border-left:3px solid var(--accent); color:var(--text); font-style:italic; }
+/* video render mode (`?render=N`, `codecast video`): the stage and the caption as a subtitle band */
+.app.render .topbar, .app.render .resizer, .app.render .hud, .app.render .guide .ctl, .app.render .guide .parts, .app.render .guide audio, .app.render .guide .qs, .app.render .guide .pop .x, .app.render .guide .answer button { display:none !important; }
+.app.render .guide { justify-content:center; align-items:center; padding:12px 6vw; height:17vh; max-height:none; box-sizing:border-box; overflow:hidden; flex:none; }
+.app.render .guide .body { max-height:none; overflow:visible; text-align:center; font-size:22px; line-height:1.4; }
+.app.render .guide .say.second { margin-left:0; border-left:none; padding-left:0; }
+.app.render .guide .say.sub { font-size:0.85em; }
 .guide .answer { margin-top:6px; border-left:3px solid var(--hi); background:var(--panel2); padding:8px 12px; border-radius:0 8px 8px 0; }
 .guide .answer .q { font-weight:600; color:var(--hi); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .guide .answer .q .spacer { flex:1; }
@@ -567,7 +581,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .spk { text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset:3px; cursor:help; }
 .spk-say { color:var(--muted); font-style:italic; }
 .guide .loader { margin-top:8px; border-top:1px solid var(--border); padding-top:6px; }
-.guide .loader textarea { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font: 12px ui-monospace, Menlo, Consolas, monospace; padding:6px; }
+.guide .loader textarea { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font: 12px ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; padding:6px; }
 .guide .loader .row { display:flex; gap:8px; align-items:center; margin-top:4px; }
 .guide .loader input[type=file] { font-size:11px; color:var(--muted); }
 .md ul { margin:3px 0 3px 18px; padding:0; }
@@ -619,7 +633,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .settings .sd { color:var(--muted); font-size:12px; margin-top:2px; }
 .settings .sd.warn { color:#e5484d; font-weight:600; }
 .settings .sc { display:flex; align-items:center; gap:10px; flex:none; }
-.settings .val { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; min-width:40px; }
+.settings .val { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; min-width:40px; }
 .settings input[type=range] { width:180px; accent-color:var(--accent); }
 .settings input[type=text], .settings input[type=number], .settings select { min-height:30px; border-radius:8px; }
 .settings input[type=text] { min-width:240px; }
@@ -634,7 +648,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .switch.off { opacity:.5; cursor:default; }
 .settings .stepper { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .settings .stepper button { border:none; border-radius:0; padding:4px 11px; font-size:14px; }
-.settings .stepper span { min-width:34px; text-align:center; font-weight:700; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.settings .stepper span { min-width:34px; text-align:center; font-weight:700; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .settings .cta { display:flex; align-items:center; gap:12px; margin-top:16px; flex-wrap:wrap; }
 .settings button.big { display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:var(--panel); border:none; border-radius:10px; padding:9px 18px; font-size:13px; font-weight:700; box-shadow:0 6px 18px -8px var(--accent); }
 .settings button.big:hover { filter:brightness(1.08); }
@@ -678,7 +692,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .design .upload { display:inline-flex; gap:6px; align-items:center; cursor:pointer; font-size:12px; border:1px dashed var(--border); border-radius:9px; padding:6px 12px; margin-top:10px; color:var(--muted); }
 .design .upload:hover { border-color:var(--accent); color:var(--text); }
 .design .colors { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
-.design .color { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; background:var(--panel2); border:1px solid var(--border); border-radius:9px; padding:5px 8px; }
+.design .color { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; background:var(--panel2); border:1px solid var(--border); border-radius:9px; padding:5px 8px; }
 .design .color.set { color:var(--text); font-weight:600; border-color:var(--accent); }
 .design .color input[type=color] { width:26px; height:22px; padding:0; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer; }
 .design .color:not(.set) input[type=color] { opacity:.4; }
@@ -691,7 +705,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .info-tip { position:relative; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; border:1px solid var(--border); background:var(--panel2); cursor:help; outline:none; }
 .info-tip:hover, .info-tip:focus-visible { border-color:var(--accent); }
 .info-tip .tip { display:none; position:absolute; left:32px; top:50%; transform:translateY(-50%); width:320px; z-index:20; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:12px; line-height:1.5; box-shadow:0 12px 30px -10px rgba(0,0,0,.5); cursor:default; }
-.info-tip .tip b { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--accent); }
+.info-tip .tip b { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--accent); }
 .info-tip:hover .tip, .info-tip:focus .tip, .info-tip:focus-within .tip { display:block; }
 @media (max-width: 820px) { .info-tip .tip { left:auto; right:0; top:30px; transform:none; width:260px; } }
 .plan { flex:1; min-height:0; overflow:auto; padding:22px 32px 60px; background:var(--bg); }
@@ -718,20 +732,20 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .side-head .spacer { flex:1; }
 .side-body { flex:1; min-height:0; overflow:auto; padding:10px 12px 24px; }
 .side-note { font-size:13px; }
-.example { margin:0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; line-height:1.5; white-space:pre; overflow-x:auto; }
+.example { margin:0; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; line-height:1.5; white-space:pre; overflow-x:auto; }
 .example div, .example-table td, .example-table th { transition: opacity .25s, background .25s; }
 .example .on, .example-table .on { background:color-mix(in srgb, var(--hi) 22%, transparent); }
 .example .dim, .example-table .dim { opacity:.45; }
-.example-table { border-collapse:collapse; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.example-table { border-collapse:collapse; font-size:12px; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .example-table td, .example-table th { border:1px solid var(--border); padding:2px 6px; text-align:left; white-space:nowrap; }
 .example-table th { background:var(--panel3); }
 .md table.mdt { border-collapse:collapse; margin:6px 0; font-size:12px; } .md table.mdt td, .md table.mdt th { border:1px solid var(--border); padding:2px 6px; text-align:left; vertical-align:top; } .md table.mdt th { background:var(--panel3); }
 .md h4.mdh { margin:10px 0 4px; font-size:13px; } .md ul.mdl { list-style:none; margin-left:2px; } .md ul.mdl li { display:flex; gap:6px; } .md .lnum { flex:none; min-width:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .bytes .strip { display:flex; flex-direction:column; gap:3px; margin-bottom:12px; }
 .bytes .brow { display:grid; grid-template-columns: 38px repeat(var(--row), minmax(0, 1fr)); gap:2px; align-items:end; }
-.bytes .off { font-family: ui-monospace, Menlo, Consolas, monospace; font-size:10px; color:var(--muted); padding-bottom:5px; }
+.bytes .off { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:10px; color:var(--muted); padding-bottom:5px; }
 .bytes .cell { position:relative; padding-top:13px; transition: opacity .25s, transform .2s; cursor:default; }
-.bytes .cell .b { display:block; text-align:center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; line-height:22px; border-radius:4px; background:color-mix(in srgb, var(--c) 30%, var(--panel)); border:1px solid color-mix(in srgb, var(--c) 70%, transparent); color:var(--text); min-height:24px; }
+.bytes .cell .b { display:block; text-align:center; font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; line-height:22px; border-radius:4px; background:color-mix(in srgb, var(--c) 30%, var(--panel)); border:1px solid color-mix(in srgb, var(--c) 70%, transparent); color:var(--text); min-height:24px; }
 .bytes .cell .n { position:absolute; top:0; left:1px; font-size:10px; line-height:12px; color:var(--c); font-weight:700; white-space:nowrap; z-index:1; pointer-events:none; }
 .bytes .cell.var .b { border-style:dashed; color:var(--muted); }
 .bytes .cell.extra .b { background:transparent; border-style:dotted; color:var(--muted); }
@@ -743,9 +757,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .bytes .fields td { padding:3px 6px 3px 0; vertical-align:top; border-top:1px solid var(--border); transition: opacity .25s; }
 .bytes .fields tr.on td { background:var(--hl-bg); }
 .bytes .fields .sw { display:inline-block; width:10px; height:10px; border-radius:3px; margin-top:3px; }
-.bytes .fields .id { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--hi); white-space:nowrap; }
-.bytes .fields .num { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--muted); white-space:nowrap; }
-.bytes .fields .val { font-family: ui-monospace, Menlo, Consolas, monospace; color:var(--code); overflow-wrap:anywhere; }
+.bytes .fields .id { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--hi); white-space:nowrap; }
+.bytes .fields .num { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--muted); white-space:nowrap; }
+.bytes .fields .val { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--code); overflow-wrap:anywhere; }
 .bytes .fields .desc p { margin:0; }
 .bytes .errs { margin-top:10px; color:#e5484d; font-size:12px; }
 .side svg.mini { width:100%; height:auto; max-height:70vh; }
@@ -838,7 +852,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-sliders { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:18px 26px; }
 .gen-slider { display:flex; flex-direction:column; gap:8px; font-size:12.5px; }
 .gen-slider > div:first-child { display:flex; justify-content:space-between; align-items:baseline; }
-.gen-slider b { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:12px; color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); padding:1px 7px; border-radius:6px; }
+.gen-slider b { font-family:ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:12px; color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); padding:1px 7px; border-radius:6px; }
 .gen-slider input[type=range] { width:100%; accent-color:var(--accent); }
 .gen-slider .ends { display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); }
 .gen-check { display:flex; gap:8px; align-items:center; margin-top:14px; font-size:12.5px; cursor:pointer; }
@@ -852,7 +866,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-part.on { background:color-mix(in srgb, var(--accent) 8%, transparent); border-color:color-mix(in srgb, var(--accent) 30%, transparent); }
 .gen-part.off { opacity:.55; cursor:default; }
 .gen-part input { accent-color:var(--accent); width:15px; height:15px; }
-.gen-part .num { font-family:ui-monospace, Menlo, Consolas, monospace; color:var(--muted); font-size:11px; }
+.gen-part .num { font-family:ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; color:var(--muted); font-size:11px; }
 .gen-part .what { flex:1; min-width:0; }
 .gen-part .pname { font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gen-part .pmeta { font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -912,7 +926,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-job.failed .gen-bar i { background:#e5484d; }
 .gen-bar.indeterminate i { width:40% !important; transition:none; animation:gen-slide 1.3s ease-in-out infinite; }
 .gen-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
-.gen-chip { position:relative; overflow:hidden; display:inline-flex; gap:6px; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; border:1px solid var(--border); background:var(--panel2); color:var(--muted); font-family:ui-monospace, Menlo, Consolas, monospace; }
+.gen-chip { position:relative; overflow:hidden; display:inline-flex; gap:6px; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; border:1px solid var(--border); background:var(--panel2); color:var(--muted); font-family:ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 .gen-chip em { font-style:normal; opacity:.75; }
 .gen-chip.done { color:var(--text); border-color:color-mix(in srgb, #22c55e 45%, transparent); }
 .gen-chip.done .mark { color:#22c55e; }
@@ -974,7 +988,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-out-row .avatar.trash { background:var(--panel3); }
 .gen-out-row .what { flex:1; min-width:0; display:flex; flex-direction:column; }
 .gen-out-row .what b { font-size:13px; }
-.gen-out-row .what span { font-size:11px; color:var(--muted); font-family:ui-monospace, Menlo, Consolas, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gen-out-row .what span { font-size:11px; color:var(--muted); font-family:ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .gen-sets .gen-out-icon { background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #000)); box-shadow:none; }
 .gen-out-row.cur { border-color:var(--accent); }
 .gen-out-note { font-size:11px; color:var(--muted); }
@@ -986,4 +1000,6 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .gen-mini.go.big { padding:7px 14px; }
 .gen-mini.danger { background:#e5484d; color:#fff; border-color:transparent; font-weight:700; animation:gen-pulse 1.2s ease-in-out infinite; }
 .gen-btn .gen-dot.warn { background:#f59e0b; }
+.lang-pick.compact { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:12px; height:26px; padding:0 4px; margin:0 4px; cursor:pointer; max-width:92px; }
+.lang-pick.compact:hover { border-color:var(--accent); }
 "#;

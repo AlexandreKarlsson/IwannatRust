@@ -1,6 +1,7 @@
 //! Codecast player: plays a `Script` (parts → cues) on top of the visualizer.
 //! Voice: browser TTS, a recorded audio file, or silent reading.
 
+use crate::i18n::t;
 use crate::icons::Icon;
 use crate::md::Markdown;
 use crate::State;
@@ -19,11 +20,20 @@ pub enum Voice {
 
 /// Player state (all signals live in `State`; these helpers act on them).
 impl State {
-    pub fn load_script(&mut self, mut s: Script) {
-        // generated tours (`architecture_tour`) need the project
-        if let Some(p) = self.project.read().clone() {
-            script::expand_tours(&p, &mut s);
-        }
+    pub fn load_script(&mut self, s: Script) {
+        self.load_source(script::Source::Written(s));
+    }
+
+    /// Play a codecast from its source: told in English (generated tours need the project), and
+    /// told again in the codecast language when it changes.
+    pub fn load_source(&mut self, source: script::Source) {
+        let project = self.project.read().clone();
+        let s = match (&project, &source) {
+            (Some(p), _) => source.tell(p, "en"),
+            (None, script::Source::Written(s)) => s.clone(),
+            (None, script::Source::Guide(_)) => return,
+        };
+        self.source.set(Some(Rc::new(source)));
         let mut pron = iwr_core::speech::builtin_pronounce();
         pron.extend(self.glossary_pronounce.read().iter().cloned());
         pron.extend(s.pronounce.iter().cloned());
@@ -46,6 +56,8 @@ impl State {
         if self.lang.peek().as_str() != "en" {
             self.translate();
         }
+        self.sub_script.set(None);
+        self.check_subtitles();
     }
 
     /// The recorded voice that plays in `lang`: the listener's pick when it recorded this
@@ -134,19 +146,21 @@ impl State {
         let lang = self.lang.peek().clone();
         let Some(src) = self.script_src.peek().clone() else { return };
         let Some(p) = self.project.peek().clone() else { return };
+        // tours and the built-in tour told in `lang` by iwr-core: only their author text is sent
+        let Some(base) = self.told(&lang) else { return };
         let glossary = self.glossary.peek().clone();
         let name = iwr_core::i18n::lang(&lang).map(|l| l.name).unwrap_or(&lang).to_string();
         let live = *self.live.peek();
         spawn(async move {
             let names = iwr_core::i18n::names(&p);
-            let texts = iwr_core::i18n::texts(&src, &glossary, &names);
-            state.lang_info.set(format!("translating {} pieces to {name}…", texts.len()));
+            let texts = iwr_core::i18n::texts(&base, &glossary, &names);
+            state.lang_info.set(t::player::translate_translating(texts.len(), &name));
             let map: Result<std::collections::HashMap<String, String>, String> = if live {
                 fetch_translations(&lang, &texts).await.map(|done| texts.iter().cloned().zip(done).collect())
             } else {
                 match fetch_text(&format!("translations/{lang}.json")).await {
                     Some(t) => serde_json::from_str(&t).map_err(|e| e.to_string()),
-                    None => Err(format!("this site has no {name} translation (export it with --lang {lang})")),
+                    None => Err(t::player::translate_no_export(&name, &lang)),
                 }
             };
             // the language or the script changed meanwhile: that one wins
@@ -155,7 +169,7 @@ impl State {
             }
             match map {
                 Ok(map) => {
-                    let mut s = (*src).clone();
+                    let mut s = (*base).clone();
                     let mut g = (*glossary).clone();
                     iwr_core::i18n::apply(&mut s, &mut g, &names, &|t| map.get(t).cloned());
                     // parts recorded in this language (`codecast voice --lang`) play their recording
@@ -168,10 +182,38 @@ impl State {
                         state.voice.set(Voice::Audio);
                     }
                     state.apply_cue();
+                    // the translation is cached now: one more language for the subtitles
+                    if live {
+                        state.check_subtitles();
+                    }
                 }
-                Err(e) => state.lang_info.set(format!("⚠ no {name}: {e}. Playing in English.")),
+                Err(e) => {
+                    state.lang_info.set(t::player::translate_failed(&name, &e));
+                    // what iwr-core told in this language still plays in it, author text as written
+                    if !Rc::ptr_eq(&base, &src) {
+                        let mut s = (*base).clone();
+                        iwr_core::i18n::unmark(&mut s);
+                        iwr_core::i18n::use_voices(&mut s, "", "");
+                        state.script.set(Some(Rc::new(s)));
+                        state.apply_cue();
+                    }
+                }
             }
         });
+    }
+
+    /// The loaded codecast as told in `lang` before machine translation: told again by iwr-core
+    /// when it speaks `lang` itself (generated text in `lang`, author text marked), else the
+    /// English source.
+    pub fn told(&self, lang: &str) -> Option<Rc<Script>> {
+        let src = self.script_src.peek().clone()?;
+        if !script::Source::told_in(lang) {
+            return Some(src);
+        }
+        match (self.source.peek().clone(), self.project.peek().clone()) {
+            (Some(source), Some(p)) => Some(Rc::new(source.tell(&p, lang))),
+            _ => Some(src),
+        }
     }
 
     /// Questions to offer for the current cue: the script's own, then glossary terms the cue
@@ -284,6 +326,35 @@ impl State {
         document::eval(&format!("try {{ const a = document.getElementById('iwr-audio'); if (a) a.currentTime = {:.3}; }} catch (e) {{}}", t));
     }
 
+    /// Video render mode (`?render=N&voice=V&lang=L&sub=S`, driven by `codecast video`): part
+    /// `part` with the recordings of `voice` (`""`: the default one), subtitles in `sub` (`""`:
+    /// none), nothing played. `?lang=` was already applied by the settings loader, and the
+    /// translation, if any, may still be on its way. The renderer moves the time through
+    /// `window.__codecastTime(t)` (set up by the audio effect) once `window.__codecastReady`.
+    pub fn start_render(&mut self, part: usize, voice: &str, sub: &str) {
+        self.render.set(true);
+        self.welcome_open.set(false);
+        self.rec_voice.set(voice.to_string());
+        let lang = self.lang.peek().clone();
+        if lang == "en" {
+            if let Some(src) = self.script_src.peek().clone() {
+                self.script.set(Some(Rc::new(self.with_voice(&src, "en"))));
+            }
+            self.voice.set(Voice::Audio);
+        } else if self.glossary_tr.peek().is_some() {
+            // translated already: take the recordings of the voice asked for
+            let cur = self.script.peek().clone();
+            if let Some(cur) = cur {
+                self.script.set(Some(Rc::new(self.with_voice(&cur, &lang))));
+            }
+            self.voice.set(Voice::Audio);
+        }
+        self.tour.set(false);
+        self.goto_part(part);
+        self.sub_lang.set(sub.to_string());
+        self.build_subtitles();
+    }
+
     /// The codecast button: the project's own codecast again, else the built-in tour.
     pub fn start_codecast(&mut self) {
         let own = self.own_script.peek().clone();
@@ -298,12 +369,12 @@ impl State {
     }
 
     pub fn start_builtin_guide(&mut self, root: Option<usize>) {
-        let Some(p) = self.project.read().clone() else { return };
-        let steps = iwr_core::guide::build(&p, root, &iwr_core::guide::GuideOptions::default());
-        let s = script::from_guide(&p, &steps);
+        if self.project.read().is_none() {
+            return;
+        }
         self.audio_url.set(None);
         self.voice.set(Voice::Tts);
-        self.load_script(s);
+        self.load_source(script::Source::Guide(root));
     }
 
     pub fn stop_script(&mut self) {
@@ -625,6 +696,13 @@ async fn fetch_translations(lang: &str, texts: &[String]) -> Result<Vec<String>,
     r.json::<Vec<String>>().await.map_err(|e| e.to_string())
 }
 
+/// The language to speak `text` in: the codecast's, except Japanese text in an "English"
+/// codecast (the built-in tutorial written in Japanese, played as written) gets a Japanese voice.
+fn speech_lang(lang: &str, text: &str) -> String {
+    let kana = text.chars().any(|c| matches!(c, '\u{3040}'..='\u{30ff}'));
+    if lang == "en" && kana { "ja".into() } else { lang.into() }
+}
+
 /// JS that sets the utterance `u` to speak `lang`, with a voice for it when the browser has one
 /// (English keeps the browser's default voice). `names`: the main and the second voice, parts of
 /// a voice name ([`State::tts_names`]); a voice of that language with it in its name is picked
@@ -670,8 +748,8 @@ pub async fn browser_voices(lang: &str) -> Vec<(String, String)> {
 pub fn speak_sample(lang: &str, names: &(String, String), rate: f64, second: bool) {
     let text = match (iwr_core::voice::voice_lang(lang).filter(|l| l.code != "en"), second) {
         (Some(l), _) => l.sample,
-        (None, false) => "We read the file line by line, because one line is one task.",
-        (None, true) => "Why line by line, and not all at once?",
+        (None, false) => "We read the file line by line, because one line is one task.", // i18n: English voice sample (other languages use their own)
+        (None, true) => "Why line by line, and not all at once?", // i18n: English voice sample
     };
     document::eval(&format!(
         r#"try {{ speechSynthesis.cancel(); }} catch (e) {{}}
@@ -737,6 +815,8 @@ pub fn PlayerBar() -> Element {
     let tts_info = state.tts_info.read().clone();
     let lang = state.lang.read().clone();
     let lang_info = state.lang_info.read().clone();
+    let subtitle = state.subtitle();
+    let sub_lang = state.sub_lang.read().clone();
     let locked = state.locked();
     // voices the browser offers, checked as soon as TTS is selected (None = not known yet)
     let mut tts_voices = use_signal(|| None::<usize>);
@@ -812,7 +892,7 @@ pub fn PlayerBar() -> Element {
                try {{ speechSynthesis.resume(); speechSynthesis.speak(u); }} catch (e) {{ dioxus.send("error:" + e); }}
                "#,
             serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
-            voice = voice_js(&state.lang.peek(), &state.tts_names(), cue.second()),
+            voice = voice_js(&speech_lang(&state.lang.peek(), &text), &state.tts_names(), cue.second()),
             // chart markers: how far the voice is, from word boundaries, else from the time spoken
             progress = if cue.marks.is_empty() {
                 String::new()
@@ -831,15 +911,16 @@ pub fn PlayerBar() -> Element {
         spawn(async move {
             let mut ev = document::eval(&js);
             let mut voices = String::from("?");
-            state.tts_info.set(format!("cue {cue_no}: asking browser to speak ({words} words)…"));
+            state.tts_info.set(t::player::tts_asking(words, cue_no));
             while let Ok(msg) = ev.recv::<String>().await {
                 if *state.tts_gen.peek() != my_gen {
                     return;
                 }
                 if let Some(v) = msg.strip_prefix("voices:") {
                     let (n, name) = v.split_once(':').unwrap_or((v, ""));
-                    voices = if n == "0" { "0 voices".into() } else { format!("{n} voices, default {name}") };
-                    state.tts_info.set(format!("cue {cue_no}: speak requested · {voices} · waiting for start…"));
+                    let n: usize = n.parse().unwrap_or(0);
+                    voices = if n == 0 { t::player::tts_voices_none().into() } else { t::player::tts_voices(n, name) };
+                    state.tts_info.set(t::player::tts_requested(cue_no, &voices));
                     continue;
                 }
                 if let Some(f) = msg.strip_prefix("b:").and_then(|f| f.parse::<f64>().ok()) {
@@ -849,7 +930,7 @@ pub fn PlayerBar() -> Element {
                     continue;
                 }
                 if msg == "start" {
-                    state.tts_info.set(format!("cue {cue_no}: speaking · {voices}"));
+                    state.tts_info.set(t::player::tts_speaking(cue_no, &voices));
                     continue;
                 }
                 if !*state.playing.peek() {
@@ -861,16 +942,14 @@ pub fn PlayerBar() -> Element {
                 if too_fast || failed {
                     state.playing.set(false);
                     state.cue_frac.set(1.0);
-                    let why = if failed { msg.clone() } else { format!("ended after {} ms, too fast to have spoken {words} words", ms.unwrap_or(0)) };
-                    state.tts_info.set(format!(
-                        "⚠ TTS failed on cue {cue_no}: {why} · {voices}. The browser has no working speech voice: try another browser (Chrome/Firefox, not snap Chromium) or the 📖 read voice."
-                    ));
+                    let why = if failed { msg.clone() } else { t::player::tts_too_fast(words, ms.unwrap_or(0)) };
+                    state.tts_info.set(t::player::tts_failed(cue_no, &why, &voices));
                     return;
                 }
                 state.cue_frac.set(1.0);
                 state.tts_info.set(match ms {
-                    Some(ms) => format!("cue {cue_no}: done in {:.1} s · {voices}", ms as f64 / 1000.0),
-                    None => format!("cue {cue_no}: {msg} · {voices}"),
+                    Some(ms) => t::player::tts_done(cue_no, format!("{:.1}", ms as f64 / 1000.0), &voices),
+                    None => t::player::tts_other(cue_no, &msg, &voices),
                 });
                 gloo_timers::future::sleep(std::time::Duration::from_millis(350)).await;
                 if *state.tts_gen.peek() == my_gen && *state.playing.peek() && !state.advance() {
@@ -908,8 +987,8 @@ pub fn PlayerBar() -> Element {
                "#,
             ask = serde_json::to_string(&ask).unwrap_or_else(|_| "\"\"".into()),
             answer = serde_json::to_string(&answer).unwrap_or_else(|_| "\"\"".into()),
-            voice2 = voice_js(&lang, &cfg, true),
-            voice = voice_js(&lang, &cfg, false)
+            voice2 = voice_js(&speech_lang(&lang, &ask), &cfg, true),
+            voice = voice_js(&speech_lang(&lang, &answer), &cfg, false)
         );
         let my_gen = *state.tts_gen.peek();
         spawn(async move {
@@ -939,11 +1018,14 @@ pub fn PlayerBar() -> Element {
             // wait for the element, then stream currentTime; keep playing when the tour comes
             // here from a part spoken by TTS
             let play = if *state.playing.peek() { "a.play().catch(() => {});" } else { "" };
+            // render mode: only `codecast video` moves the time, the element stays still
+            let follow = if *state.render.peek() { "" } else { "a.ontimeupdate = () => dioxus.send(a.currentTime);" };
             let mut ev = document::eval(&format!(
                 r#"const wait = () => new Promise(r => {{ const f = () => {{ const a = document.getElementById('iwr-audio'); if (a) r(a); else setTimeout(f, 100); }}; f(); }});
                    const a = await wait();
                    {play}
-                   a.ontimeupdate = () => dioxus.send(a.currentTime);
+                   window.__codecastTime = (t) => dioxus.send(t);
+                   {follow}
                    a.onplay = () => dioxus.send(-1);
                    a.onpause = () => dioxus.send(-2);
                    a.onended = () => dioxus.send(-3);"#
@@ -1017,8 +1099,8 @@ pub fn PlayerBar() -> Element {
     rsx! {
         div { class: "guide",
             if !pop.is_empty() && pop_closed() != Some((part_idx, cue_idx)) {
-                div { class: "pop", key: "{part_idx}-{cue_idx}-{answering.is_some()}", title: "shown with this sentence, not spoken",
-                    button { class: "x", title: "close", onclick: move |_| pop_closed.set(Some((part_idx, cue_idx))), "✕" }
+                div { class: "pop", key: "{part_idx}-{cue_idx}-{answering.is_some()}", title: t::player::tip_pop(),
+                    button { class: "x", title: t::player::close(), onclick: move |_| pop_closed.set(Some((part_idx, cue_idx))), "✕" }
                     for l in pop.iter().cloned() {
                         div { class: "pop-row",
                             // a row with backticks is markdown; a bare row is a path, endpoint or command
@@ -1039,49 +1121,50 @@ pub fn PlayerBar() -> Element {
                         } else {
                             state.playing.set(!p);
                         }
-                    }, if playing { "❚❚ pause" } else { "▶ play" } }
+                    }, { if playing { t::player::pause() } else { t::player::play() } } }
                     button { onclick: move |_| { state.tts_gen += 1; state.step(1); }, disabled: cue_idx + 1 >= total, "▶|" }
                 }
-                div { class: "status", "{cue_idx + 1} / {total} · part {part_idx + 1} / {n_parts}" }
+                div { class: "status", {t::player::progress(cue_idx + 1, total, part_idx + 1, n_parts)} }
                 div { class: "progress", div { style: "width:{pct:.1}%" } }
                 if no_voice {
                     div { class: "status", style: "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600",
-                        "⚠ This browser has no text-to-speech voice: the codecast cannot be spoken. Open it in another browser (Google Chrome or Firefox, not snap Chromium) or pick 📖 read."
+                        {t::player::no_tts_voice()}
                     }
                 }
                 if tts_now && !tts_info.is_empty() && !(no_voice && tts_info.starts_with('⚠')) {
                     div { class: "status", style: if tts_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" },
-                        title: "browser text-to-speech status", "🔊 {tts_info}" }
+                        title: t::player::tip_tts_status(), "🔊 {tts_info}" }
                 }
                 div { class: "row",
                     select { class: "theme-select", "data-spot": "voice", disabled: locked, value: match voice { Voice::Tts => "tts", Voice::Audio => "audio", Voice::Read => "read" },
                         onchange: move |e| { state.tts_gen += 1; state.playing.set(false); state.voice.set(match e.value().as_str() { "audio" => Voice::Audio, "read" => Voice::Read, _ => Voice::Tts }); state.save_settings(); },
                         // `selected` per option: the recording option comes and goes (language, loading)
-                        option { value: "tts", selected: voice == Voice::Tts, "🔊 voice (TTS)" }
-                        if has_recording { option { value: "audio", selected: voice == Voice::Audio, "🎧 recording" } }
-                        option { value: "read", selected: voice == Voice::Read, "📖 read" }
+                        option { value: "tts", selected: voice == Voice::Tts, {t::player::voice_tts()} }
+                        if has_recording { option { value: "audio", selected: voice == Voice::Audio, {t::player::voice_audio()} } }
+                        option { value: "read", selected: voice == Voice::Read, {t::player::voice_read()} }
                     }
-                    select { class: "theme-select", "data-spot": "lang", disabled: locked, value: "{lang}", title: "Language: the codecast is translated when played (offline, rough for now: better translated with another tool, see codecast translate --pieces), recordings are English only",
+                    select { class: "theme-select", "data-spot": "lang", disabled: locked, value: "{lang}", title: t::player::tip_codecast_lang(),
                         onchange: move |e| { state.set_lang(&e.value()); state.save_settings(); },
                         for l in iwr_core::i18n::LANGS {
                             option { value: l.code, "{l.name}" }
                         }
                     }
                 }
+                div { class: "row", crate::subtitles::SubPicker { full: false } }
                 VoicePicker {}
                 if !lang_info.is_empty() {
                     div { class: "status", style: if lang_info.starts_with('⚠') { "white-space:normal; overflow-wrap:anywhere; color:#e5484d; font-weight:600" } else { "white-space:normal; overflow-wrap:anywhere" }, "🌐 {lang_info}" }
                 }
                 div { class: "row",
-                    label { class: "status", style: "display:flex; gap:4px; align-items:center; cursor:pointer", title: "Full tour: continue with the next part when one ends",
+                    label { class: "status", style: "display:flex; gap:4px; align-items:center; cursor:pointer", title: t::player::tip_tour(),
                         input { r#type: "checkbox", checked: tour, onchange: move |e| { state.tour.set(e.checked()); state.save_settings(); } }
-                        "full tour"
+                        {t::player::tour()}
                     }
                 }
                 div { class: "row",
-                    button { class: "small", "data-spot": "plan", title: "The plan: every part of this codecast, one line each; click one to jump there", onclick: move |_| { state.close_pages(); state.set_mode(Mode::Plan); }, "plan" }
-                    button { class: "small", onclick: move |_| { let v = *show_load.read(); show_load.set(!v); }, "load…" }
-                    button { class: "small", onclick: move |_| state.stop_script(), "✕ close" }
+                    button { class: "small", "data-spot": "plan", title: t::player::tip_plan(), onclick: move |_| { state.close_pages(); state.set_mode(Mode::Plan); }, {t::player::plan()} }
+                    button { class: "small", onclick: move |_| { let v = *show_load.read(); show_load.set(!v); }, {t::player::load()} }
+                    button { class: "small", onclick: move |_| state.stop_script(), {t::player::close_player()} }
                 }
             }
             div { class: "body",
@@ -1089,11 +1172,11 @@ pub fn PlayerBar() -> Element {
                     span { class: "status cast-title", "{title} · " }
                     for (i, p) in s.parts.iter().enumerate() {
                         { let name = p.name.clone(); let n = p.cues.len(); rsx! {
-                            button { class: if i == part_idx { "small active" } else { "small" }, title: "{n} cues", onclick: move |_| state.goto_part(i), "{name}" }
+                            button { class: if i == part_idx { "small active" } else { "small" }, title: t::player::cues(n), onclick: move |_| state.goto_part(i), "{name}" }
                         } }
                     }
                     if n_parts > 1 && cue_idx + 1 >= total && part_idx + 1 < n_parts {
-                        button { class: "small", onclick: move |_| state.goto_part(part_idx + 1), "next part ▶" }
+                        button { class: "small", onclick: move |_| state.goto_part(part_idx + 1), {t::player::next_part()} }
                     }
                 }
                 if voice == Voice::Audio {
@@ -1102,30 +1185,33 @@ pub fn PlayerBar() -> Element {
                     }
                 }
                 div { class: if second { "say second" } else { "say" }, Markdown { text: say } }
+                if let Some(sub) = subtitle {
+                    div { class: "say sub", lang: "{sub_lang}", title: t::player::tip_subtitle(), Markdown { text: sub } }
+                }
                 if let Some(q) = answering.clone() {
                     div { class: "answer",
                         div { class: "q",
                             Icon { name: "question", size: 14 }
                             "{q.ask}"
-                            if q.term.is_some() { span { class: "src", "glossary" } }
+                            if q.term.is_some() { span { class: "src", {t::player::glossary()} } }
                             div { class: "spacer" }
-                            button { class: "small", title: "back to the codecast (space / Esc)", onclick: move |_| state.finish_answer(), if *state.resume_after_answer.read() { "▶ continue" } else { "✓ got it" } }
+                            button { class: "small", title: t::player::tip_back(), onclick: move |_| state.finish_answer(), {if *state.resume_after_answer.read() { t::player::resume() } else { t::player::got_it() }} }
                         }
                         Markdown { text: q.answer.clone() }
                     }
                 } else if !questions.is_empty() {
                     div { class: "qs",
-                        span { class: "lbl", "ask:" }
+                        span { class: "lbl", {t::player::ask()} }
                         for q in questions.iter().cloned() {
                             { let own = q.term.is_none(); let ask = q.ask.clone(); rsx! {
-                                button { class: if own { "own" } else { "" }, title: if own { "question from the script" } else { "from the Rust glossary" }, onclick: move |_| state.ask(q.clone()), "{ask}" }
+                                button { class: if own { "own" } else { "" }, title: if own { t::player::tip_own_question() } else { t::player::tip_glossary_question() }, onclick: move |_| state.ask(q.clone()), "{ask}" }
                             } }
                         }
                     }
                 }
                 if show_load() {
                     div { class: "loader",
-                        div { class: "status", "Load a codecast script (markdown, see docs/codecast.md). Paste it or pick a file; optional audio file for a recording." }
+                        div { class: "status", {t::player::loader_help()} }
                         textarea { rows: 5, placeholder: "# Title\n## Part\n@ flow:crate::run\n! crate::run/b1\nSpoken sentence…", value: "{paste}", oninput: move |e| paste.set(e.value()) }
                         div { class: "row",
                             input { r#type: "file", accept: ".md,.txt,.script", onchange: move |e| {
@@ -1156,7 +1242,7 @@ pub fn PlayerBar() -> Element {
                                     state.load_script(script::parse(&t));
                                     show_load.set(false);
                                 }
-                            }, "use script" }
+                            }, {t::player::use_script()} }
                         }
                     }
                 }
@@ -1171,7 +1257,7 @@ pub fn PlayerBar() -> Element {
 pub fn PlanPage() -> Element {
     let mut state = use_context::<State>();
     let Some(s) = state.script.read().clone() else {
-        return rsx! { div { class: "plan", div { class: "wrap", p { class: "intro", "No codecast loaded." } } } };
+        return rsx! { div { class: "plan", div { class: "wrap", p { class: "intro", {t::player::plan_page_none()} } } } };
     };
     let cur = *state.part_idx.read();
     let n_parts = s.parts.len();
@@ -1182,7 +1268,7 @@ pub fn PlanPage() -> Element {
                 h2 { Icon { name: "plan".to_string(), size: 22 } "{s.title}" }
                 p { class: "intro",
                     if let Some(i) = &s.summary { "{i} · " }
-                    "{n_parts} parts, {total} cues. Click a part to play it; the full tour plays them all in a row."
+                    {t::player::plan_page_intro(t::player::parts(n_parts), t::player::cues(total))}
                 }
                 ol {
                     for (i, p) in s.parts.iter().enumerate() {
@@ -1190,12 +1276,12 @@ pub fn PlanPage() -> Element {
                             let first = p.cues.first().map(|c| c.say.clone()).unwrap_or_default();
                             let summary = p.summary.clone().unwrap_or_else(|| iwr_core::shorten(&script::plain(&first), 140));
                             let nq: usize = p.cues.iter().map(|c| c.questions.len()).sum();
-                            let mut meta = format!("{} cue{}", p.cues.len(), if p.cues.len() == 1 { "" } else { "s" });
+                            let mut meta = t::player::cues(p.cues.len());
                             if nq > 0 {
-                                meta.push_str(&format!(" · {} question{}", nq, if nq == 1 { "" } else { "s" }));
+                                meta.push_str(&format!(" · {}", t::player::questions(nq)));
                             }
                             if !p.diagrams.is_empty() {
-                                meta.push_str(" · diagram");
+                                meta.push_str(&format!(" · {}", t::player::plan_page_diagram()));
                             }
                             let class = if i == cur { "cur" } else if i < cur { "done" } else { "" };
                             rsx! {
@@ -1243,16 +1329,16 @@ fn VoicePicker() -> Element {
     let cur = state.recording_voice(&s, &lang);
     let audio_on = *state.voice.read() == Voice::Audio;
     let n = s.parts.len();
-    let label = |id: &str| if id.is_empty() { "Original".to_string() } else { iwr_core::voice::voice_label(id).0 };
+    let label = |id: &str| if id.is_empty() { t::player::voice_original().to_string() } else { iwr_core::voice::voice_label(id).0 };
     let cur_name = label(&cur);
     // parts the voice has no up-to-date recording of: browser TTS speaks them
     let missing = |id: &str| -> Vec<String> { iwr_core::i18n::missing_parts(&s, &lang, id).into_iter().map(|i| s.parts[i].name.clone()).collect() };
-    let names = |m: &[String]| if m.len() > 3 { format!("{}, +{} more", m[..3].join(", "), m.len() - 3) } else { m.join(", ") };
+    let names = |m: &[String]| if m.len() > 3 { t::player::voice_more(m[..3].join(", "), m.len() - 3) } else { m.join(", ") };
     let cur_missing = missing(&cur);
     let chip_tip = if cur_missing.is_empty() {
-        format!("Pick the recorded voice ({} recorded)", voices.len())
+        t::player::voice_pick(voices.len())
     } else {
-        format!("{cur_name} is missing {} of {n} part(s) (not recorded, or the text changed since): the browser voice speaks {}. Pick the recorded voice ({} recorded)", cur_missing.len(), names(&cur_missing), voices.len())
+        t::player::voice_missing(n, &cur_name, cur_missing.len(), names(&cur_missing), voices.len())
     };
     rsx! {
         div { class: "vpick",
@@ -1260,7 +1346,7 @@ fn VoicePicker() -> Element {
                 onclick: move |_| { let v = *open.read(); open.set(!v); },
                 Avatar { id: cur.clone() }
                 span { class: "vlabel",
-                    small { if audio_on { "recorded voice" } else { "recording off" } }
+                    small { {if audio_on { t::player::voice_recorded() } else { t::player::voice_off() }} }
                     b { "{cur_name}" }
                 }
                 if audio_on && !cur_missing.is_empty() {
@@ -1271,37 +1357,37 @@ fn VoicePicker() -> Element {
             if *open.read() {
                 div { class: "vpop-shade", onclick: move |_| open.set(false) }
                 div { class: "vpop",
-                    div { class: "vpop-head", span { "Recorded voices" } em { "{voices.len()}" } }
+                    div { class: "vpop-head", span { {t::player::voice_recorded_voices()} } em { "{voices.len()}" } }
                     for (id, count) in voices.iter().cloned() {
                         { let sel = audio_on && id == cur;
                           let name = label(&id);
                           let (_, female) = iwr_core::voice::voice_label(&id);
-                          let about = if id.is_empty() { "the codecast's own recording".to_string() } else { format!("{} {}", if female { "♀" } else { "♂" }, crate::generate::accent(&id)) };
+                          let about = if id.is_empty() { t::player::voice_own_recording().to_string() } else { format!("{} {}", if female { "♀" } else { "♂" }, crate::generate::accent(&id)) };
                           let featured = iwr_core::voice::FEATURED.contains(&id.as_str());
                           let pct = count * 100 / n.max(1);
                           let gaps = missing(&id);
                           let gap_text = names(&gaps);
                           rsx! {
                             button { class: match (sel, gaps.is_empty()) { (true, true) => "vopt sel", (true, false) => "vopt sel partial", (false, true) => "vopt", (false, false) => "vopt partial" },
-                                title: if gaps.is_empty() { String::new() } else { format!("Missing or out of date: {} — the browser voice speaks them", gaps.join(", ")) },
+                                title: if gaps.is_empty() { String::new() } else { t::player::voice_gaps(gaps.join(", ")) },
                                 onclick: move |_| { state.set_rec_voice(&id); open.set(false); },
                                 Avatar { id: id.clone(), size: 34 }
                                 span { class: "vtext",
                                     b { "{name}" if featured { span { class: "star", "★" } } }
                                     span { "{about}" }
                                     if !gaps.is_empty() {
-                                        span { class: "vmiss", "⚠ TTS for {gap_text}" }
+                                        span { class: "vmiss", {t::player::voice_tts_for(&gap_text)} }
                                     }
                                     span { class: "vcover", i { style: "width:{pct}%" } }
                                 }
-                                span { class: "vcount", "{count}/{n}" small { "parts" } }
+                                span { class: "vcount", "{count}/{n}" small { {t::player::voice_parts_unit()} } }
                                 span { class: "vcheck", if sel { "✓" } }
                             }
                         } }
                     }
                     div { class: "vpop-foot",
-                        button { class: if *state.voice.read() == Voice::Tts { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Tts); state.save_settings(); open.set(false); }, "🔊 browser voice" }
-                        button { class: if *state.voice.read() == Voice::Read { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Read); state.save_settings(); open.set(false); }, "📖 read" }
+                        button { class: if *state.voice.read() == Voice::Tts { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Tts); state.save_settings(); open.set(false); }, {t::player::voice_browser()} }
+                        button { class: if *state.voice.read() == Voice::Read { "sel" } else { "" }, onclick: move |_| { state.tts_gen += 1; state.playing.set(false); state.voice.set(Voice::Read); state.save_settings(); open.set(false); }, {t::player::voice_read()} }
                     }
                 }
             }

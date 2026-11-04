@@ -1,0 +1,70 @@
+# The codecast player (`player.rs`): controls, status lines, the plan page, the voice picker.
+
+play = "▶ play"
+pause = "❚❚ pause"
+close = "close"
+close_player = "✕ close"
+progress = "{cue} / {total} · part {part} / {parts}"
+next_part = "next part ▶"
+plan = "plan"
+load = "load…"
+tour = "full tour"
+glossary = "glossary"
+ask = "ask:"
+resume = "▶ continue"
+got_it = "✓ got it"
+use_script = "use script"
+no_tts_voice = "⚠ This browser has no text-to-speech voice: the codecast cannot be spoken. Open it in another browser (Google Chrome or Firefox, not snap Chromium) or pick 📖 read."
+loader_help = "Load a codecast script (markdown, see docs/codecast.md). Paste it or pick a file; optional audio file for a recording."
+cues = { one = "{n} cue", other = "{n} cues" }
+parts = { one = "{n} part", other = "{n} parts" }
+questions = { one = "{n} question", other = "{n} questions" }
+
+[tip]
+pop = "shown with this sentence, not spoken"
+tts_status = "browser text-to-speech status"
+codecast_lang = "Language: the codecast is translated when played (offline, rough for now: better translated with another tool, see codecast translate --pieces), recordings are English only"
+tour = "Full tour: continue with the next part when one ends"
+plan = "The plan: every part of this codecast, one line each; click one to jump there"
+subtitle = "subtitle (Settings › Codecast › Subtitles)"
+back = "back to the codecast (space / Esc)"
+own_question = "question from the script"
+glossary_question = "from the Rust glossary"
+
+[voice]
+tts = "🔊 voice (TTS)"
+audio = "🎧 recording"
+read = "📖 read"
+browser = "🔊 browser voice"
+original = "Original"
+recorded = "recorded voice"
+off = "recording off"
+recorded_voices = "Recorded voices"
+own_recording = "the codecast's own recording"
+parts_unit = "parts"
+more = "{list}, +{n} more"
+pick = { one = "Pick the recorded voice ({n} recorded)", other = "Pick the recorded voice ({n} recorded)" }
+missing = { one = "{name} is missing {missing} of {n} part (not recorded, or the text changed since): the browser voice speaks {list}. Pick the recorded voice ({count} recorded)", other = "{name} is missing {missing} of {n} parts (not recorded, or the text changed since): the browser voice speaks {list}. Pick the recorded voice ({count} recorded)" }
+gaps = "Missing or out of date: {list} — the browser voice speaks them"
+tts_for = "⚠ TTS for {list}"
+
+[tts]
+asking = { one = "cue {cue}: asking browser to speak ({n} word)…", other = "cue {cue}: asking browser to speak ({n} words)…" }
+voices_none = "0 voices"
+voices = { one = "{n} voice, default {name}", other = "{n} voices, default {name}" }
+requested = "cue {cue}: speak requested · {voices} · waiting for start…"
+speaking = "cue {cue}: speaking · {voices}"
+too_fast = { one = "ended after {ms} ms, too fast to have spoken {n} word", other = "ended after {ms} ms, too fast to have spoken {n} words" }
+failed = "⚠ TTS failed on cue {cue}: {why} · {voices}. The browser has no working speech voice: try another browser (Chrome/Firefox, not snap Chromium) or the 📖 read voice."
+done = "cue {cue}: done in {secs} s · {voices}"
+other = "cue {cue}: {msg} · {voices}"
+
+[translate]
+translating = { one = "translating {n} piece to {name}…", other = "translating {n} pieces to {name}…" }
+no_export = "this site has no {name} translation (export it with --lang {code})"
+failed = "⚠ no {name}: {error}. Playing in English."
+
+[plan_page]
+none = "No codecast loaded."
+intro = "{parts}, {cues}. Click a part to play it; the full tour plays them all in a row."
+diagram = "diagram"

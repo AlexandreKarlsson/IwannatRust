@@ -2,6 +2,7 @@
 //! `codecast.toml` (theme, fonts, colours, voice, language) with a live preview, then saves it next
 //! to the script (`codecast serve`) or downloads it (static export).
 
+use crate::i18n::t;
 use crate::icons::Icon;
 use crate::State;
 use dioxus::prelude::*;
@@ -94,19 +95,19 @@ fn set_font(c: &mut Config, role: &str, v: Option<String>) {
 fn UploadFont(role: &'static str, draft: Signal<Config>, status: Signal<String>) -> Element {
     let state = use_context::<State>();
     rsx! {
-        label { class: "upload", title: "copy a font file (ttf, otf, woff, woff2) into codecast/fonts/ and use it",
-            "＋ your own font file…"
+        label { class: "upload", title: t::design::upload_tip(),
+            {t::design::upload()}
             input { r#type: "file", accept: ".ttf,.otf,.woff,.woff2", style: "display:none", onchange: move |e| {
                 let files = e.files();
                 let mut status = status;
                 spawn(async move {
                     let Some(f) = files.first() else { return };
                     let name = f.name();
-                    status.set(format!("uploading {name}…"));
+                    status.set(t::design::uploading(&name));
                     match f.read_bytes().await {
                         Ok(bytes) => match upload_font(&name, &bytes).await {
                             Ok(path) => {
-                                status.set(format!("font saved as {path}"));
+                                status.set(t::design::font_saved(&path));
                                 edit(state, draft, |c| set_font(c, role, Some(path)));
                             }
                             Err(e) => status.set(format!("⚠ {e}")),
@@ -165,69 +166,68 @@ pub fn DesignEditor() -> Element {
             div { class: "chead",
                 span { class: "cicon", Icon { name: "tour", size: 18 } }
                 div {
-                    h3 { "Codecast design " span { class: "badge", "author" } }
-                    div { class: "csub", "The look and defaults viewers of this codecast start with." }
+                    h3 { {t::design::title()} " " span { class: "badge", {t::design::badge()} } }
+                    div { class: "csub", {t::design::sub()} }
                 }
             }
             div { class: "cta",
                 button { class: if open { "small" } else { "big" }, "aria-expanded": "{open}", onclick: move |_| { let o = *show.read(); show.set(!o); },
-                    if open { "Hide the configuration" } else if configured { "Edit the codecast configuration" } else { "Create the codecast configuration" }
+                    if open { {t::design::hide()} } else if configured { {t::design::edit()} } else { {t::design::create()} }
                 }
-                span { class: "info-tip", tabindex: "0", "aria-label": "What is the codecast configuration?",
+                span { class: "info-tip", tabindex: "0", "aria-label": t::design::what_config(),
                     Icon { name: "info", size: 13 }
                     span { class: "tip", role: "tooltip",
                         b { "codecast.toml" }
-                        " is a small file next to the script. It sets the theme, fonts, colours, voice and language viewers of this codecast start with; with lock on, they keep them. "
-                        "Pick everything here with a live preview, then save it (codecast serve) or download it. Without the file, viewers keep their own settings."
+                        {t::design::config_tip()}
                     }
                 }
             }
             if open {
-            h4 { "Theme" }
+            h4 { {t::design::theme()} }
             crate::settings::ThemeGrid { value: theme_val, allow_none: true, onpick: move |v: String| edit(state, draft, |c| c.theme = opt(v)) }
 
-            h4 { "Fonts" }
+            h4 { {t::design::fonts()} }
             div { class: "seg",
-                for (r, l) in [("title", "Box titles"), ("text", "Interface text"), ("code", "Code")] {
+                for (r, l) in [("title", t::design::box_titles()), ("text", t::design::interface_text()), ("code", t::design::code())] {
                     button { class: if role == r { "sel" } else { "" }, onclick: move |_| font_role.set(r), "{l}" }
                 }
             }
             if role == "code" {
-                crate::settings::Row { title: "Code font", desc: "an installed font's name, or a file uploaded below (no bundled font is monospace)".to_string(),
-                    input { r#type: "text", placeholder: "e.g. JetBrains Mono", value: "{role_font}", onchange: move |e| edit(state, draft, |c| set_font(c, "code", opt(e.value()))) }
+                crate::settings::Row { title: t::design::code_font(), desc: t::design::code_font_desc().to_string(),
+                    input { r#type: "text", placeholder: t::design::code_font_ph(), value: "{role_font}", onchange: move |e| edit(state, draft, |c| set_font(c, "code", opt(e.value()))) }
                 }
             } else {
-                crate::settings::FontGrid { value: role_font, sample: if role == "title" { "Parse the task list".to_string() } else { "The scheduler picks the heaviest task".to_string() }, none_label: "the viewer's",
+                crate::settings::FontGrid { value: role_font, sample: if role == "title" { "Parse the task list".to_string() } else { "The scheduler picks the heaviest task".to_string() }, viewer: true, // i18n: sample drawn in Latin-only fonts
                     onpick: move |v: String| edit(state, draft, |c| set_font(c, role, opt(v))) }
             }
             if live {
                 UploadFont { role, draft, status }
             }
 
-            h4 { "Voice and language" }
-            crate::settings::Row { title: "Language",
+            h4 { {t::design::voice_lang()} }
+            crate::settings::Row { title: t::design::language(),
                 select { class: "theme-select", onchange: move |e| edit(state, draft, |c| c.lang = opt(e.value())),
-                    option { value: "", selected: c.lang.is_none(), "viewer's choice" }
+                    option { value: "", selected: c.lang.is_none(), {t::design::viewers_choice()} }
                     for l in iwr_core::i18n::LANGS {
                         option { value: l.code, selected: c.lang.as_deref() == Some(l.code), "{l.name}" }
                     }
                 }
             }
-            crate::settings::Row { title: "Voice",
+            crate::settings::Row { title: t::design::voice(),
                 select { class: "theme-select", onchange: move |e| edit(state, draft, |c| c.voice = opt(e.value())),
-                    option { value: "", selected: c.voice.is_none(), "viewer's choice" }
-                    option { value: "tts", selected: c.voice.as_deref() == Some("tts"), "🔊 spoken by the browser" }
-                    option { value: "audio", selected: c.voice.as_deref() == Some("audio"), "🎧 the recording" }
-                    option { value: "read", selected: c.voice.as_deref() == Some("read"), "📖 read silently" }
+                    option { value: "", selected: c.voice.is_none(), {t::design::viewers_choice()} }
+                    option { value: "tts", selected: c.voice.as_deref() == Some("tts"), {t::design::voice_tts()} }
+                    option { value: "audio", selected: c.voice.as_deref() == Some("audio"), {t::design::voice_audio()} }
+                    option { value: "read", selected: c.voice.as_deref() == Some("read"), {t::design::voice_read()} }
                 }
             }
-            crate::settings::Row { title: "Browser voice", desc: "picked when the viewer's browser has a voice with this in its name".to_string(),
-                input { r#type: "text", list: "iwr-voices", placeholder: "part of a voice name", value: "{c.tts_voice.clone().unwrap_or_default()}",
+            crate::settings::Row { title: t::design::browser_voice(), desc: t::design::browser_voice_desc().to_string(),
+                input { r#type: "text", list: "iwr-voices", placeholder: t::design::voice_ph(), value: "{c.tts_voice.clone().unwrap_or_default()}",
                     // the list shows "Name (lang)": keep the name
                     onchange: move |e| edit(state, draft, |c| c.tts_voice = opt(e.value().rsplit_once(" (").map(|(n, _)| n.to_string()).unwrap_or(e.value()))) }
             }
-            crate::settings::Row { title: "Second browser voice", desc: "says the sp: lines; without one, another voice of the language, else the same voice higher".to_string(),
-                input { r#type: "text", list: "iwr-voices", placeholder: "part of a voice name", value: "{c.tts_voice2.clone().unwrap_or_default()}",
+            crate::settings::Row { title: t::design::second_voice(), desc: t::design::second_voice_desc().to_string(),
+                input { r#type: "text", list: "iwr-voices", placeholder: t::design::voice_ph(), value: "{c.tts_voice2.clone().unwrap_or_default()}",
                     onchange: move |e| edit(state, draft, |c| c.tts_voice2 = opt(e.value().rsplit_once(" (").map(|(n, _)| n.to_string()).unwrap_or(e.value()))) }
                 datalist { id: "iwr-voices",
                     for v in voices.read().iter() {
@@ -236,48 +236,48 @@ pub fn DesignEditor() -> Element {
                 }
             }
             if !recorded.is_empty() {
-                crate::settings::Row { title: "Recorded voice", desc: "the recording played first when several voices recorded the codecast (a pair: two voices)".to_string(),
+                crate::settings::Row { title: t::design::rec_voice(), desc: t::design::rec_voice_desc().to_string(),
                     select { class: "theme-select", onchange: move |e| edit(state, draft, |c| c.rec_voice = opt(e.value())),
-                        option { value: "", selected: c.rec_voice.is_none(), "the one with the most parts" }
+                        option { value: "", selected: c.rec_voice.is_none(), {t::design::rec_most()} }
                         for (id, n) in recorded.iter().cloned() {
-                            option { value: "{id}", selected: c.rec_voice.as_deref() == Some(id.as_str()), "{iwr_core::voice::voice_label(&id).0} ({n} part{plural(n)})" }
+                            option { value: "{id}", selected: c.rec_voice.as_deref() == Some(id.as_str()), {t::design::rec_named(n, iwr_core::voice::voice_label(&id).0)} }
                         }
                     }
                 }
             }
-            crate::settings::Row { title: "Speech rate",
-                input { r#type: "number", min: "0.5", max: "2", step: "0.1", placeholder: "viewer's", value: c.rate.map(|r| format!("{r:.1}")).unwrap_or_default(),
+            crate::settings::Row { title: t::design::speech_rate(),
+                input { r#type: "number", min: "0.5", max: "2", step: "0.1", placeholder: t::design::rate_ph(), value: c.rate.map(|r| format!("{r:.1}")).unwrap_or_default(),
                     onchange: move |e| edit(state, draft, |c| c.rate = e.value().trim().parse::<f64>().ok().map(|r| r.clamp(0.5, 2.0))) }
             }
-            crate::settings::Row { title: "Full tour",
+            crate::settings::Row { title: t::design::full_tour(),
                 select { class: "theme-select", value: tri(c.tour), onchange: move |e| edit(state, draft, |c| c.tour = from_tri(&e.value())),
-                    option { value: "", "viewer's choice" }
-                    option { value: "on", "on" }
-                    option { value: "off", "off" }
+                    option { value: "", {t::design::viewers_choice()} }
+                    option { value: "on", {t::design::on()} }
+                    option { value: "off", {t::design::off()} }
                 }
             }
-            crate::settings::Row { title: "Glossary questions",
+            crate::settings::Row { title: t::design::glossary(),
                 select { class: "theme-select", value: tri(c.glossary), onchange: move |e| edit(state, draft, |c| c.glossary = from_tri(&e.value())),
-                    option { value: "", "viewer's choice" }
-                    option { value: "on", "on" }
-                    option { value: "off", "off" }
+                    option { value: "", {t::design::viewers_choice()} }
+                    option { value: "on", {t::design::on()} }
+                    option { value: "off", {t::design::off()} }
                 }
             }
-            crate::settings::Row { title: "Lock", desc: "viewers cannot change theme, fonts, language and voice".to_string(),
+            crate::settings::Row { title: t::design::lock(), desc: t::design::lock_desc().to_string(),
                 crate::settings::Toggle { checked: c.lock, onchange: move |v| edit(state, draft, |c| c.lock = v) }
             }
 
             div { class: "cta",
                 button { class: "small", "aria-expanded": "{colors_open}", onclick: move |_| { let o = *show_colors.read(); show_colors.set(!o); },
-                    if colors_open { "▾ Custom colours" } else { "▸ Custom colours" }
-                    if n_colors > 0 { span { class: "sd", " · {n_colors} set" } }
+                    if colors_open { {t::design::colors_open()} } else { {t::design::colors_closed()} }
+                    if n_colors > 0 { span { class: "sd", {t::design::colors_set(n_colors)} } }
                 }
-                span { class: "info-tip", tabindex: "0", "aria-label": "What are custom colours?",
+                span { class: "info-tip", tabindex: "0", "aria-label": t::design::what_colors(),
                     Icon { name: "info", size: 13 }
-                    span { class: "tip", role: "tooltip", "Change single colours of the theme (accent, background, highlight…) for this codecast. Rarely needed: picking a theme is usually enough. ✕ on a colour goes back to the theme's." }
+                    span { class: "tip", role: "tooltip", {t::design::colors_tip()} }
                 }
                 if colors_open && n_colors > 0 {
-                    button { class: "small", onclick: move |_| edit(state, draft, |c| c.colors.clear()), "reset all colours" }
+                    button { class: "small", onclick: move |_| edit(state, draft, |c| c.colors.clear()), {t::design::reset_colors()} }
                 }
             }
             if colors_open {
@@ -289,7 +289,7 @@ pub fn DesignEditor() -> Element {
                                     oninput: move |e| edit(state, draft, |c| { c.colors.insert(k.to_string(), e.value()); }) }
                                 span { "{k}" }
                                 if set {
-                                    button { class: "small", title: "use the theme's colour", onclick: move |_| edit(state, draft, |c| { c.colors.remove(k); }), "✕" }
+                                    button { class: "small", title: t::design::color_reset_tip(), onclick: move |_| edit(state, draft, |c| { c.colors.remove(k); }), "✕" }
                                 }
                             }
                         } }
@@ -307,7 +307,7 @@ pub fn DesignEditor() -> Element {
                         spawn(async move {
                             match save(&c).await {
                                 Ok(path) => {
-                                    status.set(format!("✓ saved {path}"));
+                                    status.set(t::design::saved(&path));
                                     if let Ok(json) = serde_json::to_string(&c) {
                                         document::eval(&format!("localStorage.setItem('iwr-config', {});", serde_json::to_string(&json).unwrap_or_default()));
                                     }
@@ -315,25 +315,20 @@ pub fn DesignEditor() -> Element {
                                 Err(e) => status.set(format!("⚠ {e}")),
                             }
                         });
-                    }, "Save codecast.toml" }
+                    }, {t::design::save()} }
                 }
-                button { class: "small", onclick: move |_| download(&draft.read()), "download" }
-                button { class: "small", title: "start again from an empty design", onclick: move |_| { draft.set(Config::default()); state.config.set(Default::default()); }, "clear" }
+                button { class: "small", onclick: move |_| download(&draft.read()), {t::design::download()} }
+                button { class: "small", title: t::design::clear_tip(), onclick: move |_| { draft.set(Config::default()); state.config.set(Default::default()); }, {t::design::clear()} }
                 if !status_now.is_empty() {
                     span { class: if status_now.starts_with('⚠') { "sd warn" } else { "sd" }, "{status_now}" }
                 }
             }
             if !live {
-                div { class: "sd", "Static site: download the file and put it next to the script (codecast/codecast.toml), with any font file of your own it names." }
+                div { class: "sd", {t::design::static_note()} }
             } else if !has_script {
-                div { class: "sd", "No codecast next to this project yet: create codecast.md or codecast/ to save the design there, or download it." }
+                div { class: "sd", {t::design::no_script_note()} }
             }
             }
         }
     }
-}
-
-/// `s` after a count other than one.
-fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
 }

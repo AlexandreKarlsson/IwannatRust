@@ -245,7 +245,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(s.title, "T");
     assert_eq!(s.audio.as_deref(), Some("a.mp3"));
     assert_eq!(s.parts.len(), 2);
-    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None, marks: vec![], speaker: 0 });
+    assert_eq!(s.parts[0].cues[0], Cue { say: "first".into(), show: Some("flow:crate::main".into()), hl: Some(vec!["crate::main/b1".into(), "src/main.rs:3-4".into()]), code: Some("src/main.rs:3:5-9".into()), t: Some(1.5), questions: vec![], ops: vec![], side: None, pop: vec![], tour: None, focus: None, marks: vec![], speaker: 0, told: false });
     assert_eq!(s.parts[0].cues[1].say, "second");
     assert_eq!(s.parts[1].cues[0].hl, Some(vec![]));
     assert_eq!(script::parse(&script::to_text(&s)), s);
@@ -277,7 +277,7 @@ fn script_roundtrip_and_refs() {
     assert_eq!(bad.len(), 2);
     // built-in guide becomes a valid script
     let steps = iwr_core::guide::build(&p, None, &iwr_core::guide::GuideOptions::default());
-    let g = script::from_guide(&p, &steps);
+    let g = script::from_guide(&p, &steps, iwr_core::tr::Lang::En);
     assert!(g.parts.len() >= 2);
     assert!(script::check(&p, &g).is_empty());
     assert_eq!(script::speakable("a `b` **c**\n```rust\nx\n```\n• d"), "a b c d");
@@ -706,7 +706,7 @@ fn script_architecture_tour() {
 over two lines.")), None);
     // rough edges: a TODO, unsafe, an unwrap
     let r = iwr_core::analyze_source("fn f(v: Option<u32>) -> u32 {\n    // TODO: retry later\n    let x = unsafe { g() };\n    v.unwrap() + x\n}\nunsafe fn g() -> u32 { 1 }\nfn main() { f(None); }\n");
-    let rough = iwr_core::tours::generate(&r, "todo_tour").unwrap().cues;
+    let rough = iwr_core::tours::generate(&r, "todo_tour", iwr_core::tr::Lang::En).unwrap().cues;
     let says: Vec<&str> = rough.iter().map(|c| c.say.as_str()).collect();
     assert!(says[0].contains("1 note") && says[0].contains("2 unsafe blocks") && says[0].contains("1 place"), "{says:?}");
     assert!(says.iter().any(|s| *s == "In `f`, a TODO: retry later"), "{says:?}");
@@ -736,7 +736,7 @@ fn every_tour_builds_and_checks_on_the_demo() {
     let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/demo");
     let p = iwr_core::analyze_path(&demo).unwrap();
     for line in ["architecture_tour", "types_tour", "errors_tour", "entry_tour", "flow_tour:crate::run", "todo_tour", "files_tour", "types_tour:crate::storage", "errors_tour:crate::parser"] {
-        let cues = iwr_core::tours::generate(&p, line).unwrap_or_else(|e| panic!("{line}: {e}")).cues;
+        let cues = iwr_core::tours::generate(&p, line, iwr_core::tr::Lang::En).unwrap_or_else(|e| panic!("{line}: {e}")).cues;
         assert!(cues.len() >= if line == "todo_tour" { 1 } else { 2 }, "{line}: {} cues", cues.len());
         assert!(cues[0].show.is_some(), "{line}: first cue sets no view");
         assert!(cues.iter().all(|c| !c.say.trim().is_empty()), "{line}: empty cue");
@@ -746,8 +746,18 @@ fn every_tour_builds_and_checks_on_the_demo() {
     }
     let s = tutorial(&p);
     assert!(iwr_core::script::check(&p, &s).is_empty(), "tutorial: {:?}", iwr_core::script::check(&p, &s));
+    // the Japanese tutorial: the same parts, cues and screen moves, so it plays the same way
+    let ja = tutorial_in(&p, "ja");
+    assert!(iwr_core::script::check(&p, &ja).is_empty(), "tutorial ja: {:?}", iwr_core::script::check(&p, &ja));
+    assert_eq!(ja.parts.len(), s.parts.len());
+    for (a, b) in ja.parts.iter().zip(&s.parts) {
+        assert_eq!(a.cues.len(), b.cues.len(), "{}", b.name);
+        for (x, y) in a.cues.iter().zip(&b.cues) {
+            assert_eq!((&x.show, &x.hl, &x.focus, &x.side), (&y.show, &y.hl, &y.focus, &y.side), "{}", b.name);
+        }
+    }
     for (line, err) in [("flow_tour", "needs a function"), ("flow_tour:crate::nope", "not a function"), ("types_tour:crate::nope", "not a module"), ("foo_tour", "unknown tour")] {
-        let e = iwr_core::tours::generate(&p, line).unwrap_err();
+        let e = iwr_core::tours::generate(&p, line, iwr_core::tr::Lang::En).unwrap_err();
         assert!(e.contains(err), "{line}: {e}");
     }
 }
@@ -969,7 +979,7 @@ mod net {
 fn main() { net::send(); }
 ";
     let p = iwr_core::analyze_source(src);
-    let stops = iwr_core::guide::doc_page("t", p.modules[0].doc.as_ref()).unwrap();
+    let stops = iwr_core::guide::doc_page("t", p.modules[0].doc.as_ref(), iwr_core::tr::Lang::En).unwrap();
     assert_eq!(stops.len(), 4);
     assert!(stops[0].say.contains("HTTP bridge") && stops[0].say.contains("Receives POST"), "{}", stops[0].say);
     assert!(stops[0].note.text.contains("## MQTT topics published"));
@@ -978,7 +988,7 @@ fn main() { net::send(); }
     assert!(stops[1].say.contains("INPUT_DOUBLE_CLICK: 240 (ENTER).") && stops[1].say.contains("INPUT_NONE: (skipped)."), "{}", stops[1].say);
     assert!(stops[2].say.contains("gw/data/battery/<node>: QoS 0, Retain false."), "{}", stops[2].say);
     assert_eq!(stops[3].say, "Rebutton pad. The USB cradle is served here too (`pad.rs`).");
-    assert!(iwr_core::guide::doc_page("t", p.modules[1].doc.as_ref()).is_none());
+    assert!(iwr_core::guide::doc_page("t", p.modules[1].doc.as_ref(), iwr_core::tr::Lang::En).is_none());
 
     // the generated tour opens each page in the side panel and closes it after
     let mut s = iwr_core::script::parse("## Map\narchitecture_tour\nBye.\n");
@@ -994,7 +1004,7 @@ fn main() { net::send(); }
 
     // the built-in tour too
     let steps = iwr_core::guide::build(&p, None, &Default::default());
-    let g = iwr_core::script::from_guide(&p, &steps);
+    let g = iwr_core::script::from_guide(&p, &steps, iwr_core::tr::Lang::En);
     assert_eq!(g.parts[0].notes.len(), 4);
     assert!(iwr_core::script::check(&p, &g).is_empty(), "{:?}", iwr_core::script::check(&p, &g));
 }
@@ -1091,8 +1101,13 @@ fn script_panels_and_folders() {
 
 /// The UI's tutorial codecast, filled for `p`.
 fn tutorial(p: &Project) -> iwr_core::script::Script {
+    tutorial_in(p, "")
+}
+
+/// The built-in tutorial in `sub` (`""` English, `"ja"`), placeholders filled for `p`.
+fn tutorial_in(p: &Project, sub: &str) -> iwr_core::script::Script {
     use iwr_core::script::{self, PartFile};
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial").join(sub);
     let mut stems: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()?.file_name().to_str()?.strip_suffix(".md").map(String::from)).filter(|s| s != "index").collect();
     stems.sort();
     let parts: Vec<PartFile> = stems.iter().map(|st| PartFile { stem: st.clone(), text: iwr_core::tutorial::fill(p, &std::fs::read_to_string(dir.join(format!("{st}.md"))).unwrap()), audio: None, times: vec![], voices: vec![] }).collect();
@@ -1122,4 +1137,74 @@ fn chart_blocks_and_markers() {
     let bad = script::parse("# T\n## A\n```chart\nbar\na 1\n```\n@ chart\n! zz\nGo {+b}.\n## B\n@ arch\n! crate::main\nNo {+a} chart.\n");
     let errs = script::check(&p, &bad);
     assert_eq!(errs.len(), 3, "{errs:?}");
+}
+
+/// English template words that must never reach a Japanese tour: a sentence iwr-core forgot
+/// to translate shows up as one of these outside author text.
+fn english_template_left(text: &str) -> Option<&'static str> {
+    let outside: String = {
+        let mut out = String::new();
+        let mut depth = 0;
+        for c in text.chars() {
+            match c {
+                iwr_core::tr::OPEN => depth += 1,
+                iwr_core::tr::CLOSE => depth -= 1,
+                _ if depth == 0 => out.push(c),
+                _ => {}
+            }
+        }
+        // code spans and blocks are not prose
+        out.split('`').step_by(2).collect::<Vec<_>>().join(" ")
+    };
+    [" the ", "First,", "Then ", "Next,", "Let's", " is ", " are ", " and ", " module.", "Finally"].into_iter().find(|w| outside.contains(w))
+}
+
+#[test]
+fn tours_and_the_guide_are_told_in_japanese() {
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/demo");
+    let p = iwr_core::analyze_path(&demo).unwrap();
+    let ja = iwr_core::tr::Lang::Ja;
+    for line in ["architecture_tour", "types_tour", "errors_tour", "entry_tour", "flow_tour:crate::run", "todo_tour", "files_tour", "types_tour:crate::storage", "errors_tour:crate::parser"] {
+        let en = iwr_core::tours::generate(&p, line, iwr_core::tr::Lang::En).unwrap().cues;
+        let cues = iwr_core::tours::generate(&p, line, ja).unwrap().cues;
+        // the same stops, the same screen: only the words change
+        assert_eq!(cues.len(), en.len(), "{line}");
+        for (c, e) in cues.iter().zip(&en) {
+            assert_eq!((&c.show, &c.hl), (&e.show, &e.hl), "{line}");
+            assert_eq!(c.say.matches(iwr_core::tr::OPEN).count(), c.say.matches(iwr_core::tr::CLOSE).count(), "{line}: {}", c.say);
+            assert!(english_template_left(&c.say).is_none(), "{line}: {:?} in {}", english_template_left(&c.say), c.say);
+        }
+    }
+    let steps = iwr_core::guide::build(&p, None, &iwr_core::guide::GuideOptions { lang: ja, ..Default::default() });
+    let s = iwr_core::script::from_guide(&p, &steps, ja);
+    assert!(s.told && s.title.contains("ツアー"));
+    for c in s.parts.iter().flat_map(|p| &p.cues) {
+        assert!(c.told);
+        assert!(english_template_left(&c.say).is_none(), "guide: {:?} in {}", english_template_left(&c.say), c.say);
+    }
+}
+
+#[test]
+fn only_author_text_of_a_told_script_is_translated() {
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/demo");
+    let p = iwr_core::analyze_path(&demo).unwrap();
+    let src = iwr_core::script::Source::Written(iwr_core::script::parse("# T\n## Written part\nWritten by the author.\narchitecture_tour\n"));
+    let s = src.tell(&p, "ja");
+    let names = iwr_core::i18n::names(&p);
+    let texts = iwr_core::i18n::texts(&s, &[], &names);
+    // the author's own cue and part name are pieces; the told tour only brings its doc text
+    assert!(texts.iter().any(|t| t == "Written by the author."), "{texts:?}");
+    assert!(texts.iter().all(|t| !t.contains(iwr_core::tr::OPEN) && !t.contains('。')), "{texts:?}");
+    let mut done = s.clone();
+    iwr_core::i18n::apply(&mut done, &mut [], &names, &|t| Some(format!("<{t}>")));
+    for c in done.parts.iter().flat_map(|p| &p.cues) {
+        assert!(!c.say.contains(iwr_core::tr::OPEN) && !c.say.contains(iwr_core::tr::CLOSE), "{}", c.say);
+    }
+    assert!(done.parts[0].cues.iter().skip(1).any(|c| c.say.contains("モジュール") && c.say.contains('<')));
+    let mut plain = s.clone();
+    iwr_core::i18n::unmark(&mut plain);
+    assert!(plain.parts[0].cues.iter().all(|c| !c.say.contains(iwr_core::tr::OPEN)));
+    // English is told as before: no marks, nothing told
+    let en = src.tell(&p, "en");
+    assert!(en.parts[0].cues.iter().all(|c| !c.told && !c.say.contains(iwr_core::tr::OPEN)));
 }

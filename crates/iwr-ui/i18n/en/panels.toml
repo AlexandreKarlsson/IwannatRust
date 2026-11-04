@@ -1,0 +1,46 @@
+[top]
+sidebar_tip = "Files and items panel"
+views_tip = "Show the analysis views"
+views_open = "Views ▾"
+views_closed = "Views ▸"
+# a view button's tooltip: its name and what it shows
+view_tip = "{label} — {desc}"
+split_tip = "Show the source next to the blocks (hover either side to highlight both)"
+search = "search items…"
+stop_tip = "Stop the codecast (g)"
+play_tip = "Play the codecast (g): the loaded script, or the built-in tour. Load your own from the player bar."
+stop = "stop"
+codecast = "codecast"
+tour_tip = "Full tour (t): play every part of the codecast in a row, from the welcome to the last function"
+generate = "generate"
+gen_label = "Generate the voice"
+gen_running = "Generating the voice… (open to follow it)"
+gen_stale = { one = "Generate the voice: the text changed since {n} recording — regenerate or delete it", other = "Generate the voice: the text changed since {n} recordings — regenerate or delete them" }
+gen_todo = { one = "Generate the voice: {n} part without an up-to-date recording", other = "Generate the voice: {n} parts without an up-to-date recording" }
+gen_idle = "Generate the voice: record the codecast with Kokoro (voice, language, speed)"
+help_tip = "Help: the tutorial, a codecast about the app"
+settings_tip = "Settings (,): theme, views, voice, layout"
+
+[side]
+loading = "loading project…"
+files = "📁 files"
+items = "☰ items"
+scope_tip = "click to scope the module views to this module"
+file_items = { one = "{n} item", other = "{n} items" }
+
+[details]
+fields = "fields"
+variants = "variants"
+methods = "methods"
+parameters = "parameters"
+returns = "returns"
+calls = "calls"
+called_by = "called by"
+related = "related"
+control_flow = "control flow"
+branches = "branches"
+call_tree = "call tree"
+sequence = "sequence"
+from_here = "codecast from here"
+empty = "Click a node or an item in the sidebar to see its details and source. Hover for a quick summary."
+source = "source"

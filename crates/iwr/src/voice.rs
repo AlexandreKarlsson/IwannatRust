@@ -10,7 +10,8 @@
 //! translated the way the player translates it ([`crate::translate`], same cache) into
 //! `NN-name.ja.ogg` + `NN-name.ja.times`. The times file hashes the English cues, so the
 //! recording goes stale when the English text changes. Japanese is phonemized by misaki
-//! (installed in the venv on first use), since espeak cannot read it.
+//! (installed in the venv on first use), since espeak cannot read it. With `--written`, the parts
+//! are already in that language (a codecast written in Japanese): they are recorded as they are.
 //!
 //! A codecast with `sp:` lines is recorded by a pair of voices (`--voice2`, default
 //! [`v::second_voice`]): `NN-name.af_heart+am_fenrir.ogg`, the second voice saying those lines.
@@ -60,6 +61,8 @@ pub struct Opts {
     pub retranslate: bool,
     /// synthesize every cue again instead of taking the cached clips
     pub fresh: bool,
+    /// the parts are already written in `lang`: recorded as they are, not translated
+    pub written: bool,
 }
 
 /// What a recording reports while it works.
@@ -152,6 +155,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
             bail!("cancelled");
         }
         let spoken = match target {
+            Some(_) if o.written => english,
             Some(code) => {
                 report(Event::Stage(format!("translating {} into {}", stem, code)));
                 translated(&text, code, &names, &pron, o.retranslate, dir)?
@@ -345,11 +349,11 @@ pub fn status(script: Option<&Path>) -> VoiceStatus {
     let dir = match script {
         Some(d) if d.is_dir() => d,
         Some(f) => {
-            st.problem = Some(format!("{} is a single file: recordings are made per part, for a codecast/ directory (index.md + one file per part)", f.display()));
+            st.problem = Some(v::VoiceProblem::SingleFile { path: f.display().to_string() });
             return st;
         }
         None => {
-            st.problem = Some("no codecast next to the project: create codecast/ with index.md and one file per part".into());
+            st.problem = Some(v::VoiceProblem::NoCodecast);
             return st;
         }
     };
@@ -471,7 +475,7 @@ pub fn preview(voice: &str, speed: f32, lang: &str) -> Result<Vec<u8>> {
     let out = home.join("previews").join(format!("{}-{}-{}.ogg", voice, speed, l.arg));
     if !out.is_file() {
         std::fs::create_dir_all(out.parent().unwrap())?;
-        let o = Opts { voice: voice.into(), voice2: None, speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![], retranslate: false, fresh: false };
+        let o = Opts { voice: voice.into(), voice2: None, speed, lang: l.kokoro.into(), path: None, gap: 0.2, level: 0.9, force: false, only: vec![], retranslate: false, fresh: false, written: false };
         let parts = vec![part_job(out.clone(), &[(l.sample.to_string(), false)])];
         sidecar(&home, job(&home, &o, parts), &AtomicBool::new(false), &mut |_| {}, &mut |_, _, _| Ok(0))?;
     }
@@ -489,7 +493,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("iwr-voice-sets-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        for e in std::fs::read_dir(&src).unwrap().flatten() {
+        // the English tutorial's files (its `ja/` folder is another codecast)
+        for e in std::fs::read_dir(&src).unwrap().flatten().filter(|e| e.path().is_file()) {
             std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
         }
         let gone = part_files(&dir).unwrap()[0].file_stem().unwrap().to_str().unwrap().to_string();

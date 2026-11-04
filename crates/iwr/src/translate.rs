@@ -50,6 +50,18 @@ pub fn translate(lang: &str, texts: &[String], fresh: bool, dir: Option<&Path>) 
     Ok(texts.iter().map(|t| own.get(t).or_else(|| machine.get(t)).cloned().unwrap_or_else(|| t.clone())).collect())
 }
 
+/// The translations of `texts` into `lang` that already exist, without running the model: the
+/// author's own (`translations/<lang>.json` in `dir`) first, then the cache; `None` for a piece
+/// neither has. Subtitles use it: they only show text someone already made.
+pub fn known(lang: &str, texts: &[String], dir: Option<&Path>) -> Result<Vec<Option<String>>> {
+    if iwr_core::i18n::lang(lang).is_none() || lang == "en" {
+        bail!("no translation to {:?}", lang);
+    }
+    let own = own(dir, lang)?;
+    let cache: HashMap<String, String> = home().ok().and_then(|h| std::fs::read_to_string(h.join(format!("{}.json", lang))).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    Ok(texts.iter().map(|t| own.get(t).or_else(|| cache.get(t)).cloned()).collect())
+}
+
 /// The offline model's translations, cached.
 fn machine(lang: &str, texts: &[String], fresh: bool) -> Result<Vec<String>> {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -78,16 +90,16 @@ fn machine(lang: &str, texts: &[String], fresh: bool) -> Result<Vec<String>> {
 /// Translate a codecast (tours expanded, glossary questions included) and return the source →
 /// translation map the player looks pieces up in.
 pub fn codecast_map(script: &Path, project: &iwr_core::Project, lang: &str) -> Result<HashMap<String, String>> {
-    let texts = pieces(script, project)?;
+    let texts = pieces(script, project, lang)?;
     let done = translate(lang, &texts, false, Some(&codecast::script_dir(script)))?;
     Ok(texts.into_iter().zip(done).collect())
 }
 
-/// Every piece of a codecast the player translates (tours expanded, glossary questions included).
-fn pieces(script: &Path, project: &iwr_core::Project) -> Result<Vec<String>> {
+/// Every piece of a codecast the player translates into `lang` (tours expanded, glossary
+/// questions included). Tours iwr-core tells in `lang` itself only bring their author text.
+fn pieces(script: &Path, project: &iwr_core::Project, lang: &str) -> Result<Vec<String>> {
     let loaded = codecast::load(script)?;
-    let mut s = iwr_core::script::parse(&loaded.text);
-    iwr_core::script::expand_tours(project, &mut s);
+    let s = told(&loaded.text, project, lang);
     let mut g = vec![iwr_core::glossary::builtin()];
     if let Some(own) = &loaded.glossary {
         g.push(iwr_core::glossary::parse(own));
@@ -107,7 +119,7 @@ pub fn print_pieces(script: &Path, path: &Path, lang: &str) -> Result<()> {
     // written by hand to keep the reading order (a translator wants the context)
     let mut seen = std::collections::HashSet::new();
     let mut lines = Vec::new();
-    for t in pieces(script, &p)?.iter().filter(|t| seen.insert(t.to_string())) {
+    for t in pieces(script, &p, lang)?.iter().filter(|t| seen.insert(t.to_string())) {
         lines.push(format!("  {}: {}", serde_json::to_string(t)?, serde_json::to_string(own.get(t).map_or("", String::as_str))?));
     }
     println!("{{\n{}\n}}", lines.join(",\n"));
@@ -121,8 +133,7 @@ pub fn run(script: &Path, path: &Path, lang: &str) -> Result<()> {
     let map = codecast_map(script, &p, lang)?;
     let own = own_path(&codecast::script_dir(script), lang);
     let loaded = codecast::load(script)?;
-    let mut s = iwr_core::script::parse(&loaded.text);
-    iwr_core::script::expand_tours(&p, &mut s);
+    let mut s = told(&loaded.text, &p, lang);
     iwr_core::i18n::apply(&mut s, &mut [], &iwr_core::i18n::names(&p), &|t| map.get(t).cloned());
     print!("{}", iwr_core::script::to_text(&s));
     eprintln!("{} piece(s) translated to {}; cached in {}", map.len(), lang, home()?.display());
@@ -130,6 +141,12 @@ pub fn run(script: &Path, path: &Path, lang: &str) -> Result<()> {
         eprintln!("machine translation is rough: for a better one, translate `codecast translate --pieces` with another tool into {}", own.display());
     }
     Ok(())
+}
+
+/// A codecast's text parsed and told in `lang` (as the player does): its tours generated in
+/// that language when iwr-core speaks it.
+fn told(text: &str, project: &iwr_core::Project, lang: &str) -> iwr_core::script::Script {
+    iwr_core::script::Source::Written(iwr_core::script::parse(text)).tell(project, lang)
 }
 
 fn home() -> Result<PathBuf> {

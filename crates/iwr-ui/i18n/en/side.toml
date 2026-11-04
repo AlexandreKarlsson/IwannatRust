@@ -1,0 +1,16 @@
+close_tip = "close the side panel (the next `|` line opens it again)"
+
+# the panel's kind, in its head
+[kind]
+bytes = "bytes"
+notes = "notes"
+diagram = "diagram"
+chart = "chart"
+
+# byte layout table
+[bytes]
+field = "field"
+at = "at"
+size = "size"
+value = "value"
+rest = "rest"

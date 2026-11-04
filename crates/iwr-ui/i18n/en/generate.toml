@@ -1,0 +1,155 @@
+# The Generate page (generate.rs): recording the codecast's voice with Kokoro.
+reading = "Reading the codecast…"
+kicker = "Kokoro · offline text-to-speech"
+title = "Generate the voice"
+intro = "Record every part of the codecast with a natural voice that runs on this machine. Each part becomes a small Opus file next to its script, played instead of the browser's voice — and spoken by TTS again as soon as its text changes."
+parts = { one = "{n} part", other = "{n} parts" }
+cues = { one = "{n} cue", other = "{n} cues" }
+
+[stat]
+by = "by {voice}"
+audio = "of audio"
+disk = "on disk"
+
+[empty]
+title = "Nothing to record yet"
+tree = "codecast/\n├── index.md          title + the parts, in order\n├── 01-welcome.md     one ## part per file\n└── 02-pipeline.md"
+then = "Then run codecast serve again, or record from the terminal with `codecast voice codecast/`."
+
+[coverage]
+tip = "{voice}: {rec} recorded · {stale} changed since · {missing} missing · {own} hand-made"
+recorded = "{n} recorded by {voice}"
+stale = "{n} changed since"
+missing = "{n} missing"
+own = "{n} hand-made"
+
+[banner]
+title = "First run sets Kokoro up"
+text = " — a Python environment (through uv, fetched if missing) and the ~90 MB model, downloaded once into ~/.cache/codecast/kokoro. Needs an internet connection; takes a minute or two."
+
+[language]
+title = "Language"
+text = "Other languages are translated offline from the English parts, and stay in sync with them."
+warn = "⚠ The offline translation is rough for now. For a good one, translate with another tool (DeepL, an LLM…): `codecast translate codecast/ --lang ja --pieces > ja.json`, fill in the values, save it as `codecast/translations/ja.json`; those pieces win over the model."
+done = { one = "{done}/{n} part", other = "{done}/{n} parts" }
+
+[voices]
+title = "Voices"
+text = "Click a slot, then a voice, or drag a voice onto a slot. ▶ plays a sample. Every voice (or pair) keeps its own recordings: listeners pick one in the player."
+main = "Main voice"
+second = "Second voice"
+note_main = "says every line"
+note_none = "says the sp: lines: this codecast has none yet"
+note_same = "the sp: lines, same voice spoken higher"
+note_auto = "the sp: lines (picked for you)"
+note_second = "says the sp: lines"
+pick_for_me = "pick for me"
+swap = "swap the two voices"
+best = "one of the best Kokoro voices"
+has = "parts recorded with this voice"
+sample = "hear a sample"
+preview_error = "preview: {error}"
+
+[accent]
+american = "American"
+british = "British"
+japanese = "Japanese"
+french = "French"
+spanish = "Spanish"
+italian = "Italian"
+brazilian = "Brazilian"
+
+[delivery]
+title = "Delivery"
+text = "How it is spoken and stored."
+speed = "Speed"
+calm = "calm"
+brisk = "brisk"
+gap = "Pause between cues"
+tight = "tight"
+airy = "airy"
+compression = "Compression"
+cleaner = "cleaner"
+smaller = "smaller (0.95 ≈ 18 kbps)"
+
+[pick]
+title = "Parts"
+text = "Ticked parts are recorded, up to date or not. Unchanged cues come from the cache, instantly."
+needs = "Needs it ({n})"
+all = "All"
+none = "None"
+also_by = "also recorded by {voices}"
+
+[pill]
+skip = "can't record"
+recorded = "recorded"
+stale = "text changed"
+own = "hand-made"
+missing = "missing"
+
+[action]
+nothing = "Nothing ticked"
+retranslate = "↻ Retranslate"
+retranslate_tip = "translate the ticked parts again (not from the cache), then record them"
+rerecord = "↻ Rerecord"
+rerecord_tip = "synthesize every cue of the ticked parts again (not from the cache)"
+generate = "Generate"
+generate_n = { one = "Generate {n} part", other = "Generate {n} parts" }
+
+[job]
+starting = "starting"
+recording = "Recording {part}"
+failed = "Recording failed"
+cancelled = { one = "Cancelled — {n} part kept", other = "Cancelled — {n} parts kept" }
+up_to_date = "Everything was already up to date"
+done = { one = "{n} part recorded · {audio} of audio · {size}", other = "{n} parts recorded · {audio} of audio · {size}" }
+cue = "cue {done}/{total} · "
+elapsed = "{time} elapsed"
+left = " · about {time} left"
+cancel = "Cancel"
+play = "Play the codecast"
+hide = "hide"
+chip = { one = "{done}/{n} cue", other = "{done}/{n} cues" }
+hide_details = "hide details ▾"
+details = "details ({n}) ▸"
+
+[outdated]
+title = { one = "{n} recording out of date: its text changed", other = "{n} recordings out of date: their text changed" }
+clean_title = "Old recordings to clean up"
+browser = "Those parts are spoken by the browser voice until they are recorded again. "
+orphans = { one = "{n} recording belongs to a part that no longer exists.", other = "{n} recordings belong to parts that no longer exist." }
+group = { one = "{n} part: {list}", other = "{n} parts: {list}" }
+regenerate = "↻ Regenerate"
+delete_files = { one = "Delete {n} file?", other = "Delete {n} files?" }
+delete = "Delete"
+gone = "Parts that are gone"
+gone_note = "deleted with either action below"
+regenerate_all = "↻ Regenerate all out-of-date"
+confirm_all = { one = "Yes, delete {n} recording", other = "Yes, delete {n} recordings" }
+keep = "Keep them"
+delete_all = "Delete all out-of-date"
+delete_them = "Delete them"
+
+[sets]
+title = "Recorded voices"
+text = "Each voice or pair keeps its own recordings. Complete records the parts it lacks — changed or new — with the voice and delivery it was made with."
+recorded = "{done}/{total} recorded"
+changed = "{n} changed"
+missing = "{n} missing"
+select = "Select"
+select_tip = "pick this voice, language and delivery in the form below"
+nothing = "nothing to record"
+record = "record {parts}"
+complete = "✓ Complete"
+complete_n = { one = "↻ Complete {n} part", other = "↻ Complete {n} parts" }
+delete_n = { one = "Delete {n} recording?", other = "Delete {n} recordings?" }
+complete_all = { one = "↻ Complete {n} voice", other = "↻ Complete all {n} voices" }
+
+# names of the recording languages that `iwr_core::voice::VOICE_LANGS` gives in English
+[voice_lang]
+en_us = "English (US)"
+en_gb = "English (UK)"
+
+[problem]
+no_codecast = "No codecast next to the project: create codecast/ with index.md and one file per part."
+single_file = "{path} is a single file: recordings are made per part, for a codecast/ directory (index.md and one file per part)."

@@ -20,3 +20,6 @@ proc-macro2 = { version = "1", default-features = false, features = ["span-locat
 quote = { version = "1", optional = true }
 walkdir = { version = "2", optional = true }
 toml = { version = "0.8", optional = true }
+
+[build-dependencies]
+iwr-i18n-gen = { path = "../iwr-i18n-gen" }

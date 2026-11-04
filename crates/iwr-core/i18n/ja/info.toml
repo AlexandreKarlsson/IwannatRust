@@ -1,0 +1,41 @@
+[summary]
+entry_point = "プログラムのエントリポイント"
+async = "async"
+fallible = "失敗しうる（Result を返す）"
+maybe_nothing = "何も返さないことがある（Option）"
+recursive = "再帰"
+loops = "ループ {n} 個"
+branches = "分岐 {n} 個"
+struct = "フィールド {n} 個の struct"
+enum = "バリアント {n} 個の enum"
+trait = "メソッド {n} 個の trait"
+impl_trait = "{target} への impl {name}"
+impl_inherent = "{target} の固有 impl"
+alias = "{target} の別名"
+constant = "{ty} 型の定数"
+module = "モジュール"
+sep = "、"
+
+[fact]
+lines = "{n} 行"
+trait = "trait {name}"
+fields = "フィールド {n} 個"
+derive = "derive {names}"
+variants = "バリアント {n} 個"
+
+[rel]
+impl = "impl：{name}"
+on = "{name} のメソッド"
+contains = "{name} を含む"
+implements = "{name} を実装"
+requires = "{name} が必要"
+alias_of = "{name} の別名"
+field_of = "{name} のフィールド"
+implemented_by = "{name} が実装"
+supertrait_of = "{name} のスーパートレイト"
+aliased_as = "別名 {name}"
+used_by = "{name} が使用"
+method = "メソッド {name}"
+
+[note]
+sequence_cut = "{max} メッセージで打ち切りました。深さを下げるか、より深い関数から始めてください。"

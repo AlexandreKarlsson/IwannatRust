@@ -137,44 +137,82 @@ pub fn missing_parts(s: &Script, lang: &str, voice: &str) -> Vec<usize> {
 
 /// Every translatable text of a script and a glossary, through `f` (markdown cut into pieces).
 fn walk(s: &mut Script, glossary: &mut [Entry], f: &mut dyn FnMut(&str) -> String) {
-    let mut md = |t: &mut String| *t = map_markdown(t, f);
-    md(&mut s.title);
+    // `told`: text iwr-core already told in the target language; only its marked author pieces go
+    // through `f`
+    let mut tx = |t: &mut String, told: bool| *t = if told { map_markdown(t, &mut |chunk| marked(chunk, f)) } else { map_markdown(t, f) };
+    tx(&mut s.title, s.told);
     if let Some(t) = &mut s.summary {
-        md(t);
+        tx(t, false);
     }
     for part in &mut s.parts {
-        md(&mut part.name);
+        tx(&mut part.name, part.told);
         if let Some(t) = &mut part.summary {
-            md(t);
+            tx(t, false);
         }
         for note in &mut part.notes {
             if let Some(t) = &mut note.title {
-                md(t);
+                tx(t, false);
             }
-            md(&mut note.text);
+            tx(&mut note.text, false);
         }
         // chart labels; ids, values and `{}` markers stay (markers sit at a fraction of the text)
         for c in &mut part.charts {
             for t in [&mut c.title, &mut c.x, &mut c.y].into_iter().flatten() {
-                md(t);
+                tx(t, false);
             }
-            c.series.iter_mut().for_each(&mut md);
+            c.series.iter_mut().for_each(|t| tx(t, false));
             for r in c.rows.iter_mut().filter(|r| r.label != r.id) {
-                md(&mut r.label);
+                tx(&mut r.label, false);
             }
         }
         for cue in &mut part.cues {
-            md(&mut cue.say);
+            tx(&mut cue.say, cue.told);
             for q in &mut cue.questions {
-                md(&mut q.ask);
-                md(&mut q.answer);
+                tx(&mut q.ask, false);
+                tx(&mut q.answer, false);
             }
         }
     }
     // the term and its aliases stay: they are matched against the English cue
     for e in glossary {
-        md(&mut e.ask);
-        md(&mut e.answer);
+        tx(&mut e.ask, false);
+        tx(&mut e.answer, false);
+    }
+}
+
+/// A told text: the pieces between [`crate::tr::OPEN`] and [`crate::tr::CLOSE`] through `f`, the
+/// rest as it is, the marks dropped.
+fn marked(chunk: &str, f: &mut dyn FnMut(&str) -> String) -> String {
+    use crate::tr::{CLOSE, OPEN};
+    let mut out = String::new();
+    let mut rest = chunk;
+    while let Some(i) = rest.find(OPEN) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + OPEN.len_utf8()..];
+        let (piece, tail) = after.split_once(CLOSE).unwrap_or((after, ""));
+        if piece.trim().is_empty() {
+            out.push_str(piece);
+        } else {
+            out.push_str(&f(piece));
+        }
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The marks of told text dropped, author text left as written: what plays when no translation
+/// of the author text is at hand.
+pub fn unmark(s: &mut Script) {
+    let un = |t: &mut String| {
+        if t.contains([crate::tr::OPEN, crate::tr::CLOSE]) {
+            *t = crate::tr::unmark(t);
+        }
+    };
+    un(&mut s.title);
+    for part in &mut s.parts {
+        un(&mut part.name);
+        part.cues.iter_mut().for_each(|c| un(&mut c.say));
     }
 }
 

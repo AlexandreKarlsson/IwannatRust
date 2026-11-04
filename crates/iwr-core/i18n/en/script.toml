@@ -1,0 +1,2 @@
+# The built-in tour as a codecast (`script::from_guide`).
+tour_of = "Tour of {name}"

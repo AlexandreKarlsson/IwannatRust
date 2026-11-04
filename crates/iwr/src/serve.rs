@@ -165,6 +165,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/font/{name}", post(api_save_font).layer(DefaultBodyLimit::max(MAX_FONT)))
             .route("/api/codecast/{*name}", get(api_codecast_file))
             .route("/api/translate/{lang}", post(api_translate))
+            .route("/api/subtitles/{lang}", post(api_subtitles))
             .route("/api/voice", get(api_voice_status).post(api_voice_start))
             .route("/api/voice/job", get(api_voice_job))
             .route("/api/voice/cancel", post(api_voice_cancel))
@@ -321,6 +322,17 @@ async fn api_translate(State(s): State<AppState>, AxPath(lang): AxPath<String>, 
     }
 }
 
+/// The translations of the texts the player sends that already exist (the codecast's
+/// `translations/<lang>.json`, then the cache), `null` for the others; never runs the model.
+async fn api_subtitles(State(s): State<AppState>, AxPath(lang): AxPath<String>, Json(texts): Json<Vec<String>>) -> Response {
+    let dir = s.script.as_deref().map(crate::codecast::script_dir);
+    match tokio::task::spawn_blocking(move || crate::translate::known(&lang, &texts, dir.as_deref())).await {
+        Ok(Ok(done)) => Json(done).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, format!("{e:#}")).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 /// Every part of the codecast and its recordings (`codecast voice`), for the Generate page.
 async fn api_voice_status(State(s): State<AppState>) -> Response {
     let script = s.script.clone();
@@ -339,7 +351,7 @@ async fn api_voice_start(State(s): State<AppState>, headers: HeaderMap, Json(req
     if iwr_core::voice::voice_lang(&req.lang).is_none() || !iwr_core::voice::VOICES.contains(&req.voice.as_str()) {
         return (StatusCode::BAD_REQUEST, "unknown voice or language").into_response();
     }
-    let opts = crate::voice::Opts { voice: req.voice.clone(), voice2: req.voice2.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh };
+    let opts = crate::voice::Opts { voice: req.voice.clone(), voice2: req.voice2.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh, written: false };
     spawn_voice_job(s, dir, vec![opts], vec![], Some(req))
 }
 
@@ -355,7 +367,7 @@ async fn api_voice_refresh(State(s): State<AppState>, headers: HeaderMap, Json(r
         .stale
         .iter()
         .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
-        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false })
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false, written: false })
         .collect();
     spawn_voice_job(s, dir, opts, st.orphans, None)
 }
@@ -395,7 +407,7 @@ async fn api_voice_complete(State(s): State<AppState>, headers: HeaderMap, Json(
         .iter()
         .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
         .filter(|g| !g.todo().is_empty())
-        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.todo(), retranslate: false, fresh: false })
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.todo(), retranslate: false, fresh: false, written: false })
         .collect();
     if opts.is_empty() {
         return (StatusCode::CONFLICT, "nothing to record: those voices are complete").into_response();

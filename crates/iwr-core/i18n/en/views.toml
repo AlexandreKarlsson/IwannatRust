@@ -1,0 +1,42 @@
+# View names and descriptions (`Mode::label_in`, `Mode::description_in`), and the notes a view
+# shows when it has nothing to draw.
+
+[label]
+code = "Code"
+call_tree = "Call tree"
+control_flow = "Control flow"
+architecture = "Architecture"
+branch_tree = "Branch tree"
+structure = "Structure"
+types = "Types & traits"
+error_flow = "Error flow"
+diagram = "Diagram"
+sequence = "Sequence"
+chart = "Chart"
+plan = "Plan"
+
+[desc]
+code = "The code itself as simple nested blocks: functions, loops, branches, calls. Click to open."
+call_tree = "Which function calls which, starting from the entry point. Expand nodes to go deeper."
+control_flow = "Statement-level flow of one function: branches, loops, early returns, error exits."
+architecture = "Modules and their dependencies. Expand a module to see its items."
+branch_tree = "Every possible path through a function as a tree. Expand calls to inline the callee."
+structure = "Files, modules, impl blocks and items as nested blocks."
+types = "Structs, enums, traits and how they relate (fields, impls, supertraits)."
+error_flow = "Where errors are created, propagated with ?, handled, or turned into panics."
+sequence = "The calls made from the root function, in time order: one column per type or module, loops and branches as frames."
+diagram = "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows."
+chart = "A chart drawn by the codecast: a number that changed, a share of a whole."
+plan = "The plan of the codecast: its parts in order, one line each. Click one to jump there."
+
+[note]
+diagram = "Diagrams are drawn by a codecast: `@ diagram` after a ```mermaid block."
+no_functions = "No functions found."
+truncated = "Tree truncated at {max} nodes; collapse or change the root."
+truncated_short = "Tree truncated at {max} nodes."
+select_function = "Select a function."
+no_body = "{name} has no body to show."
+no_types = "No structs, enums or traits found."
+no_errors = "No Result/Option-returning functions or panics found."
+empty_sequence = "Empty sequence diagram."
+empty_diagram = "Empty diagram."

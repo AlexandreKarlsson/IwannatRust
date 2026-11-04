@@ -1,0 +1,74 @@
+# Generated tours (`tours.rs`): `architecture_tour`, `types_tour`, `errors_tour`, `entry_tour`,
+# `todo_tour`, `files_tour`. A key ending in `_in` is the same sentence limited to a module
+# (`architecture_tour:net`), named by `{scope}`.
+
+more = "And {n} more, not shown here."
+
+# the i-th stop of a tour
+[lead]
+first = "First,"
+last = "And finally,"
+next = "Next,"
+then = "Then"
+there = "Then there is"
+
+[arch]
+visit = { one = "Let's visit the {n} module from the top down: first what starts the program, last the foundations everything else uses.", other = "Let's visit the {n} modules from the top down: first what starts the program, last the foundations everything else uses." }
+map = "Here is the map of {name}: every box is a module, every arrow a dependency."
+map_in = "Here is the map of {name} in `{scope}`: every box is a module, every arrow a dependency."
+now_modules = "Now the modules."
+folded = { one = "It holds {n} smaller module, folded into its box.", other = "It holds {n} smaller modules, folded into its box." }
+
+[types]
+none = "There are no types: only functions."
+none_in = "There are no types in `{scope}`: only functions."
+intro = { one = "Now the data: {n} type. Structs and enums hold the values; traits describe behaviour that several types share. Green arrows mean contains, purple dashed arrows mean implements.", other = "Now the data: {n} types. Structs and enums hold the values; traits describe behaviour that several types share. Green arrows mean contains, purple dashed arrows mean implements." }
+intro_in = { one = "Now the data in `{scope}`: {n} type. Structs and enums hold the values; traits describe behaviour that several types share. Green arrows mean contains, purple dashed arrows mean implements.", other = "Now the data in `{scope}`: {n} types. Structs and enums hold the values; traits describe behaviour that several types share. Green arrows mean contains, purple dashed arrows mean implements." }
+
+[errors]
+none = "Nothing returns a `Result` or can panic: no error paths to follow."
+none_in = "Nothing in `{scope}` returns a `Result` or can panic: no error paths to follow."
+intro = "Now, where things go wrong. {fallible} return a `Result`, so their callers must deal with failure; {panicky} can panic. Rust has no exceptions: an error is a value that travels back up, step by step."
+intro_in = "Now, where things go wrong in `{scope}`. {fallible} return a `Result`, so their callers must deal with failure; {panicky} can panic. Rust has no exceptions: an error is a value that travels back up, step by step."
+fns = { one = "{n} function", other = "{n} functions" }
+no_panics = "none"
+comes_back = "It comes back from {who}."
+from = { one = "{list} turns into it through `From`, which is what lets `?` pass one as the other.", other = "{list} turn into it through `From`, which is what lets `?` pass one as the other." }
+times = { one = "`{name}` ({n} time)", other = "`{name}` ({n} times)" }
+question = "The question mark passes an error straight up to the caller. It is used in {list}."
+question_more = "The question mark passes an error straight up to the caller. It is used in {list} and {more} more."
+handled = "Errors stop in {names}: they check the result themselves, with a `match` or an `if let`, instead of passing it on."
+panics = "And these can panic instead: {names}. A panic, from `unwrap`, `expect` or `panic!`, stops the thread; no caller gets a chance to handle it."
+
+[entry]
+main = "Everything starts in `main`, the entry point of the program."
+calls = "It calls {names}."
+nothing = "This project has no `main` and nothing marked `pub`: no way in from outside."
+way_in_api = { one = "The way in is the library's public API: {n} item that other code can use.", other = "The way in is the library's public API: {n} items that other code can use." }
+way_in_pub = { one = "The way in is what is marked `pub`: {n} item that other code can use.", other = "The way in is what is marked `pub`: {n} items that other code can use." }
+then_api = { one = "Then, the library's public API: {n} item that other code can use.", other = "Then, the library's public API: {n} items that other code can use." }
+then_pub = { one = "Then, what is marked `pub`: {n} item that other code can use.", other = "Then, what is marked `pub`: {n} items that other code can use." }
+signature = "Its signature: `{sig}`."
+function = "{lead} `{name}`."
+
+[todo]
+bare = "In `{at}`, a {marker} left in the code."
+text = "In `{at}`, a {marker}: {text}"
+unsafe = "In `{at}`, `unsafe`: here the compiler trusts the author instead of checking."
+panic = "In `{at}`, `{code}` can panic."
+none = "No rough edges: no TODO left, no `unsafe`, nothing that can panic."
+none_in = "No rough edges in `{scope}`: no TODO left, no `unsafe`, nothing that can panic."
+intro = "Now the rough edges: {notes} left in comments, {unsafes}, and {panics} that can panic. A good list to start from when you want to improve the code."
+intro_in = "Now the rough edges in `{scope}`: {notes} left in comments, {unsafes}, and {panics} that can panic. A good list to start from when you want to improve the code."
+notes = { one = "{n} note", other = "{n} notes" }
+unsafes = { one = "{n} unsafe block", other = "{n} unsafe blocks" }
+panics = { one = "{n} place", other = "{n} places" }
+
+[files]
+intro = { one = "Let's walk through the {n} file, one by one, the way you would open them in an editor.", other = "Let's walk through the {n} files, one by one, the way you would open them in an editor." }
+intro_in = { one = "Let's walk through the {n} file in `{scope}`, one by one, the way you would open them in an editor.", other = "Let's walk through the {n} files in `{scope}`, one by one, the way you would open them in an editor." }
+defines = "It defines {names}."
+first = "First, the {file} file."
+last = "And last, the {file} file."
+next = "Next, the {file} file."
+then = "Then the {file} file."

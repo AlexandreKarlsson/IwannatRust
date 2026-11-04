@@ -1,0 +1,167 @@
+# The built-in tour (`guide.rs`): what it says about the program, its modules, its types and
+# each function, step by step. Code goes in backticks; author doc text is added by the code.
+
+# "a, b and c": items joined with `list_sep`, the last one with `list_and`
+list_sep = ", "
+list_and = "{rest} and {last}"
+more_items = "{n} more"
+
+# parts of the built-in tour
+[part]
+welcome = "Welcome"
+data = "The data"
+calls = "Who calls whom"
+
+[title]
+welcome = "Welcome to {name}"
+about = "About {name}"
+architecture = "The architecture"
+module = "Module {path}"
+data = "Data types"
+call_tree = "Call tree"
+no_entry = "No entry point"
+start_at = "Start at {name}()"
+enter = "Enter {name}()"
+leave = "Leave {name}()"
+io = "Input / output"
+assign = "State changes"
+statements = "Plain statements"
+decision = "Decision"
+match_arms = { one = "Match with {n} arm", other = "Match with {n} arms" }
+loop = "Loop"
+call = "Call {callees}"
+propagate = "Error propagation with ?"
+panic = "Possible panic"
+halt = "The program stops"
+early_return = "Early return"
+await = "Await"
+
+# welcome and overview
+[intro]
+welcome = "Welcome to **{name}**."
+size = "It is {files} and {modules}, with {fns} and {types}."
+files = { one = "{n} source file", other = "{n} source files" }
+modules = { one = "{n} module", other = "{n} modules" }
+fns = { one = "{n} function", other = "{n} functions" }
+types = { one = "{n} type", other = "{n} types" }
+big_picture = "Let's start with the big picture. This is the architecture: every box is a module, and the arrows show which module depends on which."
+data = "That is the map. Now the data these modules share. Structs and enums hold the values; traits describe behaviour that several types can share. Green arrows mean *contains*, purple dashed arrows mean *implements*."
+call_tree = "Now that we know the data, let's follow the program as it runs. Everything starts in `{root}`. This call tree shows who calls whom from there. We will walk that path one function at a time, staying in each one until it is fully explained."
+call_tree_calls = "Now that we know the data, let's follow the program as it runs. Everything starts in `{root}`. This call tree shows who calls whom from there: it calls {calls}. We will walk that path one function at a time, staying in each one until it is fully explained."
+no_main = "No `fn main` found. Pick a function in the sidebar and choose *codecast from here* to walk through it."
+
+# the i-th module of a tour
+[module]
+first = "First, the `{name}` module."
+last = "And last, the `{name}` module."
+then = "Then the `{name}` module."
+next = "Next, the `{name}` module."
+plain = "The `{name}` module."
+no_doc = "It has no module doc yet."
+holds = "It holds {fns} and {types}."
+holds_among = "It holds {fns} and {types}, among them {names}."
+fns = { one = "{n} function", other = "{n} functions" }
+types = { one = "{n} type", other = "{n} types" }
+
+# the i-th type of the built-in tour
+[type_lead]
+first = "Let's start with"
+last = "And finally"
+next = "Next,"
+then = "Then"
+there = "Then there is"
+
+# one sentence about a type
+[ty]
+unit = "`{name}`, a struct with no fields, a plain marker."
+struct_count = { one = "`{name}`, a struct with {n} field.", other = "`{name}`, a struct with {n} fields." }
+struct_fields = { one = "`{name}`, a struct with {n} field: {fields}.", other = "`{name}`, a struct with {n} fields: {fields}." }
+struct_fields_more = { one = "`{name}`, a struct with {n} field: {fields} and more.", other = "`{name}`, a struct with {n} fields: {fields} and more." }
+enum = { one = "`{name}`, an enum with {n} variant: {variants}.", other = "`{name}`, an enum with {n} variants: {variants}." }
+enum_more = { one = "`{name}`, an enum with {n} variant: {variants} and more.", other = "`{name}`, an enum with {n} variants: {variants} and more." }
+error = { one = "`{name}`, an error type with {n} variant: {variants}.", other = "`{name}`, an error type with {n} variants: {variants}." }
+error_more = { one = "`{name}`, an error type with {n} variant: {variants} and more.", other = "`{name}`, an error type with {n} variants: {variants} and more." }
+trait = "the `{name}` trait."
+trait_methods = "the `{name}` trait, with {methods}."
+trait_impls = "the `{name}` trait; it is implemented by {impls}."
+trait_methods_impls = "the `{name}` trait, with {methods}; it is implemented by {impls}."
+alias = "`{name}`, an alias for `{target}`."
+other = "`{name}`."
+
+# the i-th step inside a function
+[conn]
+first = "First,"
+last = "Finally,"
+then = "Then"
+next = "Next,"
+after = "After that,"
+now = "Now"
+
+# entering a function
+[enter]
+main = "Let's start at the top, in `{name}`, the entry point of the program."
+root = "Let's start with `{name}`."
+called = "Now let's take a closer look at `{name}`, which `{caller}` calls."
+called_loop = "Now let's take a closer look at `{name}`, which `{caller}` calls inside a loop."
+called_question = "Now let's take a closer look at `{name}`, which `{caller}` calls with a question mark, so its errors bubble up."
+called_branch = "Now let's take a closer look at `{name}`, which `{caller}` calls on one of its branches."
+takes_gives = "It takes {params} and {gives}."
+gives_only = "It {gives}."
+gives_nothing = "returns nothing"
+gives_result = "returns a `Result`: either `Ok` with {ok}, or an `Err` of `{err}` that the caller has to deal with"
+a_value = "a value"
+gives_option = "returns `{ret}`, so there may be no value at all"
+gives = "returns `{ret}`"
+async = "It is async, so it only runs when something awaits it."
+recursive = "It calls itself: this is recursion, and we will see the base case that stops it."
+loops = { one = "{n} loop", other = "{n} loops" }
+decisions = { one = "{n} decision", other = "{n} decisions" }
+escapes = { one = "{n} place where an error can escape", other = "{n} places where an error can escape" }
+inside_is = "Inside there is {list}."
+inside_are = "Inside there are {list}."
+method_of = "It is a method of `{owner}`."
+
+# leaving a function
+[leave]
+text = "That is all of `{name}`: {ret}. {next}"
+ret_nothing = "it returns nothing"
+ret_result = "it hands back either `Ok` with the value, or an `Err` for the caller to handle"
+ret_option = "it returns `{ret}`: `Some` with a value, or `None`"
+ret = "it returns `{ret}`"
+next_called = "Next, let's open `{name}`, which we just saw it call."
+next = "Next, let's open `{name}`."
+end_program = "That was the whole program. Thanks for following along."
+end_tour = "And that is the end of the tour: every function on the path from the entry point has been visited. Thanks for following along."
+
+# what a call in a step leads to
+[callee]
+itself = "This is recursion: `{name}` calls itself here, and the calls unwind once the base case is reached."
+seen = "We already walked through `{name}`."
+later = "We will open `{name}` in a moment."
+trait = "`{name}` is a trait method, so which code runs depends on the concrete type."
+trait_impls = "`{name}` is a trait method, so which code runs depends on the concrete type: here it could be {impls}."
+
+# one step of a function's body
+[step]
+io = "{conn} input or output: `{code}`. This is where the program talks to the outside world."
+assign = "{conn} a change of state: `{code}`. Something that already exists is modified here."
+definitions = "{conn} a few definitions: `{code}`. Straight-line code, nothing branches here."
+statements = "{conn} a few plain statements: `{code}`. Straight-line code, nothing branches here."
+statement = "{conn} a plain statement: `{code}`. Straight-line code, nothing branches here."
+if_both = "{conn} a decision: if `{cond}`, we go to `{yes}`; otherwise we continue with `{no}`."
+if_then = "{conn} a decision: if `{cond}`, we go to `{yes}`; otherwise we carry on below."
+if_plain = "{conn} a decision: if `{cond}`."
+arm = "`{pat}` leads to `{to}`"
+match = { one = "{conn} a match on `{on}`. It picks one of {n} arm: {arms}.", other = "{conn} a match on `{on}`. It picks one of {n} arms: {arms}." }
+loop = "{conn} a loop: `{code}`. The body runs once per iteration, and when the loop is done control continues below it."
+loop_break = "A break inside can leave it early."
+call = "{conn} it calls {callees}."
+propagate = "{conn} the question mark. {who} can fail, and if it does, `{name}` stops right here and hands that error back to its caller. Otherwise the value is unwrapped and we carry on."
+this_expression = "This expression"
+panic = "Watch out here: `{code}` can panic. No error goes back to the caller; the thread simply stops, unless something catches it."
+halt = "{conn} the program stops here: {what}. No caller gets control back; the whole process ends."
+early_return = "{conn} an early exit: `{code}`. `{name}` leaves here and skips the rest of its body."
+break = "A break: it leaves the enclosing loop immediately."
+continue = "A continue: it skips straight to the next iteration of the loop."
+await = "{conn} an await: `{code}`. The function pauses here until the future is ready, and other tasks can run in the meantime."
+more_rows = "And {n} more rows."

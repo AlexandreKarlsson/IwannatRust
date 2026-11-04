@@ -1,5 +1,6 @@
 //! SVG canvas: pan/zoom, nodes, edges, tooltip, legend.
 
+use crate::i18n::t;
 use crate::theme;
 use crate::{State, Transform};
 use iwr_core::script::Resolved;
@@ -101,6 +102,7 @@ pub fn Canvas() -> Element {
     let node_count = g.nodes.len();
     let root_label = state.root.read().and_then(|r| state.project.read().as_ref().map(|p| p.item(r).name.clone()));
     let scope_label = state.scope.read().and_then(|m| state.project.read().as_ref().map(|p| p.module(m).path.clone()));
+    let (root_txt, hint_fit, hint_cast, hint_tour, hint_steps) = (t::canvas::root(), t::canvas::hint_fit(), t::canvas::hint_codecast(), t::canvas::hint_tour(), t::canvas::hint_steps());
     let hovered_id: Option<String> = hovered.as_ref().map(|h| h.0.clone());
     let selected_node_id: Option<String> = g.nodes.iter().find(|n| is_selected(n, selected, sel_span, mode)).map(|n| n.id.clone());
     let focus_id = hovered_id.clone().or(selected_node_id);
@@ -203,30 +205,30 @@ pub fn Canvas() -> Element {
                 }
             }
             div { class: "hud",
-                button { class: "small", onclick: move |_| { let g = graph.read().clone(); state.fit(&g); }, "Fit" }
+                button { class: "small", onclick: move |_| { let g = graph.read().clone(); state.fit(&g); }, {t::canvas::fit()} }
                 button { class: "small", onclick: move |_| { let mut v = *state.view.read(); v.k = (v.k * 1.25).min(4.0); state.view.set(v); }, "+" }
                 button { class: "small", onclick: move |_| { let mut v = *state.view.read(); v.k = (v.k / 1.25).max(0.1); state.view.set(v); }, "−" }
                 if let Some(r) = root_label {
-                    span { class: "status", "root: " b { "{r}" } }
+                    span { class: "status", "{root_txt} " b { "{r}" } }
                 }
                 if mode == Mode::CallTree || mode == Mode::Sequence {
-                    span { class: "depth", title: "how many call levels to open from the root",
-                        "depth"
+                    span { class: "depth", title: t::canvas::tip_depth(),
+                        {t::canvas::depth()}
                         button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set(d.saturating_sub(1).max(1)); state.save_settings(); }, "−" }
                         span { "{depth}" }
                         button { class: "small", onclick: move |_| { let d = *state.depth.read(); state.depth.set((d + 1).min(12)); state.save_settings(); }, "+" }
                     }
                 }
                 if let Some(sc) = scope_label {
-                    span { class: "chip", title: "clear module scope", onclick: move |_| state.set_scope(None), "scope: {sc} ✕" }
+                    span { class: "chip", title: t::canvas::tip_scope(), onclick: move |_| state.set_scope(None), {t::canvas::scope(sc)} }
                 }
 
-                span { class: "status", "{node_count} nodes · {status}" }
-                span { class: "status", " · " span { class: "kbd", "f" } " fit  " span { class: "kbd", "g" } " codecast  " span { class: "kbd", "t" } " tour  " span { class: "kbd", "←" } span { class: "kbd", "→" } " steps" }
+                span { class: "status", {t::canvas::nodes(node_count, &status)} }
+                span { class: "status", " · " span { class: "kbd", "f" } " {hint_fit}  " span { class: "kbd", "g" } " {hint_cast}  " span { class: "kbd", "t" } " {hint_tour}  " span { class: "kbd", "←" } span { class: "kbd", "→" } " {hint_steps}" }
             }
             if mode == Mode::Structure {
-                div { class: "hud hud2", title: "tick what the Structure view shows",
-                    span { class: "status", "show" }
+                div { class: "hud hud2", title: t::canvas::tip_kinds(Mode::Structure.label_in(crate::i18n::core_lang())),
+                    span { class: "status", {t::canvas::show()} }
                     crate::settings::KindChips { compact: true }
                 }
             }
@@ -313,9 +315,9 @@ fn Node(node: VNode, selected: bool, highlighted: bool, hovered: bool, mode: Mod
     // details (signature, fields, badges) only when the node is the focus
     let active = !container && (selected || highlighted || hovered);
     let detail_lines: Vec<String> = if active {
-        let mut v: Vec<String> = node.sublabel.lines().filter(|l| !l.is_empty()).map(|s| s.to_string()).collect();
+        let mut v: Vec<String> = node.sublabel.lines().filter(|l| !l.is_empty()).map(shown).collect();
         if !node.badges.is_empty() {
-            v.push(node.badges.join(" · "));
+            v.push(node.badges.iter().map(|b| shown(b)).collect::<Vec<_>>().join(" · "));
         }
         v
     } else {
@@ -582,7 +584,7 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
     let top = y + 14.0;
     let kind = theme::node_kind_label(node.kind);
     let color = theme::node_color(node.kind);
-    let info = node.item.and_then(|id| project.as_ref().map(|p| iwr_core::views::item_info(p, id)));
+    let info = node.item.and_then(|id| project.as_ref().map(|p| iwr_core::views::item_info_in(p, id, crate::i18n::core_lang())));
     let src = match (&project, node.span) {
         (Some(p), Some(s)) if node.cfg_node.is_some() && node.kind != NodeKind::Entry && node.kind != NodeKind::Exit => Some(p.source_of(&s)),
         _ => None,
@@ -596,6 +598,8 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
         }
         t
     });
+    let (returns, calls, called_by) = (t::canvas::tooltip_returns(), t::canvas::tooltip_calls(), t::canvas::tooltip_called_by());
+    let hints = click_hints(&node);
     rsx! {
         div { class: "tooltip", style: "left:{left:.0}px; top:{top:.0}px",
             div { class: "t", span { class: "pill", style: "background:{color}; color:#0b1020", "{kind}" } " {node.label.lines().next().unwrap_or(\"\")}" }
@@ -614,16 +618,16 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
                     }
                 }
                 if let Some(r) = &info.ret {
-                    div { "returns " span { style: "color:#93c5fd", "{r}" } }
+                    div { "{returns} " span { style: "color:#93c5fd", "{r}" } }
                 }
                 div { style: "margin-top:4px",
                     for f in info.facts.iter() { span { class: "pill", "{f}" } }
                 }
                 if !info.calls.is_empty() {
-                    div { class: "doc", "calls: " {info.calls.iter().map(|c| c.1.clone()).collect::<Vec<_>>().join(", ")} }
+                    div { class: "doc", "{calls} " {info.calls.iter().map(|c| c.1.clone()).collect::<Vec<_>>().join(", ")} }
                 }
                 if !info.called_by.is_empty() {
-                    div { class: "doc", "called by: " {info.called_by.iter().map(|c| c.1.clone()).collect::<Vec<_>>().join(", ")} }
+                    div { class: "doc", "{called_by} " {info.called_by.iter().map(|c| c.1.clone()).collect::<Vec<_>>().join(", ")} }
                 }
                 div { class: "doc", "{info.location}" }
             } else {
@@ -637,27 +641,70 @@ fn Tooltip(node_id: String, x: f64, y: f64, graph: Rc<Graph>) -> Element {
                     }
                 }
                 if node.kind == NodeKind::Propagate {
-                    div { class: "doc", "On Err/None this function returns early to its caller." }
+                    div { class: "doc", {t::canvas::tooltip_propagate()} }
                 }
                 if node.kind == NodeKind::Panic {
-                    div { class: "doc", "May abort with a panic instead of returning an error." }
+                    div { class: "doc", {t::canvas::tooltip_panic()} }
                 }
                 if node.kind == NodeKind::Loop {
-                    div { class: "doc", "Body repeats; exits on the 'done' edge or a break." }
+                    div { class: "doc", {t::canvas::tooltip_loop_body()} }
                     if node.expandable && !node.expanded {
-                        div { class: "doc", "Folded: click ⊕ to show the steps inside." }
+                        div { class: "doc", {t::canvas::tooltip_folded()} }
                     }
                 }
             }
             if !node.badges.is_empty() && node.cfg_node.is_none() && info.is_none() {
-                div { for b in node.badges.iter() { span { class: "pill", "{b}" } } }
+                div { for b in node.badges.iter() { span { class: "pill", "{shown(b)}" } } }
             }
             div { class: "doc", style: "margin-top:4px; font-size:10px",
-                if node.expandable && node.cfg_node.is_some() && node.kind != NodeKind::Loop { if node.expanded { "click ⊖ to fold the callee · " } else { "click ⊕ to unfold the callee here · " } }
-                else if node.expandable { "click ⊕ to expand · " }
-                "click: show source · double-click: "
-                if node.cfg_node.is_some() { "open callee" } else if node.badges.iter().any(|b| b.ends_with(" inside")) { "open the modules inside" } else { "expand / open in control flow" }
+                "{hints}"
             }
+        }
+    }
+}
+
+/// The tooltip's last line: what a click and a double-click do on this node.
+fn click_hints(node: &VNode) -> String {
+    let fold = if node.expandable && node.cfg_node.is_some() && node.kind != NodeKind::Loop {
+        Some(if node.expanded { t::canvas::tooltip_fold_callee() } else { t::canvas::tooltip_unfold_callee() })
+    } else if node.expandable {
+        Some(t::canvas::tooltip_expand())
+    } else {
+        None
+    };
+    let action = if node.cfg_node.is_some() {
+        t::canvas::tooltip_open_callee()
+    } else if node.badges.iter().any(|b| b.ends_with(" inside")) {
+        t::canvas::tooltip_open_modules()
+    } else {
+        t::canvas::tooltip_expand_open()
+    };
+    let click = t::canvas::tooltip_click(action);
+    match fold {
+        Some(f) => format!("{f} · {click}"),
+        None => click,
+    }
+}
+
+/// A badge or sub-label iwr-core writes in English on a graph node (`2× loop`, `+3 inside`,
+/// `external crate`), as shown in the interface language. Code (`Result`, `async`, `2× ?`) and
+/// anything unknown stay as they are.
+fn shown(s: &str) -> String {
+    let count = |suffix: &str| s.strip_suffix(suffix).and_then(|n| n.trim().parse::<usize>().ok());
+    if let Some(n) = count("× loop") {
+        t::canvas::badge_loops(n)
+    } else if let Some(n) = count("× branch") {
+        t::canvas::badge_branches(n)
+    } else if let Some(n) = s.strip_prefix('+').and_then(|r| r.strip_suffix(" inside")).and_then(|n| n.parse::<usize>().ok()) {
+        t::canvas::badge_inside(n)
+    } else if let Some(n) = count(" steps inside").or_else(|| count(" step inside")) {
+        t::canvas::badge_steps_inside(n)
+    } else {
+        match s {
+            "↻ recursive" | "↻ recursion" => t::canvas::badge_recursive().to_string(),
+            "test" => t::canvas::badge_test().to_string(),
+            "external crate" => t::canvas::badge_external_crate().to_string(),
+            _ => s.to_string(),
         }
     }
 }

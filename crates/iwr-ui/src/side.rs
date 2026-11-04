@@ -3,6 +3,7 @@
 //! example (```` ```json ````, ```` ```csv ````…). `!` refs glow byte fields, diagram nodes, example
 //! keys and columns by id.
 
+use crate::i18n::t;
 use crate::md::Markdown;
 use crate::State;
 use dioxus::prelude::*;
@@ -19,11 +20,11 @@ pub fn SidePanel() -> Element {
     let Some(side) = state.side.read().clone() else { return rsx! {} };
     let dw = *state.details_w.read();
     let (kind, title) = match side.as_ref() {
-        Side::Bytes(l) => ("bytes", l.title.clone()),
-        Side::Note(n) => ("notes", n.title.clone()),
-        Side::Diagram(d) => ("diagram", d.title.clone()),
+        Side::Bytes(l) => (t::side::kind_bytes(), l.title.clone()),
+        Side::Note(n) => (t::side::kind_notes(), n.title.clone()),
+        Side::Diagram(d) => (t::side::kind_diagram(), d.title.clone()),
         Side::Example(e) => (e.lang.as_str(), e.title.clone()),
-        Side::Chart(c) => ("chart", c.title.clone()),
+        Side::Chart(c) => (t::side::kind_chart(), c.title.clone()),
     };
     rsx! {
         div { class: "side", style: "width:{dw * 100.0:.2}vw",
@@ -31,7 +32,7 @@ pub fn SidePanel() -> Element {
                 span { class: "kind", "{kind}" }
                 span { class: "title", {title.unwrap_or_default()} }
                 div { class: "spacer" }
-                button { class: "small", title: "close the side panel (the next `|` line opens it again)", onclick: move |_| state.side.set(None), "✕" }
+                button { class: "small", title: t::side::close_tip(), onclick: move |_| state.side.set(None), "✕" }
             }
             div { class: "side-body",
                 match side.as_ref() {
@@ -130,7 +131,7 @@ fn BytesCard(layout: Layout) -> Element {
                 }
             }
             table { class: "fields",
-                thead { tr { th {} th { "field" } th { "at" } th { "size" } if !l.sample.is_empty() { th { "value" } } th {} } }
+                thead { tr { th {} th { {t::side::bytes_field()} } th { {t::side::bytes_at()} } th { {t::side::bytes_size()} } if !l.sample.is_empty() { th { {t::side::bytes_value()} } } th {} } }
                 tbody {
                     for p in placed.iter() {
                         {
@@ -209,7 +210,7 @@ fn size_word(s: &Size) -> String {
     match s {
         Size::Fixed(n) => n.to_string(),
         Size::Field(f) => f.clone(),
-        Size::Rest => "rest".into(),
+        Size::Rest => t::side::bytes_rest().into(),
     }
 }
 

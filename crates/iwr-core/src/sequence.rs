@@ -367,7 +367,7 @@ pub fn from_calls(p: &Project, opts: &ViewOptions) -> (Sequence, Option<String>)
     w.message("caller", &rp, format!("{}()", it.name), Some(root), Some(it.span), Some(EdgeKind::Call));
     w.walk(root, &rp, 1);
     w.s.steps.push(Step::Deactivate(rp));
-    let note = w.cut.then(|| format!("Cut at {} messages: lower the depth or start from a deeper function.", MAX_MESSAGES));
+    let note = w.cut.then(|| crate::tr::t::info::note_sequence_cut(opts.lang, MAX_MESSAGES));
     (w.s, note)
 }
 

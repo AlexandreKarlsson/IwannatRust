@@ -7,25 +7,49 @@
 //! app (`iwr_core::script::UI_SPOTS`), the rest of the screen dimmed, and [`Zoom`], the
 //! presenter's zoom of `+ zoom`.
 
+use crate::i18n::t;
 use crate::State;
 use dioxus::prelude::*;
 use iwr_core::script::{self, PartFile, Voiced};
 
-/// The voice the tutorial was recorded with (`codecast voice assets/tutorial --path ../iwr-core/tests/fixtures/demo`).
-const VOICE: &str = "af_heart";
+/// One language of the tutorial: its plan, the voice it was recorded with, and each part (file
+/// stem, script, `.times` of its recording, the recording).
+struct Tutorial {
+    index: &'static str,
+    voice: &'static str,
+    parts: &'static [(&'static str, &'static str, &'static str, Asset)],
+}
 
-const INDEX: &str = include_str!("../assets/tutorial/index.md");
+/// The tutorial in the interface language. English: `codecast voice assets/tutorial --path
+/// ../iwr-core/tests/fixtures/demo`; Japanese, written in Japanese: `codecast voice
+/// assets/tutorial/ja --lang ja --voice jf_alpha --written --path ../iwr-core/tests/fixtures/demo`.
+fn tutorial() -> Tutorial {
+    match crate::i18n::lang() {
+        crate::i18n::Lang::En => Tutorial { index: include_str!("../assets/tutorial/index.md"), voice: "af_heart", parts: EN },
+        crate::i18n::Lang::Ja => Tutorial { index: include_str!("../assets/tutorial/ja/index.md"), voice: "jf_alpha", parts: JA },
+    }
+}
 
-/// Each part: file stem, script, `.times` of its recording, the recording.
-const PARTS: &[(&str, &str, &str, Asset)] = &[
-    ("01-welcome", include_str!("../assets/tutorial/01-welcome.md"), include_str!("../assets/tutorial/01-welcome.af_heart.times"), asset!("/assets/tutorial/01-welcome.af_heart.ogg")),
-    ("02-the-player", include_str!("../assets/tutorial/02-the-player.md"), include_str!("../assets/tutorial/02-the-player.af_heart.times"), asset!("/assets/tutorial/02-the-player.af_heart.ogg")),
-    ("03-files-and-folders", include_str!("../assets/tutorial/03-files-and-folders.md"), include_str!("../assets/tutorial/03-files-and-folders.af_heart.times"), asset!("/assets/tutorial/03-files-and-folders.af_heart.ogg")),
-    ("04-reading-code", include_str!("../assets/tutorial/04-reading-code.md"), include_str!("../assets/tutorial/04-reading-code.af_heart.times"), asset!("/assets/tutorial/04-reading-code.af_heart.ogg")),
-    ("05-the-views", include_str!("../assets/tutorial/05-the-views.md"), include_str!("../assets/tutorial/05-the-views.af_heart.times"), asset!("/assets/tutorial/05-the-views.af_heart.ogg")),
-    ("06-sketches-and-notes", include_str!("../assets/tutorial/06-sketches-and-notes.md"), include_str!("../assets/tutorial/06-sketches-and-notes.af_heart.times"), asset!("/assets/tutorial/06-sketches-and-notes.af_heart.ogg")),
-    ("07-around-the-app", include_str!("../assets/tutorial/07-around-the-app.md"), include_str!("../assets/tutorial/07-around-the-app.af_heart.times"), asset!("/assets/tutorial/07-around-the-app.af_heart.ogg")),
-    ("08-your-own-codecast", include_str!("../assets/tutorial/08-your-own-codecast.md"), include_str!("../assets/tutorial/08-your-own-codecast.af_heart.times"), asset!("/assets/tutorial/08-your-own-codecast.af_heart.ogg")),
+const EN: &[(&str, &str, &str, Asset)] = &[
+        ("01-welcome", include_str!("../assets/tutorial/01-welcome.md"), include_str!("../assets/tutorial/01-welcome.af_heart.times"), asset!("/assets/tutorial/01-welcome.af_heart.ogg")),
+        ("02-the-player", include_str!("../assets/tutorial/02-the-player.md"), include_str!("../assets/tutorial/02-the-player.af_heart.times"), asset!("/assets/tutorial/02-the-player.af_heart.ogg")),
+        ("03-files-and-folders", include_str!("../assets/tutorial/03-files-and-folders.md"), include_str!("../assets/tutorial/03-files-and-folders.af_heart.times"), asset!("/assets/tutorial/03-files-and-folders.af_heart.ogg")),
+        ("04-reading-code", include_str!("../assets/tutorial/04-reading-code.md"), include_str!("../assets/tutorial/04-reading-code.af_heart.times"), asset!("/assets/tutorial/04-reading-code.af_heart.ogg")),
+        ("05-the-views", include_str!("../assets/tutorial/05-the-views.md"), include_str!("../assets/tutorial/05-the-views.af_heart.times"), asset!("/assets/tutorial/05-the-views.af_heart.ogg")),
+        ("06-sketches-and-notes", include_str!("../assets/tutorial/06-sketches-and-notes.md"), include_str!("../assets/tutorial/06-sketches-and-notes.af_heart.times"), asset!("/assets/tutorial/06-sketches-and-notes.af_heart.ogg")),
+        ("07-around-the-app", include_str!("../assets/tutorial/07-around-the-app.md"), include_str!("../assets/tutorial/07-around-the-app.af_heart.times"), asset!("/assets/tutorial/07-around-the-app.af_heart.ogg")),
+        ("08-your-own-codecast", include_str!("../assets/tutorial/08-your-own-codecast.md"), include_str!("../assets/tutorial/08-your-own-codecast.af_heart.times"), asset!("/assets/tutorial/08-your-own-codecast.af_heart.ogg")),
+];
+
+const JA: &[(&str, &str, &str, Asset)] = &[
+        ("01-welcome", include_str!("../assets/tutorial/ja/01-welcome.md"), include_str!("../assets/tutorial/ja/01-welcome.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/01-welcome.ja.jf_alpha.ogg")),
+        ("02-the-player", include_str!("../assets/tutorial/ja/02-the-player.md"), include_str!("../assets/tutorial/ja/02-the-player.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/02-the-player.ja.jf_alpha.ogg")),
+        ("03-files-and-folders", include_str!("../assets/tutorial/ja/03-files-and-folders.md"), include_str!("../assets/tutorial/ja/03-files-and-folders.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/03-files-and-folders.ja.jf_alpha.ogg")),
+        ("04-reading-code", include_str!("../assets/tutorial/ja/04-reading-code.md"), include_str!("../assets/tutorial/ja/04-reading-code.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/04-reading-code.ja.jf_alpha.ogg")),
+        ("05-the-views", include_str!("../assets/tutorial/ja/05-the-views.md"), include_str!("../assets/tutorial/ja/05-the-views.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/05-the-views.ja.jf_alpha.ogg")),
+        ("06-sketches-and-notes", include_str!("../assets/tutorial/ja/06-sketches-and-notes.md"), include_str!("../assets/tutorial/ja/06-sketches-and-notes.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/06-sketches-and-notes.ja.jf_alpha.ogg")),
+        ("07-around-the-app", include_str!("../assets/tutorial/ja/07-around-the-app.md"), include_str!("../assets/tutorial/ja/07-around-the-app.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/07-around-the-app.ja.jf_alpha.ogg")),
+        ("08-your-own-codecast", include_str!("../assets/tutorial/ja/08-your-own-codecast.md"), include_str!("../assets/tutorial/ja/08-your-own-codecast.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/08-your-own-codecast.ja.jf_alpha.ogg")),
 ];
 
 /// Cue start times of a `.times` file (`start-seconds text-hash` lines, `#` comments).
@@ -35,30 +59,34 @@ fn times(t: &str) -> Vec<f64> {
 
 /// The tutorial codecast for `p`; recordings are fetched from `base` (the page's directory URL).
 fn tutorial_script(p: &iwr_core::Project, base: &str) -> script::Script {
-    let parts: Vec<PartFile> = PARTS
+    let tut = tutorial();
+    let parts: Vec<PartFile> = tut
+        .parts
         .iter()
         .map(|(stem, text, t, audio)| {
             let audio = format!("{}{}", base, audio.to_string().trim_start_matches('/'));
             let times = times(t);
-            PartFile { stem: stem.to_string(), text: iwr_core::tutorial::fill(p, text), audio: Some(audio.clone()), times: times.clone(), voices: vec![Voiced { lang: "en".into(), voice: VOICE.into(), audio, times }] }
+            // played as written: its recording is the script's own, whatever language it is in
+            PartFile { stem: stem.to_string(), text: iwr_core::tutorial::fill(p, text), audio: Some(audio.clone()), times: times.clone(), voices: vec![Voiced { lang: "en".into(), voice: tut.voice.into(), audio, times }] }
         })
         .collect();
-    script::parse(&script::assemble(INDEX, &parts))
+    script::parse(&script::assemble(tut.index, &parts))
 }
 
-/// Where a `+` spot is on screen (see `iwr_core::script::UI_SPOTS`).
+/// Where a `+` spot is on screen (see `iwr_core::script::UI_SPOTS`). Top-bar buttons are found
+/// by the `data-icon` that `IconButton` puts on them: their tooltips change with the language.
 pub fn selector(spot: &str) -> Option<&'static str> {
     Some(match spot {
         "brand" => ".topbar .brand",
-        "panel-button" => ".topbar [aria-label^='Files and items']",
+        "panel-button" => ".topbar [data-icon='panel']",
         "views" => ".topbar .tabs",
-        "split" => ".topbar [aria-label^='Show the source']",
+        "split" => ".topbar [data-icon='split']",
         "search" => ".topbar input",
-        "codecast" => ".topbar [aria-label*='codecast (g)']",
-        "tour" => ".topbar [aria-label^='Full tour']",
+        "codecast" => ".topbar [data-icon='codecast']",
+        "tour" => ".topbar [data-icon='tour']",
         "generate" => ".topbar .gen-btn",
-        "help" => ".topbar [aria-label^='Help']",
-        "settings" => ".topbar [aria-label^='Settings']",
+        "help" => ".topbar [data-icon='question']",
+        "settings" => ".topbar [data-icon='settings']",
         "sidebar-tabs" => ".sidebar .sbtabs",
         "player" => ".guide",
         "caption" => ".guide .body",
@@ -116,11 +144,11 @@ pub fn Welcome() -> Element {
         div { class: "tut-backdrop dim",
             div { class: "tut-card welcome", role: "dialog", "aria-modal": "true",
                 div { class: "tut-logo", crate::icons::Logo { size: 40 } }
-                h2 { "Have you used IwannatRust before?" }
-                p { "It draws a Rust project and can tell you about it. The tutorial is itself a codecast: it talks you through the app, on this project, in about five minutes." }
+                h2 { {t::tutorial::welcome_title()} }
+                p { {t::tutorial::welcome_text()} }
                 div { class: "tut-actions col",
-                    button { class: "tut-primary", onclick: move |_| state.start_tutorial(), "No, show me around" }
-                    button { class: "tut-quiet", onclick: move |_| state.close_welcome(), "Yes, I know my way" }
+                    button { class: "tut-primary", onclick: move |_| state.start_tutorial(), {t::tutorial::welcome_tour()} }
+                    button { class: "tut-quiet", onclick: move |_| state.close_welcome(), {t::tutorial::welcome_skip()} }
                 }
             }
         }

@@ -8,14 +8,44 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The interface speaks English and Japanese: every button, menu, setting, tooltip and message,
+  picked from the top bar or Settings › Appearance › Interface language, saved in the browser,
+  first taken from the browser's languages (`?ui=ja` in the URL for one visit). Separate from the
+  codecast language. Texts live in `crates/iwr-ui/i18n/<lang>/*.toml` and
+  `crates/iwr-core/i18n/<lang>/*.toml`; the build turns them into typed functions and fails on a
+  missing key, a differing `{argument}` or a missing plural form (`crates/iwr-i18n-gen`,
+  `docs/i18n.md`). A test fails on English text left in the UI code. Japanese system fonts back
+  every font stack.
+- The built-in tour, generated tours (`architecture_tour`…), view names, empty-view notes and item
+  details are told natively in Japanese when the codecast plays in Japanese; only the author's
+  own text inside them (doc comments, `//` notes, TODOs) goes through the translation.
+  `codecast guide --lang ja` prints the Japanese walkthrough.
+- A Japanese tutorial, written in Japanese and recorded with Kokoro `jf_alpha`
+  (`crates/iwr-ui/assets/tutorial/ja/`), played when the interface is in Japanese.
+- `codecast voice --written`: record parts already written in `--lang` as they are.
+
+- `codecast video`: films each recorded part of a codecast as an MP4 (`NN-part.<voice>.mp4`, H.264 +
+  AAC) with the stage and the caption as a subtitle band, no controls. Frames are drawn on virtual
+  time in headless Chromium, so the picture follows the recording exactly however slow the machine.
+  `scripts/iwr video [P]` runs it in Docker (`docker/video/Dockerfile`: Chromium, ffmpeg, fonts).
+  `--lang ja --sub en` films the Japanese recordings with English subtitles under the caption.
+  The player's render mode (`/?render=N&voice=V&lang=L&sub=S`) is what it films.
 - Charts for a signal over time: `min:` / `max:` set the value axis, `dash:` draws series dashed
   (thresholds), `series: raw line:::hidden` with `+@line` / `-@line` markers shows a series later,
   `[a..b] "label"` shades a span of rows (`[]` clears), `+a..b` shows a range of rows, a threshold
   line with the label of one already drawn moves it and `--` clears them. Lines of more than 16 rows
   drop their dots and thin their x labels.
+- Subtitles: the caption again in a second language under the one that plays (talk in Japanese,
+  follow in English). Picked in Settings › Codecast › Subtitles or from the player's 💬 menu; only
+  languages whose text already exists are offered (the English source, `translations/<lang>.json`,
+  the translation cache, an export's map), the others are greyed out with the command that makes
+  them. `POST /api/subtitles/LANG` returns the existing translations without running the model.
 
 ### Changed
 
+- Source panes (Code view, details panel) size the code to their width: the longest line of the
+  file fills the pane (10 to 20 px). Below 10 px the size stops and long lines wrap instead.
+- A codecast's panel focus is gentler: the focused panel grows less, the others keep more room.
 - The `examples/demo` project and its codecast are gone: IwannatRust's own tour (`codecast/`,
   `scripts/iwr self`) is the example. `scripts/iwr` commands default to this repository; the tests
   keep the small crate as `crates/iwr-core/tests/fixtures/demo`.
@@ -27,9 +57,6 @@ and the project uses [Semantic Versioning](https://semver.org/).
   directory (`~/.cache/codecast`, `~/Library/Caches/codecast`, `%LOCALAPPDATA%\codecast`); an
   existing `~/.cache/iwr` is moved there. `CODECAST_KOKORO` / `CODECAST_TRANSLATE` replace the
   `IWR_…` variables, which are still read.
-- Source panes (Code view, details panel) size the code to their width: the longest line of the
-  file fills the pane (10 to 20 px). Below 10 px the size stops and long lines wrap instead.
-- A codecast's panel focus is gentler: the focused panel grows less, the others keep more room.
 - `+ zoom` fits the screen instead of blowing it up. In the Code view each pane zooms in place onto
   its own highlight (the text reflows, the source stays whole on screen, lit lines fit the pane's
   width, the sidebar narrows); a graph's highlight is framed by the camera (legend and details

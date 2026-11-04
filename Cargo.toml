@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/iwr-core", "crates/iwr-ui", "crates/iwr"]
+members = ["crates/iwr-core", "crates/iwr-ui", "crates/iwr", "crates/iwr-i18n-gen"]
 exclude = ["crates/iwr-core/tests/fixtures/demo"]
 
 [workspace.package]

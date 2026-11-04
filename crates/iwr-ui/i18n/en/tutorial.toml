@@ -1,0 +1,6 @@
+# First start and the tutorial (tutorial.rs).
+[welcome]
+title = "Have you used IwannatRust before?"
+text = "It draws a Rust project and can tell you about it. The tutorial is itself a codecast: it talks you through the app, on this project, in about five minutes."
+tour = "No, show me around"
+skip = "Yes, I know my way"

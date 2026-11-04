@@ -163,13 +163,23 @@ pub fn is_voice_id(s: &str) -> bool {
     VOICES.contains(&s) || (s.len() > 3 && s.as_bytes().get(2) == Some(&b'_') && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
 }
 
+/// Why a codecast cannot be recorded; the page words it in the interface language.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VoiceProblem {
+    /// no codecast next to the project
+    NoCodecast,
+    /// the codecast is one file: recordings are made per part file of a `codecast/` directory
+    SingleFile { path: String },
+}
+
 /// What the Generate page shows: the parts, and whether Kokoro is set up yet.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct VoiceStatus {
     /// the codecast directory, or why there is nothing to record
     pub dir: Option<String>,
     #[serde(default)]
-    pub problem: Option<String>,
+    pub problem: Option<VoiceProblem>,
     pub parts: Vec<PartStatus>,
     /// Kokoro (venv + model) installed: the first generation downloads it otherwise
     pub ready: bool,

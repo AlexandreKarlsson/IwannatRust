@@ -1,0 +1,44 @@
+# The graph canvas (`canvas.rs`): zoom bar, view options, node tooltips.
+
+fit = "全体表示"
+root = "ルート："
+depth = "深さ"
+scope = "範囲：{scope} ✕"
+nodes = "{n} ノード · {status}"
+show = "表示"
+
+[hint]
+fit = "全体表示"
+codecast = "コードキャスト"
+tour = "ツアー"
+steps = "ステップ"
+
+[tip]
+depth = "ルートから開く呼び出しの階層数です。"
+scope = "モジュールの絞り込みを解除します。"
+kinds = "{view} ビューに表示するものを選びます。"
+
+[tooltip]
+returns = "戻り値："
+calls = "呼び出し先："
+called_by = "呼び出し元："
+propagate = "Err / None のとき、この関数は呼び出し元へ早期リターンします。"
+panic = "エラーを返す代わりに panic で中断することがあります。"
+loop_body = "本体を繰り返します。「done」の矢印か break で抜けます。"
+folded = "折りたたみ中です。⊕ をクリックすると中のステップを表示します。"
+fold_callee = "⊖ をクリックで呼び出し先を折りたたむ"
+unfold_callee = "⊕ をクリックで呼び出し先をここに展開"
+expand = "⊕ をクリックで展開"
+click = "クリック：ソースを表示 · ダブルクリック：{action}"
+open_callee = "呼び出し先を開く"
+open_modules = "中のモジュールを開く"
+expand_open = "展開 / 制御フローで開く"
+
+[badge]
+loops = "ループ ×{n}"
+branches = "分岐 ×{n}"
+inside = "+{n} 個を内包"
+steps_inside = "内部 {n} ステップ"
+recursive = "↻ 再帰"
+test = "テスト"
+external_crate = "外部クレート"

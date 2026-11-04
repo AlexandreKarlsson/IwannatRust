@@ -28,4 +28,4 @@ Last, the camera. The graph is built, the first glowing node is found, and the v
   In TTS mode the browser's speech synthesis fires an end event, and the player calls advance: next cue, or next part when the full tour is on. With a recording, the cue times in the script are matched against the audio position. In reading mode, a timer.
 @ diagram
 ! analyzer model views script player you
-And that is the loop: the analyzer builds the model, the views draw it, a script points at it, the player glows and speaks. Everything you saw in this tour was produced by the code it describes, which is either elegant or suspicious, and we will let you decide.
+And that is the loop: the analyzer builds the model, the views draw it, a script points at it, the player glows and speaks. Next, one last trick: the player can also film itself.

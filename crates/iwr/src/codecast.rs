@@ -303,4 +303,16 @@ mod tutorial_tests {
         let s = iwr_core::script::parse(&loaded.text);
         assert!(s.parts.iter().all(|p| p.voices.iter().any(|v| v.voice == "af_heart" && v.times.len() == p.cues.len())));
     }
+
+    /// The same for the Japanese tutorial, written in Japanese (`codecast voice
+    /// crates/iwr-ui/assets/tutorial/ja --lang ja --voice jf_alpha --written --path
+    /// crates/iwr-core/tests/fixtures/demo`).
+    #[test]
+    fn japanese_tutorial_recording_matches_its_text() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../iwr-ui/assets/tutorial/ja");
+        let loaded = super::load(&dir).unwrap();
+        assert!(loaded.stale.is_empty(), "record the Japanese tutorial again: {:?}", loaded.stale);
+        let s = iwr_core::script::parse(&loaded.text);
+        assert!(s.parts.iter().all(|p| p.voices.iter().any(|v| v.lang == "ja" && v.voice == "jf_alpha" && v.times.len() == p.cues.len())));
+    }
 }

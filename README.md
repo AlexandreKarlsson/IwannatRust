@@ -64,6 +64,7 @@ https://github.com/user-attachments/assets/2b99506f-5d02-4b04-b611-26e007f69902
 | **Codecasts** | Markdown scripts: `@` view, `!` highlight (items, steps, files, folders), `=` underline, `+` enlarge a panel, light up a control or zoom, `?` questions, mermaid sketches, side notes, popups. |
 | **Voice** | Kokoro recordings (`codecast voice`, or the *Generate* page), browser TTS, or silent reading; offline translation. |
 | **Look** | 32 themes, 31 fonts; a `codecast.toml` sets the author's defaults. |
+| **Interface** | English and 日本語: switch in the top bar. The built-in tour, generated tours and the tutorial are told natively in Japanese too ([docs/i18n.md](docs/i18n.md)). |
 | **Sharing** | `codecast export` writes a static site that works from any host or sub-path. |
 
 <img src="images/shot-code.png" alt="Code view: nested blocks next to the source" width="100%">

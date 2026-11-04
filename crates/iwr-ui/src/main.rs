@@ -9,6 +9,7 @@ mod code;
 mod design;
 mod fonts;
 mod generate;
+mod i18n;
 mod icons;
 mod md;
 mod panels;
@@ -16,9 +17,11 @@ mod player;
 mod settings;
 mod side;
 mod source;
+mod subtitles;
 mod theme;
 mod tutorial;
 
+use crate::i18n::t;
 use dioxus::prelude::*;
 use iwr_core::model::{ItemId, Project, Span};
 use iwr_core::views::{self, Graph, Mode, ViewOptions};
@@ -176,6 +179,8 @@ pub struct State {
     // ---- first start
     /// the "have you used this app before?" dialog
     pub welcome_open: Signal<bool>,
+    /// video render mode (`?render=N`): only the stage and the caption, time fed by `codecast video`
+    pub render: Signal<bool>,
     // ---- settings
     pub settings_open: Signal<bool>,
     /// the Generate page (record the codecast's voice with Kokoro)
@@ -198,10 +203,20 @@ pub struct State {
     pub lang: Signal<String>,
     /// the loaded script in English, tours expanded: what every translation starts from
     pub script_src: Signal<Option<Rc<iwr_core::script::Script>>>,
+    /// where the loaded codecast comes from (a written script, the built-in tour), to tell it again
+    /// in a language iwr-core speaks itself (see `State::told`)
+    pub source: Signal<Option<Rc<iwr_core::script::Source>>>,
     /// the glossary with its questions and answers translated (same entries, same order)
     pub glossary_tr: Signal<Option<Rc<Vec<iwr_core::glossary::Entry>>>>,
     /// translation progress or failure, shown in the player
     pub lang_info: Signal<String>,
+    // ---- subtitles (`subtitles.rs`)
+    /// language of the subtitle under the caption (`""`: off)
+    pub sub_lang: Signal<String>,
+    /// the script in the subtitle language: same parts and cues as `script`
+    pub sub_script: Signal<Option<Rc<iwr_core::script::Script>>>,
+    /// per language: pieces whose translation already exists, of how many (`None`: not checked yet)
+    pub sub_avail: Signal<Option<Rc<Vec<crate::subtitles::Avail>>>>,
     /// the codecast's `codecast.toml`: fonts, colours, default settings
     pub config: Signal<Rc<iwr_core::config::Config>>,
     /// font of the box titles and headings: a bundled font's id, a codecast font file, or `""`
@@ -226,6 +241,7 @@ impl State {
             show_tests: f.tests,
             show_constructs: f.constructs,
             max_nodes: 400,
+            lang: i18n::core_lang(),
             hidden_kinds: self.hidden_kinds.read().clone(),
         }
     }
@@ -233,8 +249,17 @@ impl State {
     pub fn build_graph(&self) -> Graph {
         if *self.mode.read() == Mode::Diagram {
             return match self.diagram.read().as_ref() {
-                Some(d) => iwr_core::diagram::graph(d, &self.diagram_ops.read()),
-                None => Graph { note: Some("No diagram here: a codecast draws one with a ```mermaid block and `@ diagram`.".into()), ..Default::default() },
+                Some(d) => {
+                    let mut g = iwr_core::diagram::graph(d, &self.diagram_ops.read());
+                    // core notes an empty diagram in English: say it in the interface language
+                    if g.nodes.is_empty() && g.note.is_some() {
+                        let l = i18n::core_lang();
+                        let note = if d.seq.is_some() { iwr_core::tr::t::views::note_empty_sequence(l) } else { iwr_core::tr::t::views::note_empty_diagram(l) };
+                        g.note = Some(note.into());
+                    }
+                    g
+                }
+                None => Graph { note: Some(t::app::no_diagram().into()), ..Default::default() },
             };
         }
         match self.project.read().as_ref() {
@@ -365,7 +390,7 @@ impl State {
 async fn fetch_project(url: &str) -> Result<Project, String> {
     let resp = gloo_net::http::Request::get(url).send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
-        return Err(format!("server returned {}", resp.status()));
+        return Err(t::app::server_returned(resp.status()));
     }
     resp.json::<Project>().await.map_err(|e| e.to_string())
 }
@@ -384,7 +409,7 @@ fn App() -> Element {
     let mut state = use_context_provider(|| State {
         project: Signal::new(None),
         version: Signal::new(0),
-        status: Signal::new("loading…".into()),
+        status: Signal::new(t::app::loading().into()),
         mode: Signal::new(Mode::Code),
         root: Signal::new(None),
         scope: Signal::new(None),
@@ -421,6 +446,7 @@ fn App() -> Element {
         zoom: Signal::new(None),
         own_script: Signal::new(None),
         welcome_open: Signal::new(false),
+        render: Signal::new(false),
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
         chart: Signal::new(None),
@@ -462,8 +488,12 @@ fn App() -> Element {
         live: Signal::new(false),
         lang: Signal::new("en".into()),
         script_src: Signal::new(None),
+        source: Signal::new(None),
         glossary_tr: Signal::new(None),
         lang_info: Signal::new(String::new()),
+        sub_lang: Signal::new(String::new()),
+        sub_script: Signal::new(None),
+        sub_avail: Signal::new(None),
         tts_info: Signal::new(String::new()),
         read_delay: Signal::new(4.0),
     });
@@ -506,7 +536,7 @@ fn App() -> Element {
 
     // first start: ask whether the app is new to the viewer (once per browser)
     use_future(move || async move {
-        if let Ok(v) = document::eval("try { return localStorage.getItem('iwr-welcomed') || ''; } catch (e) { return 'x'; }").await {
+        if let Ok(v) = document::eval("try { return (new URLSearchParams(location.search).has('render') ? 'x' : localStorage.getItem('iwr-welcomed') || ''); } catch (e) { return 'x'; }").await {
             if v.as_str() == Some("") {
                 state.welcome_open.set(true);
             }
@@ -556,7 +586,7 @@ fn App() -> Element {
                         if first || state.root.read().is_none() {
                             state.root.set(root);
                         }
-                        state.status.set(if first { "ready".into() } else { "reloaded".into() });
+                        state.status.set(if first { t::app::ready().into() } else { t::app::reloaded().into() });
                         // a playing codecast keeps its camera: the cue is re-applied below
                         if first || state.script.read().is_none() {
                             state.fit_request += 1;
@@ -573,13 +603,20 @@ fn App() -> Element {
                                 let s = iwr_core::script::parse(&text);
                                 state.own_script.set(Some((Rc::new(s.clone()), state.audio_url.peek().clone(), state.audio_base.peek().clone())));
                                 state.load_script(s);
+                                // `?render=N&voice=V`: `codecast video` films part N with voice V
+                                if let Ok(v) = document::eval("const q = new URLSearchParams(location.search); return [q.get('render') || '', q.get('voice') || '', q.get('sub') || ''];").await {
+                                    let get = |i: usize| v.get(i).and_then(|x| x.as_str()).unwrap_or("").to_string();
+                                    if let Ok(n) = get(0).parse::<usize>() {
+                                        state.start_render(n.saturating_sub(1), &get(1), &get(2));
+                                    }
+                                }
                             }
                         } else if state.script.read().is_some() {
                             // refs are re-resolved on the next cue; just re-apply
                             state.apply_cue();
                         }
                     }
-                    Err(e) => state.status.set(format!("load failed: {}", e)),
+                    Err(e) => state.status.set(t::app::load_failed(e)),
                 }
                 first = false;
             }
@@ -588,6 +625,21 @@ fn App() -> Element {
             }
             gloo_timers::future::sleep(std::time::Duration::from_millis(1500)).await;
         }
+    });
+
+    // render mode: tell `codecast video` when the part can be filmed (translated, its recording
+    // and subtitles in), or why it cannot
+    use_effect(move || {
+        if !*state.render.read() {
+            return;
+        }
+        let lang = state.lang.read().clone();
+        let info = state.lang_info.read().clone();
+        let translated = lang == "en" || state.glossary_tr.read().is_some();
+        let subs = state.sub_lang.read().is_empty() || state.sub_script.read().is_some();
+        let ready = translated && subs && state.part_has_audio();
+        let err = if info.starts_with('⚠') { info } else { String::new() };
+        document::eval(&format!("window.__codecastReady = {ready}; window.__codecastError = {};", serde_json::to_string(&err).unwrap_or_default()));
     });
 
     // the Generate page's recording: status once, then follow a running job (it outlives the page)
@@ -670,7 +722,8 @@ fn App() -> Element {
     let focus_cls = focus.map(|f| format!(" focus-{}", f.name())).unwrap_or_default();
     // a cue that enlarges the sidebar shows it even when the viewer closed it
     let spot = *state.spot.read();
-    let sidebar_open = sidebar_open || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
+    let render = *state.render.read();
+    let sidebar_open = (sidebar_open && !render) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
     let welcome_open = *state.welcome_open.read();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
@@ -678,7 +731,7 @@ fn App() -> Element {
         style { {chart::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
-        div { class: format!("app theme-{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }),
+        div { class: format!("app theme-{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }),
             panels::TopBar {}
             if settings_open {
                 settings::SettingsPage {}
@@ -713,7 +766,7 @@ fn App() -> Element {
                 } else if let Some(c) = chart.clone() {
                     match c {
                         Some(c) => rsx! { chart::ChartView { chart: (*c).clone(), full: true } },
-                        None => rsx! { div { class: "chart full", "No chart here: a codecast draws one with a ```chart block and `@ chart`." } },
+                        None => rsx! { div { class: "chart full", {t::app::no_chart()} } },
                     }
                 } else {
                     canvas::Canvas {}

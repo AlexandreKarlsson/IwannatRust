@@ -6,6 +6,7 @@ mod codecast;
 mod python;
 mod serve;
 mod translate;
+mod video;
 mod voice;
 
 /// The codecast writing guide, embedded so `codecast brief --guide` works from any directory.
@@ -87,6 +88,9 @@ enum Cmd {
         /// Start from this function instead of main
         #[arg(long = "fn")]
         only: Option<String>,
+        /// Language the walkthrough is told in (`en`, `ja`); doc comments stay as written
+        #[arg(long, default_value = "en")]
+        lang: String,
     },
     /// Print a codecast as it will be spoken (code said as words), to review the TTS text
     Speak {
@@ -131,6 +135,54 @@ enum Cmd {
         /// Synthesize every cue again instead of taking the cached clips
         #[arg(long)]
         fresh: bool,
+        /// The parts are already written in --lang (a codecast written in Japanese): record them
+        /// as they are, without translating
+        #[arg(long)]
+        written: bool,
+    },
+    /// Film each recorded part of a `codecast/` directory as an MP4 (with --voice, records the parts it lacks first; films with chromium-headless-shell + ffmpeg, else in Docker)
+    Video {
+        /// The `codecast/` directory (or a single-file script)
+        script: PathBuf,
+        /// Project path the codecast explains (defaults to the directory's parent)
+        #[arg(long)]
+        path: Option<PathBuf>,
+        /// Recorded voice to film (default: the one that recorded the most parts)
+        #[arg(long, default_value = "")]
+        voice: String,
+        /// Language of the voice and captions: en, or one recorded with `codecast voice --lang`
+        /// (its translation must exist: the author's translations/<lang>.json or the cache)
+        #[arg(long, default_value = "en")]
+        lang: String,
+        /// Subtitles under the caption in this language (en = the script as written) → NN-part.<…>.sub-<lang>.mp4
+        #[arg(long, default_value = "")]
+        sub: String,
+        /// Part numbers to film, e.g. `1,4` (default: every part with an up-to-date recording)
+        #[arg(long, value_delimiter = ',')]
+        parts: Vec<usize>,
+        #[arg(long, default_value_t = 30)]
+        fps: u32,
+        /// Video size, WIDTHxHEIGHT
+        #[arg(long, default_value = "1920x1080")]
+        size: String,
+        /// Page zoom: the player is laid out at size/scale, so text is larger in the video
+        #[arg(long, default_value_t = 1.5)]
+        scale: f64,
+        /// x264 quality, lower = better and bigger
+        #[arg(long, default_value_t = 20)]
+        crf: u32,
+        /// Seconds held on the last picture after the voice ends
+        #[arg(long, default_value_t = 1.0)]
+        tail: f64,
+        /// Output directory (default: next to the recordings, NN-part.<voice>.mp4)
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Film parts whose video is up to date
+        #[arg(long)]
+        force: bool,
+        /// Headless Chromium binary (default: chromium-headless-shell on PATH)
+        #[arg(long)]
+        chrome: Option<String>,
     },
     /// Translate a codecast offline (Argos models, cached) and print it; the player translates the same way when another language is picked
     Translate {
@@ -182,11 +234,16 @@ fn main() -> Result<()> {
             print!("{}", iwr_core::brief::build(&p, &iwr_core::brief::BriefOptions { only, bodies: !no_body, overview: !no_overview }));
             Ok(())
         }
-        Cmd::Guide { path, only } => {
+        Cmd::Guide { path, only, lang } => {
+            let Some(lang) = iwr_core::tr::Lang::from_code(&lang) else {
+                anyhow::bail!("the walkthrough is told in {}", iwr_core::tr::Lang::ALL.iter().map(|l| l.code()).collect::<Vec<_>>().join(", "));
+            };
             let p = iwr_core::analyze_path(&path)?;
             let root = only.as_deref().and_then(|o| iwr_core::script::resolve(&p, o)).and_then(|r| r.item);
-            let steps = iwr_core::guide::build(&p, root, &iwr_core::guide::GuideOptions::default());
-            print!("{}", iwr_core::script::to_text(&iwr_core::script::from_guide(&p, &steps)));
+            let steps = iwr_core::guide::build(&p, root, &iwr_core::guide::GuideOptions { lang, ..Default::default() });
+            let mut s = iwr_core::script::from_guide(&p, &steps, lang);
+            iwr_core::i18n::unmark(&mut s);
+            print!("{}", iwr_core::script::to_text(&s));
             Ok(())
         }
         Cmd::Speak { script, path } => {
@@ -214,7 +271,32 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Cmd::Voice { script, voice, voice2, speed, lang, path, gap, level, force, retranslate, fresh } => voice::run(&script, &voice::Opts { voice, voice2, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh }),
+        Cmd::Voice { script, voice, voice2, speed, lang, path, gap, level, force, retranslate, fresh, written } => voice::run(&script, &voice::Opts { voice, voice2, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh, written }),
+        Cmd::Video { script, path, voice, lang, sub, parts, fps, size, scale, crf, tail, out, force, chrome } => {
+            let (width, height) = size
+                .split_once('x')
+                .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+                .filter(|(w, h)| *w >= 16 && *h >= 16 && w % 2 == 0 && h % 2 == 0)
+                .ok_or_else(|| anyhow::anyhow!("--size: WIDTHxHEIGHT with even numbers, e.g. 1920x1080"))?;
+            anyhow::ensure!((1..=120).contains(&fps), "--fps: 1 to 120");
+            for l in [&lang, &sub].into_iter().filter(|l| !l.is_empty()) {
+                anyhow::ensure!(iwr_core::i18n::lang(l).is_some(), "unknown language {l:?}");
+            }
+            anyhow::ensure!(scale > 0.25 && scale <= 4.0, "--scale: above 0.25, at most 4");
+            let script = std::path::absolute(&script)?;
+            let path = match path {
+                Some(p) => p,
+                None => script.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from(".")),
+            };
+            // with --voice, the parts that voice is missing or has a stale recording of are
+            // recorded first (here: Kokoro and the translation model live on this machine)
+            if !voice.is_empty() && script.is_dir() && std::env::var_os(video::IN_DOCKER).is_none() {
+                let kokoro = if lang == "en" { "en-us".to_string() } else { lang.clone() };
+                voice::run(&script, &voice::Opts { voice: voice.clone(), voice2: None, speed: 1.0, lang: kokoro, path: Some(path.clone()), gap: 0.4, level: 0.95, force: false, only: vec![], retranslate: false, fresh: false, written: false })?;
+            }
+            let o = video::Opts { path, voice, lang, sub, parts, fps, width, height, scale, crf, out, force, chrome, tail };
+            if video::native(&o) { video::run(&script, &o) } else { video::in_docker(&script, &o) }
+        }
         Cmd::Translate { script, lang, path, pieces } => if pieces { translate::print_pieces(&script, &path, &lang) } else { translate::run(&script, &path, &lang) },
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;

@@ -251,7 +251,14 @@ impl Item {
         )
     }
     /// Short human-readable summary (first doc line or synthesized).
+    /// One line about the item, in English: its doc's first line, else what it is.
     pub fn summary(&self) -> String {
+        self.summary_in(crate::tr::Lang::En)
+    }
+
+    /// [`Item::summary`] in `lang` (a doc line stays as written).
+    pub fn summary_in(&self, lang: crate::tr::Lang) -> String {
+        use crate::tr::t::info as ti;
         if let Some(d) = &self.doc {
             if let Some(first) = d.lines().find(|l| !l.trim().is_empty()) {
                 return first.trim().to_string();
@@ -261,41 +268,41 @@ impl Item {
             ItemExtra::Fn(f) => {
                 let mut parts = Vec::new();
                 if f.is_main {
-                    parts.push("program entry point".to_string());
+                    parts.push(ti::summary_entry_point(lang).to_string());
                 }
                 if f.is_async {
-                    parts.push("async".to_string());
+                    parts.push(ti::summary_async(lang).to_string());
                 }
                 if f.returns_result {
-                    parts.push("fallible (returns Result)".to_string());
+                    parts.push(ti::summary_fallible(lang).to_string());
                 } else if f.returns_option {
-                    parts.push("may return nothing (Option)".to_string());
+                    parts.push(ti::summary_maybe_nothing(lang).to_string());
                 }
                 if f.is_recursive {
-                    parts.push("recursive".to_string());
+                    parts.push(ti::summary_recursive(lang).to_string());
                 }
                 if f.loops > 0 {
-                    parts.push(format!("{} loop(s)", f.loops));
+                    parts.push(ti::summary_loops(lang, f.loops));
                 }
                 if f.branches > 0 {
-                    parts.push(format!("{} branch(es)", f.branches));
+                    parts.push(ti::summary_branches(lang, f.branches));
                 }
                 if parts.is_empty() {
                     format!("{} {}", self.kind.label(), self.name)
                 } else {
-                    parts.join(", ")
+                    parts.join(ti::summary_sep(lang))
                 }
             }
-            ItemExtra::Struct(s) => format!("struct with {} field(s)", s.fields.len()),
-            ItemExtra::Enum(e) => format!("enum with {} variant(s)", e.variants.len()),
-            ItemExtra::Trait(t) => format!("trait with {} method(s)", t.methods.len()),
+            ItemExtra::Struct(s) => ti::summary_struct(lang, s.fields.len()),
+            ItemExtra::Enum(e) => ti::summary_enum(lang, e.variants.len()),
+            ItemExtra::Trait(t) => ti::summary_trait(lang, t.methods.len()),
             ItemExtra::Impl(i) => match &i.trait_name {
-                Some(t) => format!("impl {} for {}", t, i.target),
-                None => format!("inherent impl for {}", i.target),
+                Some(t) => ti::summary_impl_trait(lang, t, &i.target),
+                None => ti::summary_impl_inherent(lang, &i.target),
             },
-            ItemExtra::TypeAlias { target } => format!("alias of {}", target),
-            ItemExtra::Const { ty } => format!("constant of type {}", ty),
-            ItemExtra::Module => "module".to_string(),
+            ItemExtra::TypeAlias { target } => ti::summary_alias(lang, target),
+            ItemExtra::Const { ty } => ti::summary_constant(lang, ty),
+            ItemExtra::Module => ti::summary_module(lang).to_string(),
         }
     }
 }

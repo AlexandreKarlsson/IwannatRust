@@ -1,7 +1,8 @@
 //! Generated tours: a script line such as `architecture_tour` or `flow_tour:crate::run` becomes
 //! cues built from the project when the script is played, so the tour follows the code.
 
-use crate::guide::{self, doc_sentence, join_and, label, GuideOptions};
+use crate::guide::{self, label, told_doc, GuideOptions};
+use crate::tr::{self, authored, led, t::tours as tt, Lang};
 use crate::model::*;
 use crate::script::{attach_note, resolve, step_cue, Cue, Note};
 
@@ -38,15 +39,16 @@ impl Tour {
 
     /// One stop about a doc: the doc page's stops ([`guide::doc_page`]) when it has headings,
     /// tables or lists, the first saying `lead` before the page, else `lead` and `plain` alone.
-    fn doc_stops(&mut self, lead: &str, title: &str, doc: Option<&String>, plain: String, show: Option<String>, hl: Vec<String>) {
-        match guide::doc_page(title, doc) {
+    #[allow(clippy::too_many_arguments)]
+    fn doc_stops(&mut self, lang: Lang, lead: &str, title: &str, doc: Option<&String>, plain: String, show: Option<String>, hl: Vec<String>) {
+        match guide::doc_page(title, doc, lang) {
             Some(stops) => {
                 for (k, st) in stops.into_iter().enumerate() {
-                    let c = if k == 0 { cue(format!("{} {}", lead, st.say), show.clone(), hl.clone()) } else { Cue { say: st.say, ..Default::default() } };
+                    let c = if k == 0 { cue(tr::sentences(lang, &[lead, &st.say]), show.clone(), hl.clone()) } else { Cue { say: st.say, ..Default::default() } };
                     self.push(c, Some(st.note));
                 }
             }
-            None => self.push(cue(format!("{} {}", lead, plain), show, hl), None),
+            None => self.push(cue(tr::sentences(lang, &[lead, &plain]), show, hl), None),
         }
     }
 }
@@ -54,21 +56,22 @@ impl Tour {
 /// Stops per tour; the rest is counted in the last cue.
 const MAX_STOPS: usize = 20;
 
-/// The cues of a tour line (`name_tour` or `name_tour:<ref>`), or why it cannot be built.
-pub fn generate(p: &Project, line: &str) -> Result<Tour, String> {
+/// The cues of a tour line (`name_tour` or `name_tour:<ref>`), told in `lang`, or why it cannot be
+/// built (for the author: in English).
+pub fn generate(p: &Project, line: &str, lang: Lang) -> Result<Tour, String> {
     let (name, arg) = line.split_once(':').map_or((line, None), |(n, a)| (n, Some(a)));
     let scope = match (name, arg) {
         ("flow_tour" | "entry_tour", _) | (_, None) => None,
         (_, Some(a)) => Some(resolve(p, a).and_then(|r| r.module).ok_or_else(|| format!("`{}`: `{}` is not a module", line, a))?),
     };
     Ok(match name {
-        "architecture_tour" => architecture(p, scope),
-        "types_tour" => types(p, scope).into(),
-        "errors_tour" => errors(p, scope).into(),
-        "entry_tour" => entry(p).into(),
-        "flow_tour" => flow(p, arg.ok_or("`flow_tour` needs a function: `flow_tour:crate::run`")?)?.into(),
-        "todo_tour" => todo(p, scope).into(),
-        "files_tour" => files(p, scope),
+        "architecture_tour" => architecture(p, scope, lang),
+        "types_tour" => types(p, scope, lang).into(),
+        "errors_tour" => errors(p, scope, lang).into(),
+        "entry_tour" => entry(p, lang).into(),
+        "flow_tour" => flow(p, arg.ok_or("`flow_tour` needs a function: `flow_tour:crate::run`")?, lang)?.into(),
+        "todo_tour" => todo(p, scope, lang).into(),
+        "files_tour" => files(p, scope, lang),
         _ => return Err(format!("unknown tour `{}` (known: {})", name, TOURS.iter().map(|t| t.0).collect::<Vec<_>>().join(", "))),
     })
 }
@@ -90,41 +93,39 @@ fn view(name: &str, p: &Project, scope: Option<ModuleId>) -> String {
     scope.map(|m| format!("{}:{}", name, p.module(m).path)).unwrap_or_else(|| name.to_string())
 }
 
-/// " in `net`", or nothing without a scope.
-fn within(p: &Project, scope: Option<ModuleId>) -> String {
-    scope.map(|m| format!(" in `{}`", p.module(m).path.trim_start_matches("crate::"))).unwrap_or_default()
-}
-
-fn plural(n: usize, word: &str) -> String {
-    format!("{} {}{}", n, word, if n == 1 { "" } else { "s" })
+/// The module a scoped tour is limited to, as said (`net`).
+fn scope_name(p: &Project, scope: Option<ModuleId>) -> Option<String> {
+    scope.map(|m| p.module(m).path.trim_start_matches("crate::").to_string())
 }
 
 /// "First,", "Next,", "Then", … "And finally,".
-fn lead(i: usize, n: usize) -> &'static str {
+fn lead(i: usize, n: usize, lang: Lang) -> &'static str {
     match i {
-        0 => "First,",
-        _ if i + 1 == n => "And finally,",
-        _ => ["Next,", "Then", "Then there is"][i % 3],
+        0 => tt::lead_first(lang),
+        _ if i + 1 == n => tt::lead_last(lang),
+        _ => [tt::lead_next, tt::lead_then, tt::lead_there][i % 3](lang),
     }
 }
+
+
 
 fn cue(say: String, show: Option<String>, hl: Vec<String>) -> Cue {
     Cue { say, show, hl: Some(hl), ..Default::default() }
 }
 
 /// Keep `MAX_STOPS` cues after the intro; say how many were left out.
-fn cap(mut cues: Vec<Cue>, total: usize) -> Vec<Cue> {
+fn cap(mut cues: Vec<Cue>, total: usize, lang: Lang) -> Vec<Cue> {
     if total > MAX_STOPS {
         cues.truncate(MAX_STOPS + 1);
     }
-    more(&mut cues, total);
+    more(&mut cues, total, lang);
     cues
 }
 
 /// Say how many of `total` stops were left out after `MAX_STOPS`.
-fn more(cues: &mut [Cue], total: usize) {
+fn more(cues: &mut [Cue], total: usize, lang: Lang) {
     if let Some(last) = cues.last_mut().filter(|_| total > MAX_STOPS) {
-        last.say.push_str(&format!(" And {} more, not shown here.", total - MAX_STOPS));
+        last.say = tr::sentences(lang, &[&last.say, &tt::more(lang, total - MAX_STOPS)]);
     }
 }
 
@@ -135,7 +136,7 @@ fn is_test_item(p: &Project, it: &Item) -> bool {
 // ------------------------------------------------------------------ architecture
 
 /// The architecture view, then one cue per module, glowing it and reading its `//!` doc.
-fn architecture(p: &Project, scope: Option<ModuleId>) -> Tour {
+fn architecture(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Tour {
     let mods: Vec<&Module> = guide::tour_modules(p, scope);
     let g = crate::views::build(p, crate::views::Mode::Architecture, &crate::views::ViewOptions { module: scope, ..Default::default() });
     let root = match scope {
@@ -143,15 +144,19 @@ fn architecture(p: &Project, scope: Option<ModuleId>) -> Tour {
         None => &p.modules[0],
     };
     // the root's doc as a page: shown with the map, its sections read before the modules
-    let mut page = guide::doc_page(&root.path.trim_start_matches("crate::").replace("crate", &p.name), root.doc.as_ref()).unwrap_or_default().into_iter();
+    let mut page = guide::doc_page(&root.path.trim_start_matches("crate::").replace("crate", &p.name), root.doc.as_ref(), lang).unwrap_or_default().into_iter();
     let first = page.next();
     let goal = match (&first, scope) {
         (Some(st), _) => Some(st.say.clone()).filter(|s| !s.is_empty()),
-        (None, Some(_)) => doc_sentence(root.doc.as_ref()),
-        (None, None) => root.doc.as_ref().and_then(|d| d.split("\n\n").next()).map(|d| d.split_whitespace().collect::<Vec<_>>().join(" ")),
+        (None, Some(_)) => told_doc(root.doc.as_ref(), lang),
+        (None, None) => root.doc.as_ref().and_then(|d| d.split("\n\n").next()).map(|d| authored(lang, &d.split_whitespace().collect::<Vec<_>>().join(" "))),
     };
-    let visit = format!("Let's visit the {} from the top down: first what starts the program, last the foundations everything else uses.", plural(mods.len(), "module"));
-    let map = format!("Here is the map of {}{}: every box is a module, every arrow a dependency.{}", p.name, within(p, scope), goal.map(|g| format!(" {}", g)).unwrap_or_default());
+    let visit = tt::arch_visit(lang, mods.len());
+    let map = match scope_name(p, scope) {
+        Some(sc) => tt::arch_map_in(lang, &p.name, sc),
+        None => tt::arch_map(lang, &p.name),
+    };
+    let map = tr::sentences(lang, &[&map, goal.as_deref().unwrap_or("")]);
     let mut t = Tour::default();
     match first {
         Some(st) => {
@@ -159,19 +164,19 @@ fn architecture(p: &Project, scope: Option<ModuleId>) -> Tour {
             for st in page {
                 t.push(Cue { say: st.say, ..Default::default() }, Some(st.note));
             }
-            t.push(Cue { say: format!("Now the modules. {}", visit), ..Default::default() }, None);
+            t.push(Cue { say: tr::sentences(lang, &[tt::arch_now_modules(lang), &visit]), ..Default::default() }, None);
         }
-        None => t.push(cue(format!("{} {}", map, visit), Some("arch".into()), vec![]), None),
+        None => t.push(cue(tr::sentences(lang, &[&map, &visit]), Some("arch".into()), vec![]), None),
     }
     let n = mods.len().min(MAX_STOPS);
     for (i, m) in mods.iter().take(MAX_STOPS).enumerate() {
         let inside = folded_count(&g, m);
-        let folded = if inside > 0 { format!(" It holds {} smaller modules, folded into its box.", inside) } else { String::new() };
+        let folded = if inside > 0 { tt::arch_folded(lang, inside) } else { String::new() };
         let name = m.path.trim_start_matches("crate::");
-        let lead = format!("{} `{}` module.{}", guide::tour_lead(i, n), name, folded);
-        t.doc_stops(&lead, name, m.doc.as_ref(), guide::module_sentence(p, m), None, vec![m.path.clone()]);
+        let lead = tr::sentences(lang, &[&guide::module_lead(lang, i, n, name), &folded]);
+        t.doc_stops(lang, &lead, name, m.doc.as_ref(), guide::module_sentence(p, m, lang), None, vec![m.path.clone()]);
     }
-    more(&mut t.cues, mods.len());
+    more(&mut t.cues, mods.len(), lang);
     t
 }
 
@@ -182,22 +187,26 @@ fn folded_count(g: &crate::views::Graph, m: &Module) -> usize {
 
 // ------------------------------------------------------------------ types
 
-fn types(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
+fn types(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Vec<Cue> {
     let tys: Vec<&Item> = guide::tour_types(p).into_iter().filter(|i| in_scope(p, i.module, scope)).collect();
+    let sc = scope_name(p, scope);
     if tys.is_empty() {
-        return vec![cue(format!("There are no types{}: only functions.", within(p, scope)), Some(view("types", p, scope)), vec![])];
+        let say = match &sc {
+            Some(sc) => tt::types_none_in(lang, sc),
+            None => tt::types_none(lang).to_string(),
+        };
+        return vec![cue(say, Some(view("types", p, scope)), vec![])];
     }
-    let intro = format!(
-        "Now the data{}: {}. Structs and enums hold the values; traits describe behaviour that several types share. Green arrows mean contains, purple dashed arrows mean implements.",
-        within(p, scope),
-        plural(tys.len(), "type")
-    );
+    let intro = match &sc {
+        Some(sc) => tt::types_intro_in(lang, tys.len(), sc),
+        None => tt::types_intro(lang, tys.len()),
+    };
     let mut cues = vec![cue(intro, Some(view("types", p, scope)), vec![])];
     let n = tys.len().min(MAX_STOPS);
     for (i, it) in tys.iter().enumerate() {
-        cues.push(cue(format!("{} {}", lead(i, n), guide::type_sentence(p, it)), None, vec![it.path.clone()]));
+        cues.push(cue(led(lang, lead(i, n, lang), &guide::type_sentence(p, it, lang)), None, vec![it.path.clone()]));
     }
-    cap(cues, tys.len())
+    cap(cues, tys.len(), lang)
 }
 
 // ------------------------------------------------------------------ errors
@@ -208,31 +217,36 @@ fn type_named<'a>(p: &'a Project, ty: &str) -> Option<&'a Item> {
     p.items.iter().find(|i| i.is_type() && i.name == last)
 }
 
-fn names(p: &Project, ids: &[ItemId], max: usize) -> String {
+fn names(p: &Project, ids: &[ItemId], max: usize, lang: Lang) -> String {
     let mut v: Vec<String> = ids.iter().take(max).map(|i| format!("`{}`", label(p, *i))).collect();
     if ids.len() > max {
-        v.push(format!("{} more", ids.len() - max));
+        v.push(crate::tr::t::guide::more_items(lang, ids.len() - max));
     }
-    join_and(&v)
+    tr::join_and(lang, &v)
 }
 
-fn errors(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
+fn errors(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Vec<Cue> {
     let fns: Vec<&Item> = p.functions().filter(|f| in_scope(p, f.module, scope) && !is_test_item(p, f)).collect();
     let fallible: Vec<&Item> = fns.iter().copied().filter(|f| f.fn_info().map(|i| i.returns_result).unwrap_or(false)).collect();
     let panicky: Vec<ItemId> = fns.iter().filter(|f| f.fn_info().map(|i| i.unwraps + i.expects + i.panics > 0).unwrap_or(false)).map(|f| f.id).collect();
     let show = Some(view("errors", p, scope));
+    let sc = scope_name(p, scope);
     if fallible.is_empty() && panicky.is_empty() {
-        return vec![cue(format!("Nothing{} returns a `Result` or can panic: no error paths to follow.", within(p, scope)), show, vec![])];
+        let say = match &sc {
+            Some(sc) => tt::errors_none_in(lang, sc),
+            None => tt::errors_none(lang).to_string(),
+        };
+        return vec![cue(say, show, vec![])];
     }
-    let intro = format!(
-        "Now, where things go wrong{}. {} return a `Result`, so their callers must deal with failure; {} can panic. Rust has no exceptions: an error is a value that travels back up, step by step.",
-        within(p, scope),
-        plural(fallible.len(), "function"),
-        match panicky.len() {
-            0 => "none".to_string(),
-            n => n.to_string(),
-        }
-    );
+    let fal = tt::errors_fns(lang, fallible.len());
+    let pan = match panicky.len() {
+        0 => tt::errors_no_panics(lang).to_string(),
+        n => n.to_string(),
+    };
+    let intro = match &sc {
+        Some(sc) => tt::errors_intro_in(lang, sc, fal, pan),
+        None => tt::errors_intro(lang, fal, pan),
+    };
     let mut cues = vec![cue(intro, show, vec![])];
     // each error type: what it is, who returns it, what converts into it
     let mut err_types: Vec<(ItemId, Vec<ItemId>)> = Vec::new();
@@ -255,19 +269,18 @@ fn errors(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
                 _ => None,
             })
             .collect();
-        let mut say = format!("{} It comes back from {}.", guide::type_sentence(p, it), names(p, producers, 5));
-        if !froms.is_empty() {
-            say.push_str(&format!(" {} turn{} into it through `From`, which is what lets `?` pass one as the other.", join_and(&froms), if froms.len() == 1 { "s" } else { "" }));
-        }
+        let from = if froms.is_empty() { String::new() } else { tt::errors_from(lang, froms.len(), tr::join_and(lang, &froms)) };
+        let say = tr::sentences(lang, &[&guide::type_sentence(p, it, lang), &tt::errors_comes_back(lang, names(p, producers, 5, lang)), &from]);
         cues.push(cue(say, None, vec![it.path.clone()]));
     }
     // propagation with `?`
     let mut q: Vec<&Item> = fns.iter().copied().filter(|f| f.fn_info().map(|i| i.question_marks > 0).unwrap_or(false)).collect();
     q.sort_by_key(|f| std::cmp::Reverse(f.fn_info().unwrap().question_marks));
     if !q.is_empty() {
-        let list: Vec<String> = q.iter().take(5).map(|f| format!("`{}` ({})", label(p, f.id), plural(f.fn_info().unwrap().question_marks, "time"))).collect();
+        let list: Vec<String> = q.iter().take(5).map(|f| tt::errors_times(lang, f.fn_info().unwrap().question_marks, label(p, f.id))).collect();
+        let list = tr::join_and(lang, &list);
         cues.push(cue(
-            format!("The question mark passes an error straight up to the caller. It is used in {}{}.", join_and(&list), if q.len() > 5 { format!(" and {} more", q.len() - 5) } else { String::new() }),
+            if q.len() > 5 { tt::errors_question_more(lang, list, q.len() - 5) } else { tt::errors_question(lang, list) },
             None,
             q.iter().map(|f| f.path.clone()).collect(),
         ));
@@ -283,14 +296,14 @@ fn errors(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
     }
     if !handlers.is_empty() {
         cues.push(cue(
-            format!("Errors stop in {}: they check the result themselves, with a `match` or an `if let`, instead of passing it on.", names(p, &handlers, 5)),
+            tt::errors_handled(lang, names(p, &handlers, 5, lang)),
             None,
             handlers.iter().map(|h| p.item(*h).path.clone()).collect(),
         ));
     }
     if !panicky.is_empty() {
         cues.push(cue(
-            format!("And these can panic instead: {}. A panic, from `unwrap`, `expect` or `panic!`, stops the thread; no caller gets a chance to handle it.", names(p, &panicky, 5)),
+            tt::errors_panics(lang, names(p, &panicky, 5, lang)),
             None,
             panicky.iter().map(|h| p.item(*h).path.clone()).collect(),
         ));
@@ -300,15 +313,15 @@ fn errors(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
 
 // ------------------------------------------------------------------ entry points
 
-fn entry(p: &Project) -> Vec<Cue> {
+fn entry(p: &Project, lang: Lang) -> Vec<Cue> {
     let mut cues = Vec::new();
     if let Some(m) = p.main {
         let it = p.item(m);
         let mut seen = std::collections::HashSet::new();
         let callees: Vec<ItemId> = p.callees(m).iter().filter_map(|e| e.to).filter(|t| seen.insert(*t)).collect();
-        let doc = doc_sentence(it.doc.as_ref()).map(|d| format!(" {}", d)).unwrap_or_default();
-        let calls = if callees.is_empty() { String::new() } else { format!(" It calls {}.", names(p, &callees, 5)) };
-        cues.push(cue(format!("Everything starts in `main`, the entry point of the program.{}{}", doc, calls), Some(format!("calls:{}", it.path)), vec![it.path.clone()]));
+        let doc = told_doc(it.doc.as_ref(), lang).unwrap_or_default();
+        let calls = if callees.is_empty() { String::new() } else { tt::entry_calls(lang, names(p, &callees, 5, lang)) };
+        cues.push(cue(tr::sentences(lang, &[tt::entry_main(lang), &doc, &calls]), Some(format!("calls:{}", it.path)), vec![it.path.clone()]));
     }
     let public: Vec<&Item> = p
         .items
@@ -318,18 +331,19 @@ fn entry(p: &Project) -> Vec<Cue> {
         .collect();
     if public.is_empty() {
         if cues.is_empty() {
-            cues.push(cue("This project has no `main` and nothing marked `pub`: no way in from outside.".into(), Some("structure".into()), vec![]));
+            cues.push(cue(tt::entry_nothing(lang).into(), Some("structure".into()), vec![]));
         }
         return cues;
     }
     let lib = p.files.iter().any(|f| f.path.ends_with("lib.rs"));
+    let n_pub = public.len();
     cues.push(cue(
-        format!(
-            "{} {}: {} that other code can use.",
-            if cues.is_empty() { "The way in is" } else { "Then," },
-            if lib { "the library's public API" } else { "what is marked `pub`" },
-            plural(public.len(), "item")
-        ),
+        match (cues.is_empty(), lib) {
+            (true, true) => tt::entry_way_in_api(lang, n_pub),
+            (true, false) => tt::entry_way_in_pub(lang, n_pub),
+            (false, true) => tt::entry_then_api(lang, n_pub),
+            (false, false) => tt::entry_then_pub(lang, n_pub),
+        },
         Some("structure".into()),
         public.iter().map(|i| i.path.clone()).collect(),
     ));
@@ -337,30 +351,34 @@ fn entry(p: &Project) -> Vec<Cue> {
     let base = cues.len() - 1;
     for (i, it) in public.iter().enumerate() {
         let what = match it.kind {
-            ItemKind::Function => doc_sentence(it.doc.as_ref()).unwrap_or_else(|| format!("Its signature: `{}`.", it.signature)),
-            _ => guide::type_sentence(p, it),
+            ItemKind::Function => told_doc(it.doc.as_ref(), lang).unwrap_or_else(|| tt::entry_signature(lang, &it.signature)),
+            _ => guide::type_sentence(p, it, lang),
         };
         let say = match it.kind {
-            ItemKind::Function => format!("{} `{}`. {}", lead(i, n).replace(" there is", ""), label(p, it.id), what),
-            _ => format!("{} {}", lead(i, n), what),
+            // "Then there is `f`." reads badly: a function gets "Then `f`."
+            ItemKind::Function => {
+                let l = if i > 0 && i + 1 != n && i % 3 == 2 { tt::lead_then(lang) } else { lead(i, n, lang) };
+                tr::sentences(lang, &[&tt::entry_function(lang, l, label(p, it.id)), &what])
+            }
+            _ => led(lang, lead(i, n, lang), &what),
         };
         cues.push(cue(say, None, vec![it.path.clone()]));
     }
     // cap counts the stops after the public intro
     let mut head: Vec<Cue> = cues.drain(..base).collect();
-    head.extend(cap(cues, public.len()));
+    head.extend(cap(cues, public.len(), lang));
     head
 }
 
 // ------------------------------------------------------------------ one function
 
-fn flow(p: &Project, f: &str) -> Result<Vec<Cue>, String> {
+fn flow(p: &Project, f: &str, lang: Lang) -> Result<Vec<Cue>, String> {
     let id = resolve(p, f).and_then(|r| r.item).filter(|i| p.item(*i).is_callable()).ok_or_else(|| format!("`flow_tour:{}`: not a function", f))?;
     if p.item(id).fn_info().and_then(|i| i.cfg.as_ref()).is_none() {
         return Err(format!("`flow_tour:{}`: no body to walk", f));
     }
     let mut last = None;
-    Ok(guide::function_steps(p, id, &GuideOptions::default()).iter().map(|st| step_cue(p, st, &mut last)).collect())
+    Ok(guide::function_steps(p, id, &GuideOptions { lang, ..Default::default() }).iter().map(|st| step_cue(p, st, &mut last)).collect())
 }
 
 // ------------------------------------------------------------------ rough edges
@@ -385,7 +403,7 @@ fn marker(comment: &str) -> Option<(&'static str, String)> {
     None
 }
 
-fn todo(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
+fn todo(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Vec<Cue> {
     // (file, line, what fn, sentence)
     let mut stops: Vec<(FileId, usize, Option<ItemId>, String)> = Vec::new();
     let (mut notes, mut unsafes, mut panics) = (0, 0, 0);
@@ -401,15 +419,15 @@ fn todo(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
             if owner.is_some_and(|o| is_test_item(p, o)) {
                 continue;
             }
-            let at = owner.map(|o| format!("In `{}`", label(p, o.id))).unwrap_or_else(|| format!("In `{}`", f.path));
+            let at = owner.map(|o| label(p, o.id)).unwrap_or_else(|| f.path.clone());
             if let Some((m, text)) = marker(comment) {
                 notes += 1;
-                let say = if text.is_empty() { format!("{}, a {} left in the code.", at, m) } else { format!("{}, a {}: {}", at, m, text) };
+                let say = if text.is_empty() { tt::todo_bare(lang, &at, m) } else { tt::todo_text(lang, &at, m, authored(lang, &text)) };
                 stops.push((f.id, n, owner.map(|o| o.id), say));
             }
             if code.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == "unsafe") {
                 unsafes += 1;
-                stops.push((f.id, n, owner.map(|o| o.id), format!("{}, `unsafe`: here the compiler trusts the author instead of checking.", at)));
+                stops.push((f.id, n, owner.map(|o| o.id), tt::todo_unsafe(lang, &at)));
             }
         }
     }
@@ -417,22 +435,24 @@ fn todo(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
         let Some(cfg) = it.fn_info().and_then(|f| f.cfg.as_ref()) else { continue };
         for n in cfg.nodes.iter().filter(|n| n.kind == CfgNodeKind::Panic) {
             panics += 1;
-            stops.push((n.span.file, n.span.line_start, Some(it.id), format!("In `{}`, `{}` can panic.", label(p, it.id), crate::shorten(n.detail.lines().next().unwrap_or(""), 60))));
+            stops.push((n.span.file, n.span.line_start, Some(it.id), tt::todo_panic(lang, label(p, it.id), crate::shorten(n.detail.lines().next().unwrap_or(""), 60))));
         }
     }
     if stops.is_empty() {
-        return vec![cue(format!("No rough edges{}: no TODO left, no `unsafe`, nothing that can panic.", within(p, scope)), Some("arch".into()), vec![])];
+        let say = match scope_name(p, scope) {
+            Some(sc) => tt::todo_none_in(lang, sc),
+            None => tt::todo_none(lang).to_string(),
+        };
+        return vec![cue(say, Some("arch".into()), vec![])];
     }
     stops.sort_by_key(|s| (s.0, s.1));
     stops.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.3 == b.3);
     let show_of = |s: &(FileId, usize, Option<ItemId>, String)| format!("code:{}", s.2.map(|i| p.item(i).path.clone()).unwrap_or_else(|| p.files[s.0].path.clone()));
-    let intro = format!(
-        "Now the rough edges{}: {} left in comments, {}, and {} that can panic. A good list to start from when you want to improve the code.",
-        within(p, scope),
-        plural(notes, "note"),
-        plural(unsafes, "unsafe block"),
-        plural(panics, "place")
-    );
+    let (nn, nu, np) = (tt::todo_notes(lang, notes), tt::todo_unsafes(lang, unsafes), tt::todo_panics(lang, panics));
+    let intro = match scope_name(p, scope) {
+        Some(sc) => tt::todo_intro_in(lang, sc, nn, nu, np),
+        None => tt::todo_intro(lang, nn, nu, np),
+    };
     let mut cues = vec![cue(intro, Some(show_of(&stops[0])), vec![])];
     let mut last = cues[0].show.clone();
     for s in &stops {
@@ -441,7 +461,7 @@ fn todo(p: &Project, scope: Option<ModuleId>) -> Vec<Cue> {
         last = show.clone();
         cues.push(cue(s.3.clone(), if changed { show } else { None }, vec![format!("{}:{}", p.files[s.0].path, s.1)]));
     }
-    cap(cues, stops.len())
+    cap(cues, stops.len(), lang)
 }
 
 // ------------------------------------------------------------------ files
@@ -454,7 +474,7 @@ fn file_name(f: &SourceFile) -> String {
     format!("`{}`", stem)
 }
 
-fn files(p: &Project, scope: Option<ModuleId>) -> Tour {
+fn files(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Tour {
     let mut stops: Vec<(&SourceFile, Option<&Module>)> = Vec::new();
     for f in p.files.iter().filter(|f| f.rust) {
         let module = p.modules.iter().filter(|m| m.file == Some(f.id)).min_by_key(|m| m.path.len());
@@ -466,21 +486,25 @@ fn files(p: &Project, scope: Option<ModuleId>) -> Tour {
             stops.push((f, module));
         }
     }
-    let intro = format!("Let's walk through the {}{}, one by one, the way you would open them in an editor.", plural(stops.len(), "file"), within(p, scope));
+    let intro = match scope_name(p, scope) {
+        Some(sc) => tt::files_intro_in(lang, stops.len(), sc),
+        None => tt::files_intro(lang, stops.len()),
+    };
     let mut t = Tour::from(vec![cue(intro, stops.first().map(|s| format!("code:{}", s.0.path)), vec![])]);
     let n = stops.len().min(MAX_STOPS);
     for (i, (f, m)) in stops.iter().take(MAX_STOPS).enumerate() {
-        let doc = m.and_then(|m| doc_sentence(m.doc.as_ref())).unwrap_or_else(|| "It has no module doc yet.".into());
+        let doc = m.and_then(|m| told_doc(m.doc.as_ref(), lang)).unwrap_or_else(|| crate::tr::t::guide::module_no_doc(lang).into());
         let defs: Vec<ItemId> = m.map(|m| m.items.iter().copied().filter(|i| !matches!(p.item(*i).kind, ItemKind::Method | ItemKind::Impl)).collect()).unwrap_or_default();
-        let defines = if defs.is_empty() { String::new() } else { format!(" It defines {}.", names(p, &defs, 5)) };
+        let defines = if defs.is_empty() { String::new() } else { tt::files_defines(lang, names(p, &defs, 5, lang)) };
+        let name = file_name(f);
         let lead = match i {
-            0 => "First,",
-            _ if i + 1 == n => "And last,",
-            _ => ["Next,", "Then"][i % 2],
+            0 => tt::files_first(lang, &name),
+            _ if i + 1 == n => tt::files_last(lang, &name),
+            _ => [tt::files_next, tt::files_then][i % 2](lang, &name),
         };
         let show = if i == 0 { None } else { Some(format!("code:{}", f.path)) };
-        t.doc_stops(&format!("{} the {} file.{}", lead, file_name(f), defines), &file_name(f), m.and_then(|m| m.doc.as_ref()), doc, show, vec![]);
+        t.doc_stops(lang, &tr::sentences(lang, &[&lead, &defines]), &name, m.and_then(|m| m.doc.as_ref()), doc, show, vec![]);
     }
-    more(&mut t.cues, stops.len());
+    more(&mut t.cues, stops.len(), lang);
     t
 }

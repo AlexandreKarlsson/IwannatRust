@@ -1,0 +1,14 @@
+# keep the Docker build context small: build outputs, git, codecast recordings and videos
+# (not crates/iwr-ui/assets: the UI embeds its tutorial recordings)
+target
+**/target
+.git
+**/node_modules
+codecast/*.ogg
+codecast/*.mp4
+codecast-algorithms/*.ogg
+codecast-algorithms/*.mp4
+examples/*/codecast/*.ogg
+examples/*/codecast/*.mp4
+iwr-site
+crates/iwr-ui/dist

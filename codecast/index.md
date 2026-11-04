@@ -20,3 +20,4 @@ pronounce: serde = sir-day
 - [Diagrams](08-diagrams.md) — a mermaid block the player draws, moves and reveals; a feature explaining itself
 - [The command line and the server](09-the-command-line.md) — brief, check, serve: what the codecast binary does and how the file watcher works
 - [The player](10-the-player.md) — apply_cue and apply_directives: the contract between a script and the screen
+- [Filming a codecast](11-filming-a-codecast.md) — stop motion in a headless browser: one frame of virtual time, one picture, the recording laid under them

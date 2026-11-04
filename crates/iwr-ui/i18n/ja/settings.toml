@@ -1,0 +1,127 @@
+ui_lang = "表示言語"
+ui_lang_desc = "ボタン、メニュー、設定の言語です。コードキャストの言語は別に設定します（下の「コードキャスト」）。"
+title = "設定"
+back = "戻る"
+back_tip = "コードに戻る（Esc）"
+hero_title = "自分好みに"
+hero_text = "色、フォント、音声、ビューを設定できます。設定はすべてこのブラウザに保存されます。"
+locked = "🔒 このコードキャストはテーマ、フォント、言語、音声を固定しています。"
+
+[section]
+look = "外観"
+cast = "コードキャスト"
+design = "コードキャストのデザイン"
+views = "分析ビュー"
+code = "コードビュー"
+layout = "レイアウト"
+keys = "キーボード"
+
+[kinds]
+tip = "「構造」ビューに表示するアイテムの種類"
+all = "すべて"
+all_tip = "すべての種類を表示"
+fns = "関数のみ"
+fns_tip = "関数とメソッドのみ表示"
+
+[themes]
+all = "すべて"
+dark = "ダーク"
+light = "ライト"
+count = "{n} 種類のテーマ"
+viewers_choice = "視聴者が選択"
+none = "なし"
+
+[theme]
+dark = "ダーク"
+light = "ライト"
+contrast = "ハイコントラスト"
+
+[fonts]
+all = "すべて"
+count = "{n} 種類のフォント"
+default = "既定"
+custom = "カスタム"
+theme_font = "テーマのフォント"
+viewer_font = "視聴者のフォント"
+
+[font_kind]
+display = "装飾"
+script = "手書き"
+text = "本文"
+
+[look]
+sub = "グラフを含むインターフェース全体の色と、フォントです。"
+theme = "テーマ"
+fonts = "フォント"
+box_titles = "ボックスのタイトル"
+interface_text = "画面のテキスト"
+
+[cast]
+sub = "音声ツアーの再生方法です。"
+voice = "音声"
+voice_locked = "このコードキャストで固定されています。"
+voice_desc = "コードキャストに録音が含まれていれば、自動的にそれを使います。"
+voice_tts = "🔊 ブラウザが読み上げる"
+voice_read = "📖 黙読（一定時間で次へ）"
+browser_voice = "ブラウザ音声"
+browser_voice_desc = "録音がないときにコードキャストを読み上げます。"
+second_voice = "2つ目のブラウザ音声"
+second_voice_desc_sp = "sp: 行を話し、クリックした質問を読み上げます。"
+second_voice_desc = "クリックした質問を読み上げます（sp: 行があるコードキャストでは、その行も話します）。"
+auto_codecast = "コードキャストの指定（{name}）"
+automatic = "自動"
+hear = "試聴"
+rec_voice = "録音の音声"
+rec_voice_desc = "再生する録音です。ペア（A & B）は 2 つの音声で録音したコードキャストです。"
+rec_original = "オリジナル（{n} パート）"
+rec_named = "{name}（{n} パート）"
+language = "コードキャストの言語"
+language_desc = "再生時にオフラインで翻訳し（codecast serve）、その言語のブラウザ音声で読み上げます。録音とコードは英語のままです。⚠ オフライン翻訳は今のところ粗いため、質の高い翻訳には別のツールを使ってください（codecast translate --pieces、ドキュメント参照）。"
+subtitles = "字幕"
+subtitles_desc = "再生中のキャプションの下に、同じ内容を別の言語で表示します（音声は日本語、字幕は英語など）。表示できるのは既にあるテキストだけです：英語の原文、codecast/translations/<lang>.json、または以前に作った翻訳。"
+speech_rate = "読み上げ速度"
+read_time = "キューごとの表示時間"
+read_time_desc = "黙読モードのみ。"
+seconds = "{s} 秒"
+full_tour = "通しツアー"
+full_tour_desc = "パートが終わったら、次のパートに進みます。"
+spoken = "コードの読み方を表示"
+spoken_desc = "「crate::parser::parse_all」→「parse all」のように、読み方を括弧内に表示します。点線の付いたトークンにカーソルを合わせると読み上げます。読み方は `pronounce: written = spoken` で修正できます。"
+glossary = "用語集の質問"
+glossary_desc = "キューに Rust の用語が出てきたら「…とは？」を提案します（{n} 語、各 1 回）。スクリプトの質問は常に表示されます。"
+forget = "回答済みの {n} 件を消去"
+start_tour = "通しツアーを開始"
+start_tour_loaded = "読み込んだコードキャストを最初のパートから再生します。"
+start_tour_builtin = "スクリプトが読み込まれていません：プロジェクトの組み込みツアーを再生します。"
+
+[views]
+sub = "グラフビューに含める内容です。図を小さく保つため、既定ではオフです。"
+external = "外部 crate と呼び出し"
+macros = "マクロ呼び出し"
+constructors = "コンストラクタ"
+tests = "テスト"
+depth = "呼び出しツリーの深さ"
+depth_desc = "ルート関数から展開する階層の数です。"
+structure = "「構造」ビューの表示"
+structure_desc = "チェックを外した種類は非表示になります。impl を隠すと、メソッドはそのモジュールに表示されます。"
+
+[code]
+sub = "関数のブロックと、そのソースです。"
+show_source = "ブロックの横にソースを表示"
+show_source_desc = "どちらかにカーソルを合わせると、両方がハイライトされます。"
+
+[layout]
+sub = "パネルの端はドラッグできます。サイズは保存されます。"
+sidebar = "ファイル / アイテムパネル"
+sizes = "パネルのサイズ"
+reset = "リセット"
+
+[keys]
+sub = "テキスト入力欄の外なら、どこでも使えるショートカットです。"
+prev_next = "前 / 次のキュー"
+play_pause = "再生 / 一時停止"
+codecast = "コードキャストを開始 / 停止"
+tour = "通しツアーを開始"
+fit = "グラフを全体表示"
+page = "このページを開く / 閉じる"
+close = "プレーヤーまたはこのページを閉じる"

@@ -8,6 +8,7 @@
 //! first), each one once. That keeps the camera still and the story linear.
 
 use crate::model::*;
+use crate::tr::{self, authored, t::guide as tg, Lang};
 use crate::views::Mode;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashSet, VecDeque};
@@ -58,11 +59,14 @@ pub struct GuideOptions {
     pub min_body_lines: usize,
     /// How many modules / types the overview describes one by one.
     pub max_overview_items: usize,
+    /// The language the tour is told in; author text stays as written, marked for translation
+    /// ([`crate::tr::authored`]).
+    pub lang: Lang,
 }
 
 impl Default for GuideOptions {
     fn default() -> Self {
-        Self { max_steps: 300, max_depth: 6, min_body_lines: 0, max_overview_items: 10 }
+        Self { max_steps: 300, max_depth: 6, min_body_lines: 0, max_overview_items: 10, lang: Lang::En }
     }
 }
 
@@ -88,6 +92,11 @@ pub(crate) fn doc_sentence(doc: Option<&String>) -> Option<String> {
     Some(s)
 }
 
+/// [`doc_sentence`] inside a sentence told in `lang` (marked for translation).
+pub(crate) fn told_doc(doc: Option<&String>, lang: Lang) -> Option<String> {
+    doc_sentence(doc).map(|d| authored(lang, &d))
+}
+
 /// One stop of a doc page: the markdown the side panel shows and what is said meanwhile.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DocStop {
@@ -98,7 +107,8 @@ pub struct DocStop {
 /// A doc comment written as a page (`#` headings, tables or lists) read in full: the first stop
 /// shows the whole page and reads what comes before the first heading, then one stop per
 /// heading shows and reads its section. `None` for a plain doc, which [`doc_sentence`] reads.
-pub fn doc_page(title: &str, doc: Option<&String>) -> Option<Vec<DocStop>> {
+/// What is said is the author's text: marked for translation when told in another language.
+pub fn doc_page(title: &str, doc: Option<&String>, lang: Lang) -> Option<Vec<DocStop>> {
     let doc = doc?;
     let mut fence = false;
     let mut rich = false;
@@ -119,11 +129,11 @@ pub fn doc_page(title: &str, doc: Option<&String>) -> Option<Vec<DocStop>> {
     if !rich {
         return None;
     }
-    let mut stops = vec![DocStop { note: crate::script::Note { title: Some(title.to_string()), text: doc.clone() }, say: spoken_md(&sections[0].1.join("\n")) }];
+    let mut stops = vec![DocStop { note: crate::script::Note { title: Some(title.to_string()), text: doc.clone() }, say: authored(lang, &spoken_md(&sections[0].1.join("\n"))) }];
     for (h, body) in sections.iter().skip(1) {
         let h = h.clone().unwrap_or_default();
         let text = body.join("\n").trim().to_string();
-        let say = format!("{}. {}", h.trim_end_matches(['.', ':']), spoken_md(&text)).trim().to_string();
+        let say = authored(lang, format!("{}. {}", h.trim_end_matches(['.', ':']), spoken_md(&text)).trim());
         // the heading again in the body: the panel's title line cuts long ones
         stops.push(DocStop { note: crate::script::Note { title: Some(format!("{} · {}", title, h)), text: format!("## {}\n\n{}", h, text) }, say });
     }
@@ -196,13 +206,21 @@ pub fn spoken_md(md: &str) -> String {
 }
 
 /// What a module is for: the first paragraph of its `//!` doc, else what it holds.
-pub fn module_sentence(p: &Project, m: &Module) -> String {
-    doc_sentence(m.doc.as_ref()).unwrap_or_else(|| {
-        let fns = m.items.iter().filter(|i| p.item(**i).is_callable()).count();
-        let tys = m.items.iter().filter(|i| p.item(**i).is_type()).count();
-        let names: Vec<String> = m.items.iter().filter(|i| p.item(**i).kind != ItemKind::Method && p.item(**i).kind != ItemKind::Impl).take(4).map(|i| format!("`{}`", p.item(*i).name)).collect();
-        format!("It has no module doc yet. It holds {} function{} and {} type{}{}.", fns, if fns == 1 { "" } else { "s" }, tys, if tys == 1 { "" } else { "s" }, if names.is_empty() { String::new() } else { format!(", among them {}", join_and(&names)) })
-    })
+pub fn module_sentence(p: &Project, m: &Module, lang: Lang) -> String {
+    told_doc(m.doc.as_ref(), lang).unwrap_or_else(|| tr::sentences(lang, &[tg::module_no_doc(lang), &module_holds(p, m, lang)]))
+}
+
+/// What a module holds: "It holds 3 functions and 1 type, among them `a`, `b`…".
+fn module_holds(p: &Project, m: &Module, lang: Lang) -> String {
+    let fns = m.items.iter().filter(|i| p.item(**i).is_callable()).count();
+    let tys = m.items.iter().filter(|i| p.item(**i).is_type()).count();
+    let names: Vec<String> = m.items.iter().filter(|i| p.item(**i).kind != ItemKind::Method && p.item(**i).kind != ItemKind::Impl).take(4).map(|i| format!("`{}`", p.item(*i).name)).collect();
+    let (f, t) = (tg::module_fns(lang, fns), tg::module_types(lang, tys));
+    if names.is_empty() {
+        tg::module_holds(lang, f, t)
+    } else {
+        tg::module_holds_among(lang, f, t, tr::join_and(lang, &names))
+    }
 }
 
 /// Modules worth a stop in a tour, in the Architecture view's reading order: top to bottom
@@ -220,48 +238,75 @@ pub fn tour_modules(p: &Project, scope: Option<ModuleId>) -> Vec<&Module> {
     boxes.into_iter().map(|(_, _, m)| p.module(m)).filter(|m| m.path != "crate" && Some(m.id) != scope).collect()
 }
 
-/// Lead-in for the i-th of n stops: "First, the", "Then the", ... "And last, the".
-pub fn tour_lead(i: usize, n: usize) -> &'static str {
+/// The i-th of n modules of a tour: "First, the `a` module.", "Then the `b` module.", … "And
+/// last, the `z` module.".
+pub fn module_lead(lang: Lang, i: usize, n: usize, name: &str) -> String {
     match i {
-        0 => "First, the",
-        _ if i + 1 == n => "And last, the",
-        _ => ["Then the", "Next, the", "The"][i % 3],
+        0 => tg::module_first(lang, name),
+        _ if i + 1 == n => tg::module_last(lang, name),
+        _ => [tg::module_then, tg::module_next, tg::module_plain][i % 3](lang, name),
     }
 }
 
 /// One sentence about a type: what kind it is, its fields / variants / implementors, then its doc.
-pub fn type_sentence(p: &Project, it: &Item) -> String {
+pub fn type_sentence(p: &Project, it: &Item, lang: Lang) -> String {
+    let name = &it.name;
     let desc = match &it.extra {
         ItemExtra::Struct(s) => {
             let names: Vec<String> = s.fields.iter().take(5).map(|f| format!("`{}`", f.name)).collect();
+            let n = s.fields.len();
             if s.is_unit {
-                format!("`{}`, a struct with no fields, a plain marker.", it.name)
+                tg::ty_unit(lang, name)
             } else if names.is_empty() || s.is_tuple {
-                format!("`{}`, a struct with {} field{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" })
+                tg::ty_struct_count(lang, n, name)
+            } else if n > 5 {
+                tg::ty_struct_fields_more(lang, n, name, tr::join_and(lang, &names))
             } else {
-                format!("`{}`, a struct with {} field{}: {}{}.", it.name, s.fields.len(), if s.fields.len() == 1 { "" } else { "s" }, join_and(&names), if s.fields.len() > 5 { " and more" } else { "" })
+                tg::ty_struct_fields(lang, n, name, tr::join_and(lang, &names))
             }
         }
         ItemExtra::Enum(e) => {
-            let names: Vec<String> = e.variants.iter().take(6).map(|v| format!("`{}`", v.name)).collect();
-            let role = if it.name.ends_with("Error") { "an error type" } else { "an enum" };
-            format!("`{}`, {} with {} variant{}: {}{}.", it.name, role, e.variants.len(), if e.variants.len() == 1 { "" } else { "s" }, join_and(&names), if e.variants.len() > 6 { " and more" } else { "" })
+            let names = tr::join_and(lang, &e.variants.iter().take(6).map(|v| format!("`{}`", v.name)).collect::<Vec<_>>());
+            let n = e.variants.len();
+            match (it.name.ends_with("Error"), n > 6) {
+                (true, true) => tg::ty_error_more(lang, n, name, names),
+                (true, false) => tg::ty_error(lang, n, name, names),
+                (false, true) => tg::ty_enum_more(lang, n, name, names),
+                (false, false) => tg::ty_enum(lang, n, name, names),
+            }
         }
         ItemExtra::Trait(t) => {
             let impls: Vec<String> = p.items.iter().filter(|o| matches!(&o.extra, ItemExtra::Impl(ii) if ii.trait_id == Some(it.id))).filter_map(|o| match &o.extra { ItemExtra::Impl(ii) => Some(format!("`{}`", ii.target)), _ => None }).collect();
             let methods: Vec<String> = t.methods.iter().take(4).map(|m| format!("`{}`", p.item(*m).name)).collect();
-            format!(
-                "the `{}` trait{}{}.",
-                it.name,
-                if methods.is_empty() { String::new() } else { format!(", with {}", join_and(&methods)) },
-                if impls.is_empty() { String::new() } else { format!("; it is implemented by {}", join_and(&impls)) }
-            )
+            match (methods.is_empty(), impls.is_empty()) {
+                (true, true) => tg::ty_trait(lang, name),
+                (false, true) => tg::ty_trait_methods(lang, name, tr::join_and(lang, &methods)),
+                (true, false) => tg::ty_trait_impls(lang, name, tr::join_and(lang, &impls)),
+                (false, false) => tg::ty_trait_methods_impls(lang, name, tr::join_and(lang, &methods), tr::join_and(lang, &impls)),
+            }
         }
-        ItemExtra::TypeAlias { target } => format!("`{}`, an alias for `{}`.", it.name, target),
-        _ => format!("`{}`.", it.name),
+        ItemExtra::TypeAlias { target } => tg::ty_alias(lang, name, target),
+        _ => tg::ty_other(lang, name),
     };
-    let doc = doc_sentence(it.doc.as_ref()).map(|d| format!(" {}", d)).unwrap_or_default();
-    format!("{}{}", desc, doc)
+    tr::sentences(lang, &[&desc, &told_doc(it.doc.as_ref(), lang).unwrap_or_default()])
+}
+
+/// Every type, tests included, in tour order (the built-in tour's data chapter).
+fn tour_types_all(p: &Project) -> Vec<&Item> {
+    let mut ranked: Vec<&Item> = p.items.iter().filter(|i| i.is_type()).collect();
+    ranked.sort_by_key(|i| type_rank(i));
+    ranked
+}
+
+/// Traits first, then error enums, structs, other enums.
+fn type_rank(i: &Item) -> u8 {
+    match i.kind {
+        ItemKind::Trait => 0,
+        ItemKind::Enum if i.name.ends_with("Error") => 1,
+        ItemKind::Struct => 2,
+        ItemKind::Enum => 3,
+        _ => 4,
+    }
 }
 
 /// Types in tour order: traits, error enums, structs, other enums.
@@ -277,23 +322,14 @@ pub fn tour_types(p: &Project) -> Vec<&Item> {
     ranked
 }
 
-/// "a, b and c"
-pub(crate) fn join_and(items: &[String]) -> String {
-    match items.len() {
-        0 => String::new(),
-        1 => items[0].clone(),
-        n => format!("{} and {}", items[..n - 1].join(", "), items[n - 1]),
-    }
-}
-
 /// Sentence connector for the i-th of n steps inside a function.
-fn connector(i: usize, n: usize) -> &'static str {
+fn connector(i: usize, n: usize, lang: Lang) -> &'static str {
     if n > 1 && i + 1 == n {
-        return "Finally,";
+        return tg::conn_last(lang);
     }
     match i {
-        0 => "First,",
-        _ => ["Then", "Next,", "After that,", "Then", "Now"][i % 5],
+        0 => tg::conn_first(lang),
+        _ => [tg::conn_then, tg::conn_next, tg::conn_after, tg::conn_then, tg::conn_now][i % 5](lang),
     }
 }
 
@@ -367,64 +403,58 @@ impl<'a> Gen<'a> {
         self.walked.insert(id);
 
         // ---- enter
-        let mut intro = match caller {
-            None if f.is_main => format!("Let's start at the top, in `{}`, the entry point of the program.", name),
-            None => format!("Let's start with `{}`.", name),
+        let lang = self.opts.lang;
+        let intro = match caller {
+            None if f.is_main => tg::enter_main(lang, &name),
+            None => tg::enter_root(lang, &name),
             Some(c) => {
-                let how = p.calls.iter().find(|e| e.from == c && e.to == Some(id)).map(|e| {
-                    if e.in_loop {
-                        " inside a loop"
-                    } else if e.propagated {
-                        " with a question mark, so its errors bubble up"
-                    } else if e.in_branch {
-                        " on one of its branches"
-                    } else {
-                        ""
-                    }
-                }).unwrap_or("");
-                format!("Now let's take a closer look at `{}`, which `{}` calls{}.", name, label(p, c), how)
+                let cl = label(p, c);
+                let e = p.calls.iter().find(|e| e.from == c && e.to == Some(id));
+                match e {
+                    Some(e) if e.in_loop => tg::enter_called_loop(lang, &name, &cl),
+                    Some(e) if e.propagated => tg::enter_called_question(lang, &name, &cl),
+                    Some(e) if e.in_branch => tg::enter_called_branch(lang, &name, &cl),
+                    _ => tg::enter_called(lang, &name, &cl),
+                }
             }
         };
-        if let Some(d) = doc_sentence(it.doc.as_ref()) {
-            intro.push(' ');
-            intro.push_str(&d);
-        }
+        let intro = tr::sentences(lang, &[&intro, &told_doc(it.doc.as_ref(), lang).unwrap_or_default()]);
         let mut facts: Vec<String> = Vec::new();
         let params: Vec<String> = f.params.iter().filter(|a| a.name != "self").map(|a| format!("`{}`", a.name)).collect();
-        let takes = if params.is_empty() { String::new() } else { format!("takes {} and ", join_and(&params)) };
         let gives = match (&f.ret, f.returns_result, f.returns_option) {
-            (None, _, _) => "returns nothing".to_string(),
-            (Some(_), true, _) => format!("returns a `Result`: either `Ok` with {}, or an `Err` of `{}` that the caller has to deal with", f.result_ok.as_deref().map(|o| format!("`{}`", o)).unwrap_or_else(|| "a value".into()), f.result_err.as_deref().unwrap_or("_")),
-            (Some(r), _, true) => format!("returns `{}`, so there may be no value at all", r),
-            (Some(r), _, _) => format!("returns `{}`", r),
+            (None, _, _) => tg::enter_gives_nothing(lang).to_string(),
+            (Some(_), true, _) => tg::enter_gives_result(lang, f.result_ok.as_deref().map(|o| format!("`{}`", o)).unwrap_or_else(|| tg::enter_a_value(lang).into()), f.result_err.as_deref().unwrap_or("_")),
+            (Some(r), _, true) => tg::enter_gives_option(lang, r),
+            (Some(r), _, _) => tg::enter_gives(lang, r),
         };
-        facts.push(format!("It {}{}.", takes, gives));
+        facts.push(if params.is_empty() { tg::enter_gives_only(lang, gives) } else { tg::enter_takes_gives(lang, tr::join_and(lang, &params), gives) });
         if f.is_async {
-            facts.push("It is async, so it only runs when something awaits it.".into());
+            facts.push(tg::enter_async(lang).into());
         }
         if f.is_recursive {
-            facts.push("It calls itself: this is recursion, and we will see the base case that stops it.".into());
+            facts.push(tg::enter_recursive(lang).into());
         }
         let mut shape: Vec<String> = Vec::new();
         if f.loops > 0 {
-            shape.push(format!("{} loop{}", f.loops, if f.loops > 1 { "s" } else { "" }));
+            shape.push(tg::enter_loops(lang, f.loops));
         }
         if f.branches > 0 {
-            shape.push(format!("{} decision{}", f.branches, if f.branches > 1 { "s" } else { "" }));
+            shape.push(tg::enter_decisions(lang, f.branches));
         }
         if f.question_marks > 0 {
-            shape.push(format!("{} place{} where an error can escape", f.question_marks, if f.question_marks > 1 { "s" } else { "" }));
+            shape.push(tg::enter_escapes(lang, f.question_marks));
         }
         if !shape.is_empty() {
-            let verb = if shape.len() == 1 && shape[0].starts_with("1 ") { "is" } else { "are" };
-            facts.push(format!("Inside there {} {}.", verb, join_and(&shape)));
+            let single = shape.len() == 1 && [f.loops, f.branches, f.question_marks].iter().sum::<usize>() == 1;
+            let list = tr::join_and(lang, &shape);
+            facts.push(if single { tg::enter_inside_is(lang, list) } else { tg::enter_inside_are(lang, list) });
         }
         if let Some(o) = &f.owner_type_name {
-            facts.push(format!("It is a method of `{}`.", o));
+            facts.push(tg::enter_method_of(lang, o));
         }
-        let text = format!("{}\n\n{}", intro, facts.join(" "));
+        let text = format!("{}\n\n{}", intro, facts.join(tr::gap(lang)));
         self.push(GuideStep {
-            title: format!("{} {}()", if caller.is_none() { "Start at" } else { "Enter" }, name),
+            title: if caller.is_none() { tg::title_start_at(lang, &name) } else { tg::title_enter(lang, &name) },
             text,
             mode: Mode::ControlFlow,
             part: part.clone(),
@@ -467,7 +497,7 @@ impl<'a> Gen<'a> {
         let body: Vec<usize> = order.into_iter().filter(|n| *n != 0 && !matches!(cfg.nodes[*n].kind, CfgNodeKind::Entry | CfgNodeKind::Exit)).collect();
         let n_body = body.len();
         for (i, n) in body.iter().enumerate() {
-            self.cfg_step(id, &part, cfg, *n, connector(i, n_body), depth);
+            self.cfg_step(id, &part, cfg, *n, connector(i, n_body, lang), depth);
             if self.steps.len() >= self.opts.max_steps {
                 break;
             }
@@ -475,21 +505,21 @@ impl<'a> Gen<'a> {
 
         // ---- leave
         let ret = match (&f.ret, f.returns_result, f.returns_option) {
-            (None, _, _) => "it returns nothing".to_string(),
-            (Some(_), true, _) => "it hands back either `Ok` with the value, or an `Err` for the caller to handle".to_string(),
-            (Some(r), _, true) => format!("it returns `{}`: `Some` with a value, or `None`", r),
-            (Some(r), _, _) => format!("it returns `{}`", r),
+            (None, _, _) => tg::leave_ret_nothing(lang).to_string(),
+            (Some(_), true, _) => tg::leave_ret_result(lang).to_string(),
+            (Some(r), _, true) => tg::leave_ret_option(lang, r),
+            (Some(r), _, _) => tg::leave_ret(lang, r),
         };
         let next = match self.queue.front() {
             _ if self.single => String::new(),
-            Some((nid, Some(c), _)) if *c == id => format!("Next, let's open `{}`, which we just saw it call.", label(p, *nid)),
-            Some((nid, _, _)) => format!("Next, let's open `{}`.", label(p, *nid)),
-            None if caller.is_none() => "That was the whole program. Thanks for following along.".to_string(),
-            None => "And that is the end of the tour: every function on the path from the entry point has been visited. Thanks for following along.".to_string(),
+            Some((nid, Some(c), _)) if *c == id => tg::leave_next_called(lang, label(p, *nid)),
+            Some((nid, _, _)) => tg::leave_next(lang, label(p, *nid)),
+            None if caller.is_none() => tg::leave_end_program(lang).to_string(),
+            None => tg::leave_end_tour(lang).to_string(),
         };
         self.push(GuideStep {
-            title: format!("Leave {}()", name),
-            text: format!("That is all of `{}`: {}. {}", name, ret, next),
+            title: tg::title_leave(lang, &name),
+            text: tg::leave_text(lang, &name, ret, next),
             mode: Mode::ControlFlow,
             part,
             focus_item: Some(id),
@@ -509,6 +539,7 @@ impl<'a> Gen<'a> {
         let succ: Vec<&CfgEdge> = cfg.succ(n).collect();
         let fname = label(p, fn_id);
         let short = crate::shorten(&node.detail, 70);
+        let lang = self.opts.lang;
         // what we say about the callees of this node
         let mut call_notes: Vec<String> = Vec::new();
         let mut call_names: Vec<String> = Vec::new();
@@ -517,122 +548,68 @@ impl<'a> Gen<'a> {
             call_names.push(format!("`{}`", cl));
             let ci = p.item(c);
             match self.mention(fn_id, c, depth) {
-                "itself" => call_notes.push(format!("This is recursion: `{}` calls itself here, and the calls unwind once the base case is reached.", fname)),
-                "seen" => call_notes.push(format!("We already walked through `{}`.", cl)),
-                "later" => {
-                    let what = doc_sentence(ci.doc.as_ref()).map(|d| format!(" {}", d)).unwrap_or_default();
-                    call_notes.push(format!("We will open `{}` in a moment.{}", cl, what));
-                }
+                "itself" => call_notes.push(tg::callee_itself(lang, &fname)),
+                "seen" => call_notes.push(tg::callee_seen(lang, &cl)),
+                "later" => call_notes.push(tr::sentences(lang, &[&tg::callee_later(lang, &cl), &told_doc(ci.doc.as_ref(), lang).unwrap_or_default()])),
                 "trait" => {
                     let impls: Vec<String> = ci.fn_info().and_then(|cf| cf.trait_id).map(|tid| p.items.iter().filter(|o| o.fn_info().map(|of| of.trait_id == Some(tid) && of.impl_id.is_some() && o.name == ci.name).unwrap_or(false)).map(|o| format!("`{}`", label(p, o.id))).collect()).unwrap_or_default();
-                    call_notes.push(format!(
-                        "`{}` is a trait method, so which code runs depends on the concrete type{}.",
-                        cl,
-                        if impls.is_empty() { String::new() } else { format!(": here it could be {}", join_and(&impls)) }
-                    ));
+                    call_notes.push(if impls.is_empty() { tg::callee_trait(lang, &cl) } else { tg::callee_trait_impls(lang, &cl, tr::join_and(lang, &impls)) });
                 }
                 _ => {}
             }
         }
-        let callees = join_and(&call_names);
+        let callees = tr::join_and(lang, &call_names);
+        let notes = call_notes.join(tr::gap(lang));
+        // a step's sentence, then what its calls lead to
+        let with_notes = |s: String| tr::sentences(lang, &[&s, &notes]);
         let (title, text, kind) = match node.kind {
             CfgNodeKind::Exit | CfgNodeKind::Entry => return,
-            CfgNodeKind::Io => (
-                "Input / output".to_string(),
-                format!("{} input or output: `{}`. This is where the program talks to the outside world.", conn, short),
-                StepKind::Statement,
-            ),
-            CfgNodeKind::Assign => (
-                "State changes".to_string(),
-                format!("{} a change of state: `{}`. Something that already exists is modified here.", conn, short),
-                StepKind::Statement,
-            ),
-            CfgNodeKind::Let if crate::views::group_title(node).is_some() => (
-                crate::views::group_title(node).unwrap_or_default(),
-                format!("{} a few definitions: `{}`. Straight-line code, nothing branches here.", conn, short),
-                StepKind::Statement,
-            ),
+            CfgNodeKind::Io => (tg::title_io(lang).to_string(), tg::step_io(lang, conn, &short), StepKind::Statement),
+            CfgNodeKind::Assign => (tg::title_assign(lang).to_string(), tg::step_assign(lang, conn, &short), StepKind::Statement),
+            CfgNodeKind::Let if crate::views::group_title(node).is_some() => (crate::views::group_title(node).unwrap_or_default(), tg::step_definitions(lang, conn, &short), StepKind::Statement),
             CfgNodeKind::Block | CfgNodeKind::Let | CfgNodeKind::Log => (
-                "Plain statements".to_string(),
-                format!("{} {}: `{}`. Straight-line code, nothing branches here.", conn, if node.detail.matches(';').count() > 1 { "a few plain statements" } else { "a plain statement" }, short),
+                tg::title_statements(lang).to_string(),
+                if node.detail.matches(';').count() > 1 { tg::step_statements(lang, conn, &short) } else { tg::step_statement(lang, conn, &short) },
                 StepKind::Statement,
             ),
             CfgNodeKind::If => {
                 let t = succ.iter().find(|e| e.kind == CfgEdgeKind::True).map(|e| crate::shorten(&cfg.nodes[e.to].label, 40));
                 let f = succ.iter().find(|e| e.kind == CfgEdgeKind::False).map(|e| crate::shorten(&cfg.nodes[e.to].label, 40));
-                let cond = node.detail.trim_start_matches("if ").trim();
-                let mut s = format!("{} a decision: if `{}`", conn, crate::shorten(cond, 60));
-                match (t, f) {
-                    (Some(t), Some(f)) if f != "exit" => s.push_str(&format!(", we go to `{}`; otherwise we continue with `{}`.", t, f)),
-                    (Some(t), _) => s.push_str(&format!(", we go to `{}`; otherwise we carry on below.", t)),
-                    _ => s.push('.'),
-                }
-                ("Decision".to_string(), s, StepKind::Branch)
+                let cond = crate::shorten(node.detail.trim_start_matches("if ").trim(), 60);
+                let s = match (t, f) {
+                    (Some(t), Some(f)) if f != "exit" => tg::step_if_both(lang, conn, &cond, t, f),
+                    (Some(t), _) => tg::step_if_then(lang, conn, &cond, t),
+                    _ => tg::step_if_plain(lang, conn, &cond),
+                };
+                (tg::title_decision(lang).to_string(), s, StepKind::Branch)
             }
             CfgNodeKind::Match => {
-                let arms: Vec<String> = succ.iter().filter(|e| e.kind == CfgEdgeKind::Arm).map(|e| format!("`{}` leads to `{}`", e.label.clone().unwrap_or_default(), crate::shorten(&cfg.nodes[e.to].label, 36))).collect();
-                (
-                    format!("Match with {} arms", arms.len()),
-                    format!("{} a match on `{}`. It picks one of {} arms: {}.", conn, crate::shorten(node.detail.trim_start_matches("match ").trim(), 50), arms.len(), join_and(&arms)),
-                    StepKind::Branch,
-                )
+                let arms: Vec<String> = succ.iter().filter(|e| e.kind == CfgEdgeKind::Arm).map(|e| tg::step_arm(lang, e.label.clone().unwrap_or_default(), crate::shorten(&cfg.nodes[e.to].label, 36))).collect();
+                let on = crate::shorten(node.detail.trim_start_matches("match ").trim(), 50);
+                (tg::title_match_arms(lang, arms.len()), tg::step_match(lang, arms.len(), conn, on, tr::join_and(lang, &arms)), StepKind::Branch)
             }
             CfgNodeKind::Loop => {
                 let has_break = cfg.edges.iter().any(|e| e.kind == CfgEdgeKind::Break);
-                let mut s = format!("{} a loop: `{}`. The body runs once per iteration, and when the loop is done control continues below it.", conn, short);
-                if has_break {
-                    s.push_str(" A break inside can leave it early.");
-                }
-                ("Loop".to_string(), s, StepKind::Loop)
+                let s = tg::step_loop(lang, conn, &short);
+                (tg::title_loop(lang).to_string(), if has_break { tr::sentences(lang, &[&s, tg::step_loop_break(lang)]) } else { s }, StepKind::Loop)
             }
-            CfgNodeKind::Call => (
-                format!("Call {}", callees),
-                format!("{}{} it calls {}. {}", code_block(&node.detail), conn, callees, call_notes.join(" ")),
-                StepKind::Call,
-            ),
+            CfgNodeKind::Call => (tg::title_call(lang, &callees), format!("{}{}", code_block(&node.detail), with_notes(tg::step_call(lang, conn, &callees))), StepKind::Call),
             CfgNodeKind::Propagate => (
-                "Error propagation with ?".to_string(),
-                format!(
-                    "{}{} the question mark. {} can fail, and if it does, `{}` stops right here and hands that error back to its caller. Otherwise the value is unwrapped and we carry on. {}",
-                    code_block(&node.detail),
-                    conn,
-                    if callees.is_empty() { "This expression".to_string() } else { callees.clone() },
-                    fname,
-                    call_notes.join(" ")
-                ),
+                tg::title_propagate(lang).to_string(),
+                format!("{}{}", code_block(&node.detail), with_notes(tg::step_propagate(lang, conn, if callees.is_empty() { tg::step_this_expression(lang).to_string() } else { callees.clone() }, &fname))),
                 StepKind::Error,
             ),
-            CfgNodeKind::Panic => (
-                "Possible panic".to_string(),
-                format!("Watch out here: `{}` can panic. No error goes back to the caller; the thread simply stops, unless something catches it. {}", short, call_notes.join(" ")),
-                StepKind::Error,
-            ),
-            CfgNodeKind::Halt => (
-                "The program stops".to_string(),
-                format!("{} the program stops here: {}. No caller gets control back; the whole process ends.", conn, node.label),
-                StepKind::Return,
-            ),
-            CfgNodeKind::Return | CfgNodeKind::ReturnErr => (
-                "Early return".to_string(),
-                format!("{} an early exit: `{}`. `{}` leaves here and skips the rest of its body. {}", conn, short, fname, call_notes.join(" ")),
-                StepKind::Return,
-            ),
-            CfgNodeKind::Jump => (
-                node.label.clone(),
-                if node.label == "break" { "A break: it leaves the enclosing loop immediately.".to_string() } else { "A continue: it skips straight to the next iteration of the loop.".to_string() },
-                StepKind::Loop,
-            ),
-            CfgNodeKind::Await => (
-                "Await".to_string(),
-                format!("{} an await: `{}`. The function pauses here until the future is ready, and other tasks can run in the meantime. {}", conn, short, call_notes.join(" ")),
-                StepKind::Statement,
-            ),
+            CfgNodeKind::Panic => (tg::title_panic(lang).to_string(), with_notes(tg::step_panic(lang, &short)), StepKind::Error),
+            CfgNodeKind::Halt => (tg::title_halt(lang).to_string(), tg::step_halt(lang, conn, &node.label), StepKind::Return),
+            CfgNodeKind::Return | CfgNodeKind::ReturnErr => (tg::title_early_return(lang).to_string(), with_notes(tg::step_early_return(lang, conn, &short, &fname)), StepKind::Return),
+            CfgNodeKind::Jump => (node.label.clone(), if node.label == "break" { tg::step_break(lang) } else { tg::step_continue(lang) }.to_string(), StepKind::Loop),
+            CfgNodeKind::Await => (tg::title_await(lang).to_string(), with_notes(tg::step_await(lang, conn, &short)), StepKind::Statement),
         };
         // the author's own short comment says best what this step is for
         let (title, text) = match &node.note {
             Some(note) => {
                 let end = if note.ends_with(['.', '!', '?']) { "" } else { "." };
-                (note.clone(), format!("{}{} {}", note, end, text.trim_end()))
+                (authored(lang, note), tr::sentences(lang, &[&authored(lang, &format!("{}{}", note, end)), text.trim_end()]))
             }
             None => (title, text),
         };
@@ -662,83 +639,61 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
     let mods: Vec<&Module> = tour_modules(p, None).into_iter().filter(|m| !m.items.is_empty() || m.doc.is_some()).collect();
 
     // ---- welcome + architecture
+    let lang = opts.lang;
+    let (part_welcome, part_data, part_calls) = (tg::part_welcome(lang), tg::part_data(lang), tg::part_calls(lang));
     // the crate doc as a page: shown from the welcome on, its sections read before the map
-    let mut page = doc_page(&p.name, p.modules.first().and_then(|m| m.doc.as_ref())).unwrap_or_default().into_iter();
+    let mut page = doc_page(&p.name, p.modules.first().and_then(|m| m.doc.as_ref()), lang).unwrap_or_default().into_iter();
     let first = page.next();
     let goal = match &first {
         Some(st) => Some(st.say.clone()).filter(|s| !s.is_empty()),
-        None => p.modules.first().and_then(|m| doc_sentence(m.doc.as_ref())),
+        None => p.modules.first().and_then(|m| told_doc(m.doc.as_ref(), lang)),
     }
-    .map(|d| format!(" {}", d))
     .unwrap_or_default();
-    let size = format!(
-        "It is {} source file{} and {} module{}, with {} function{} and {} type{}.",
-        p.files.iter().filter(|f| f.rust).count(),
-        if p.files.iter().filter(|f| f.rust).count() == 1 { "" } else { "s" },
-        p.modules.len(),
-        if p.modules.len() == 1 { "" } else { "s" },
-        n_fn,
-        if n_fn == 1 { "" } else { "s" },
-        n_ty,
-        if n_ty == 1 { "" } else { "s" }
-    );
-    let big_picture = "Let's start with the big picture. This is the architecture: every box is a module, and the arrows show which module depends on which.";
+    let n_files = p.files.iter().filter(|f| f.rust).count();
+    let size = tg::intro_size(lang, tg::intro_files(lang, n_files), tg::intro_modules(lang, p.modules.len()), tg::intro_fns(lang, n_fn), tg::intro_types(lang, n_ty));
+    let welcome = tr::sentences(lang, &[&tg::intro_welcome(lang, &p.name), &goal, &size]);
+    let big_picture = tg::intro_big_picture(lang);
     match first {
         Some(st) => {
-            g.overview_note("Welcome", &format!("Welcome to {}", p.name), format!("Welcome to **{}**.{} {}", p.name, goal, size), vec![], st.note);
+            g.overview_note(part_welcome, &tg::title_welcome(lang, &p.name), welcome, vec![], st.note);
             for st in page {
-                g.overview_note("Welcome", &format!("About {}", p.name), st.say, vec![], st.note);
+                g.overview_note(part_welcome, &tg::title_about(lang, &p.name), st.say, vec![], st.note);
             }
-            g.overview("Welcome", "The architecture", big_picture.into(), Mode::Architecture, vec![], None);
+            g.overview(part_welcome, tg::title_architecture(lang), big_picture.into(), Mode::Architecture, vec![], None);
         }
-        None => g.overview("Welcome", &format!("Welcome to {}", p.name), format!("Welcome to **{}**.{} {}\n\n{}", p.name, goal, size, big_picture), Mode::Architecture, vec![], None),
+        None => g.overview(part_welcome, &tg::title_welcome(lang, &p.name), format!("{}\n\n{}", welcome, big_picture), Mode::Architecture, vec![], None),
     }
     let shown = mods.iter().take(opts.max_overview_items).count();
     for (i, m) in mods.iter().take(opts.max_overview_items).enumerate() {
-        let title = format!("Module {}", module_display(&m.path));
-        let lead = format!("{} `{}` module.", tour_lead(i, shown), module_display(&m.path));
-        match doc_page(&module_display(&m.path), m.doc.as_ref()) {
+        let title = tg::title_module(lang, module_display(&m.path));
+        let lead = module_lead(lang, i, shown, &module_display(&m.path));
+        match doc_page(&module_display(&m.path), m.doc.as_ref(), lang) {
             Some(stops) => {
                 for (k, st) in stops.into_iter().enumerate() {
-                    let text = if k == 0 { format!("{} {}", lead, st.say) } else { st.say };
-                    g.overview_note("Welcome", &title, text, vec![m.path.clone()], st.note);
+                    let text = if k == 0 { tr::sentences(lang, &[&lead, &st.say]) } else { st.say };
+                    g.overview_note(part_welcome, &title, text, vec![m.path.clone()], st.note);
                 }
             }
             None => {
-                let what = module_sentence(p, m).replace("It has no module doc yet. ", "");
-                g.overview("Welcome", &title, format!("{} {}", lead, what), Mode::Architecture, vec![m.path.clone()], None);
+                let what = told_doc(m.doc.as_ref(), lang).unwrap_or_else(|| module_holds(p, m, lang));
+                g.overview(part_welcome, &title, tr::sentences(lang, &[&lead, &what]), Mode::Architecture, vec![m.path.clone()], None);
             }
         }
     }
 
     // ---- data types
     if n_ty > 0 {
-        let types: Vec<&Item> = p.items.iter().filter(|i| i.is_type()).collect();
-        g.overview(
-            "The data",
-            "Data types",
-            "That is the map. Now the data these modules share. Structs and enums hold the values; traits describe behaviour that several types can share. Green arrows mean *contains*, purple dashed arrows mean *implements*.".into(),
-            Mode::Types,
-            vec![],
-            None,
-        );
-        let mut ranked: Vec<&Item> = types.clone();
-        ranked.sort_by_key(|i| match i.kind {
-            ItemKind::Trait => 0,
-            ItemKind::Enum if i.name.ends_with("Error") => 1,
-            ItemKind::Struct => 2,
-            ItemKind::Enum => 3,
-            _ => 4,
-        });
+        g.overview(part_data, tg::title_data(lang), tg::intro_data(lang).into(), Mode::Types, vec![], None);
+        let ranked = tour_types_all(p);
         let shown = ranked.iter().take(opts.max_overview_items).count();
         for (i, it) in ranked.iter().take(opts.max_overview_items).enumerate() {
             let lead = match i {
-                0 => "Let's start with",
-                _ if i + 1 == shown => "And finally",
-                _ => ["Next,", "Then", "Then there is"][i % 3],
+                0 => tg::type_lead_first(lang),
+                _ if i + 1 == shown => tg::type_lead_last(lang),
+                _ => [tg::type_lead_next, tg::type_lead_then, tg::type_lead_there][i % 3](lang),
             };
-            let desc = type_sentence(p, it);
-            g.overview("The data", &it.name.clone(), format!("{} {}", lead, desc), Mode::Types, vec![it.path.clone()], None);
+            let desc = type_sentence(p, it, lang);
+            g.overview(part_data, &it.name.clone(), tr::led(lang, lead, &desc), Mode::Types, vec![it.path.clone()], None);
         }
     }
 
@@ -748,18 +703,8 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
             let mut seen = HashSet::new();
             p.callees(r).iter().filter_map(|e| e.to).filter(|t| seen.insert(*t)).take(5).map(|t| format!("`{}`", label(p, t))).collect()
         };
-        g.overview(
-            "Who calls whom",
-            "Call tree",
-            format!(
-                "Now that we know the data, let's follow the program as it runs. Everything starts in `{}`. This call tree shows who calls whom from there{}. We will walk that path one function at a time, staying in each one until it is fully explained.",
-                label(p, r),
-                if direct.is_empty() { String::new() } else { format!(": it calls {}", join_and(&direct)) }
-            ),
-            Mode::CallTree,
-            vec![p.item(r).path.clone()],
-            Some(r),
-        );
+        let text = if direct.is_empty() { tg::intro_call_tree(lang, label(p, r)) } else { tg::intro_call_tree_calls(lang, label(p, r), tr::join_and(lang, &direct)) };
+        g.overview(part_calls, tg::title_call_tree(lang), text, Mode::CallTree, vec![p.item(r).path.clone()], Some(r));
         g.queued.insert(r);
         g.queue.push_back((r, None, 0));
         while let Some((id, caller, depth)) = g.queue.pop_front() {
@@ -769,7 +714,7 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
             g.walk_fn(id, caller, depth);
         }
     } else {
-        g.overview("Who calls whom", "No entry point", "No `fn main` found. Pick a function in the sidebar and choose *codecast from here* to walk through it.".into(), Mode::CallTree, vec![], None);
+        g.overview(part_calls, tg::title_no_entry(lang), tg::intro_no_main(lang).into(), Mode::CallTree, vec![], None);
     }
     g.steps
 }
