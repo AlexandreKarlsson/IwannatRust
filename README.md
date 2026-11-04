@@ -44,6 +44,8 @@ project you opened (about five minutes). The **?** button in the top bar brings 
 
 Examples: [examples/demo/codecast/](examples/demo/codecast/) (11 parts, also explains the Rust it
 shows) and [codecast/](codecast/), IwannatRust's own tour (`scripts/iwr self`).
+Scripts put one directive per line. GitHub's markdown view joins those lines into paragraphs, so
+read them raw (the *Code* button) or in the player.
 
 <img src="images/shot-tour.png" alt="A codecast explaining the ? operator on the control-flow graph" width="100%">
 
