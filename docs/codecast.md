@@ -159,7 +159,9 @@ current one marked, cue and question counts; clicking a part plays it. The line 
 description after the part's link in `index.md` (`- [Welcome](01-welcome.md) — what the project is
 for`) or from a `plan:` line right under the `##` heading (which wins); without either, the part's
 first sentence. A `plan:` line in the header is the page's intro sentence. The player bar's *plan*
-button opens the page at any time.
+button opens the page at any time. While the page shows, `!` takes part numbers and ranges counted from 1 (`! 2-9`,
+`! 10-16 18`): those parts glow, the others step back, and the page scrolls to the group, so a
+welcome can walk the plan a group at a time without one cue per part.
 
 `audio:` before the first part names a recording of the whole script; inside a part, a recording of that
 part only (then its `[t]` times count from the start of that file). Names are relative to the script's

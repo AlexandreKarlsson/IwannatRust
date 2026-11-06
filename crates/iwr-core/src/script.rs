@@ -1111,6 +1111,19 @@ pub fn focus_at(part: &Part, cue: usize) -> Option<Focus> {
     part.cues.iter().take(cue + 1).rev().find_map(|c| c.focus.as_deref()).and_then(focus_of).flatten()
 }
 
+/// A `!` ref on the plan page: a part number (`3`) or a range (`2-9`), counted from 1, as the
+/// 0-based indices of those parts; `None` when it is neither or falls outside `1..=parts`.
+pub fn plan_parts(r: &str, parts: usize) -> Option<Vec<usize>> {
+    let (a, b) = match r.split_once('-') {
+        Some((a, b)) => (a.trim().parse::<usize>().ok()?, b.trim().parse::<usize>().ok()?),
+        None => {
+            let n = r.trim().parse::<usize>().ok()?;
+            (n, n)
+        }
+    };
+    (a >= 1 && a <= b && b <= parts).then(|| (a - 1..b).collect())
+}
+
 /// A folder ref (`src/storage`, `src/storage/`, `storage/`): the directory as the file tree
 /// names it (`src/storage`). An exact path wins, else a unique suffix. Callers try [`resolve`]
 /// first: a file or a module of that name wins over the folder (end the ref with `/`).
@@ -1242,6 +1255,8 @@ struct Track<'a> {
     chart: Option<&'a crate::chart::Chart>,
     /// refs of what the side panel shows (`|`)
     side: Vec<String>,
+    /// parts in the script, for `!` part numbers on the plan page
+    parts: usize,
 }
 
 impl<'a> Track<'a> {
@@ -1315,6 +1330,11 @@ impl<'a> Track<'a> {
                     }
                 }
                 (Some(Mode::Diagram), None) => {}
+                (Some(Mode::Plan), _) => {
+                    if plan_parts(r, self.parts).is_none() {
+                        bad.push(format!("{}: `{}` is not a part number or range on the plan (1 to {}, e.g. `3` or `2-9`)", at, r, self.parts));
+                    }
+                }
                 (Some(Mode::Chart), _) => {
                     if let Some(c) = self.chart.filter(|c| c.row(r).is_none()) {
                         bad.push(format!("{}: `{}` is not a row of the chart (rows: {})", at, r, c.ids().join(" ")));
@@ -1376,7 +1396,7 @@ pub fn check(p: &Project, s: &Script) -> Vec<String> {
     let mut expanded = s.clone();
     expand_tours(p, &mut expanded);
     let s = &expanded;
-    let mut t = Track { mode: None, diagram: None, chart: None, side: vec![] };
+    let mut t = Track { mode: None, diagram: None, chart: None, side: vec![], parts: s.parts.len() };
     for part in &s.parts {
         for (i, d) in part.diagrams.iter().enumerate() {
             for e in &d.errors {
@@ -1624,4 +1644,19 @@ pub fn plain(say: &str) -> String {
         }
     }
     out.trim().to_string()
+}
+
+#[cfg(test)]
+mod plan_parts_tests {
+    use super::plan_parts;
+
+    #[test]
+    fn numbers_and_ranges() {
+        assert_eq!(plan_parts("3", 19), Some(vec![2]));
+        assert_eq!(plan_parts("2-4", 19), Some(vec![1, 2, 3]));
+        assert_eq!(plan_parts("0", 19), None);
+        assert_eq!(plan_parts("4-2", 19), None);
+        assert_eq!(plan_parts("18-20", 19), None);
+        assert_eq!(plan_parts("cfg", 19), None);
+    }
 }

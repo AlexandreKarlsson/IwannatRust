@@ -1264,8 +1264,19 @@ pub fn PlanPage() -> Element {
     let cur = *state.part_idx.read();
     let n_parts = s.parts.len();
     let total = s.cue_count();
+    // `! 2-9` on the plan page: those parts glow, the others step back
+    let lit: Vec<usize> = state.hl_ids.read().iter().filter_map(|r| script::plan_parts(r, n_parts)).flatten().collect();
+    use_effect(move || {
+        // the middle of the lit group, so a whole range comes into view
+        let n = state.script.read().as_ref().map(|s| s.parts.len()).unwrap_or(0);
+        let lit: Vec<usize> = state.hl_ids.read().iter().filter_map(|r| script::plan_parts(r, n)).flatten().collect();
+        if let Some(mid) = lit.get(lit.len() / 2) {
+            state.scroll_to(&format!("plan-part-{mid}"));
+        }
+    });
+    let any_lit = !lit.is_empty();
     rsx! {
-        div { class: "plan",
+        div { class: if any_lit { "plan lighting" } else { "plan" },
             div { class: "wrap",
                 h2 { Icon { name: "plan".to_string(), size: 22 } "{s.title}" }
                 p { class: "intro",
@@ -1285,9 +1296,12 @@ pub fn PlanPage() -> Element {
                             if !p.diagrams.is_empty() {
                                 meta.push_str(&format!(" · {}", t::player::plan_page_diagram()));
                             }
-                            let class = if i == cur { "cur" } else if i < cur { "done" } else { "" };
+                            let mut class = if i == cur { "cur" } else if i < cur { "done" } else { "" }.to_string();
+                            if lit.contains(&i) {
+                                class.push_str(" lit");
+                            }
                             rsx! {
-                                li { key: "{i}", class: "{class}",
+                                li { key: "{i}", id: "plan-part-{i}", class: "{class}",
                                     onclick: move |_| { state.tts_gen += 1; state.goto_part(i); },
                                     div { class: "num", "{i + 1}" }
                                     div {

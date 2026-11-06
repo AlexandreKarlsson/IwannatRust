@@ -722,6 +722,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .plan li:hover { border-color:var(--accent); transform:translateX(2px); }
 .plan li.cur { border-color:var(--hi); box-shadow: 0 0 0 1px var(--hi), 0 0 14px color-mix(in srgb, var(--hi) 35%, transparent); }
 .plan li.done { opacity:.7; }
+.plan.lighting li { opacity:.4; }
+.plan.lighting li.lit { opacity:1; border-color:var(--hi); box-shadow: 0 0 0 1px var(--hi), 0 0 14px color-mix(in srgb, var(--hi) 35%, transparent); }
+.plan li.lit .num { background:var(--hi); color:var(--panel); }
 .plan .num { flex:none; width:28px; height:28px; border-radius:999px; background:var(--panel3); color:var(--text); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; }
 .plan li.cur .num { background:var(--hi); color:var(--panel); }
 .plan .name { font-weight:700; font-size:14px; }
