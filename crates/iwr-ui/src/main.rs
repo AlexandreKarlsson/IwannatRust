@@ -225,6 +225,8 @@ pub struct State {
     pub font_text: Signal<String>,
     /// where its font files are fetched from (`/api/codecast/`, or `codecast/` in an export)
     pub config_base: Signal<String>,
+    /// `codecast.toml` was fetched and applied (or there is none): render mode waits for it
+    pub config_loaded: Signal<bool>,
 }
 
 impl State {
@@ -435,6 +437,7 @@ fn App() -> Element {
         audio_base: Signal::new("/api/codecast/".into()),
         config: Signal::new(Rc::new(Default::default())),
         config_base: Signal::new("/api/codecast/".into()),
+        config_loaded: Signal::new(false),
         font_title: Signal::new(String::new()),
         font_text: Signal::new(String::new()),
         tts_gen: Signal::new(0),
@@ -637,7 +640,7 @@ fn App() -> Element {
         let info = state.lang_info.read().clone();
         let translated = lang == "en" || state.glossary_tr.read().is_some();
         let subs = state.sub_lang.read().is_empty() || state.sub_script.read().is_some();
-        let ready = translated && subs && state.part_has_audio();
+        let ready = translated && subs && state.part_has_audio() && *state.config_loaded.read();
         let err = if info.starts_with('⚠') { info } else { String::new() };
         document::eval(&format!("window.__codecastReady = {ready}; window.__codecastError = {};", serde_json::to_string(&err).unwrap_or_default()));
     });
@@ -723,6 +726,8 @@ fn App() -> Element {
     // a cue that enlarges the sidebar shows it even when the viewer closed it
     let spot = *state.spot.read();
     let render = *state.render.read();
+    // render mode without subtitles: no caption band, the stage fills the video
+    let sub_lang_empty = state.sub_lang.read().is_empty();
     let sidebar_open = (sidebar_open && !render) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
     let welcome_open = *state.welcome_open.read();
     rsx! {
@@ -731,7 +736,7 @@ fn App() -> Element {
         style { {chart::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
-        div { class: format!("app theme-{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }),
+        div { class: format!("app theme-{}{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }, if render && sub_lang_empty { " nocaption" } else { "" }),
             panels::TopBar {}
             if settings_open {
                 settings::SettingsPage {}

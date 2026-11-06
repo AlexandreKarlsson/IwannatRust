@@ -25,10 +25,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `codecast voice --written`: record parts already written in `--lang` as they are.
 
 - `codecast video`: films each recorded part of a codecast as an MP4 (`NN-part.<voice>.mp4`, H.264 +
-  AAC) with the stage and the caption as a subtitle band, no controls. Frames are drawn on virtual
-  time in headless Chromium, so the picture follows the recording exactly however slow the machine.
-  `scripts/iwr video [P]` runs it in Docker (`docker/video/Dockerfile`: Chromium, ffmpeg, fonts).
-  `--lang ja --sub en` films the Japanese recordings with English subtitles under the caption.
+  AAC) of the stage alone, no controls, in the theme and fonts of `codecast.toml`. 4K by default
+  (`--size 4k|1440p|1080p|720p|WxH`; the page keeps a 720 px-high layout at every size, only
+  sharper). Frames are drawn on virtual time in headless Chromium, so the picture follows the
+  recording exactly however slow the machine. `scripts/iwr video [P]` runs it in Docker
+  (`docker/video/Dockerfile`: Chromium, ffmpeg, fonts). No text under the picture unless subtitles
+  are asked for: `--sub en` adds a subtitle band (`--lang ja --sub en`: Japanese voice, English
+  subtitles). `[video]` in `codecast.toml` sets the defaults (size, fps, scale, crf, sub).
   The player's render mode (`/?render=N&voice=V&lang=L&sub=S`) is what it films.
 - Charts for a signal over time: `min:` / `max:` set the value axis, `dash:` draws series dashed
   (thresholds), `series: raw line:::hidden` with `+@line` / `-@line` markers shows a series later,

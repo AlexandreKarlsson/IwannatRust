@@ -138,13 +138,27 @@ impl State {
     /// Fetch the codecast's `codecast.toml` (as JSON: `/api/config` from `codecast serve`, `codecast.json`
     /// in an export) and apply it.
     pub async fn load_config(&mut self) {
-        let (c, base) = match fetch_config("/api/config").await {
+        self.load_config_inner().await;
+        self.config_loaded.set(true);
+    }
+
+    async fn load_config_inner(&mut self) {
+        let (mut c, base) = match fetch_config("/api/config").await {
             Some(c) => (c, "/api/codecast/"),
             None => match fetch_config("codecast.json").await {
                 Some(c) => (c, "codecast/"),
                 None => return,
             },
         };
+        // `codecast video` (`?render=`) films the codecast's look, whatever this browser saw before;
+        // its voice, language and subtitles come from the URL, not from the defaults
+        let render = document::eval("return new URLSearchParams(location.search).has('render');").await.ok().and_then(|v| v.as_bool()).unwrap_or(false);
+        if render {
+            c = Config { theme: c.theme, fonts: c.fonts, colors: c.colors, lock: true, ..Default::default() };
+            self.config_base.set(base.into());
+            self.apply_config(c, None);
+            return;
+        }
         let prev = match document::eval("return localStorage.getItem('iwr-config') || '';").await {
             Ok(v) => v.as_str().and_then(|t| serde_json::from_str::<Config>(t).ok()),
             Err(_) => None,

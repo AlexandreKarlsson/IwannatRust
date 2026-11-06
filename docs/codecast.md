@@ -69,7 +69,17 @@ code = "fonts/FiraCode-Regular.ttf"    # code
 
 [colors]                  # theme variables to override, on top of any theme
 accent = "#ff7a00"        # also: bg, panel, panel2, panel3, border, text, muted, hi, hl-bg, sel-bg, code, grid
+
+[video]                   # `codecast video` defaults; its flags win
+size = "4k"               # 4k (default), 1440p, 1080p, 720p or WIDTHxHEIGHT
+fps = 30
+scale = 3.0               # device pixel ratio (default: height / 720: the same layout at every size)
+crf = 18                  # x264 quality, lower = better and bigger
+sub = "en"                # subtitle band under the picture (default: none, the stage fills the video)
 ```
+
+**Videos.** `codecast video` films in the theme, fonts and colours set here, whatever the
+viewer's browser picked; without a `theme`, the default dark theme.
 
 **Defaults, not chains.** A value is applied the first time a browser opens the codecast, and
 again whenever the author changes it; a setting the viewer changes afterwards is kept. With

@@ -21,6 +21,10 @@
 //!
 //! [colors]                   # theme variables to override
 //! accent = "#ff7a00"
+//!
+//! [video]                    # `codecast video` defaults (its flags win)
+//! size = "4k"                # 4k | 1440p | 1080p | 720p | WIDTHxHEIGHT
+//! sub = "en"                 # subtitles under the picture (default: none)
 //! ```
 //!
 //! Without `lock`, these are defaults: they are applied when the viewer first opens the codecast
@@ -170,6 +174,45 @@ pub struct Config {
     pub lock: bool,
     pub fonts: Fonts,
     pub colors: BTreeMap<String, String>,
+    pub video: Video,
+}
+
+/// `[video]`: how `codecast video` films this codecast, unless its flags say otherwise.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Video {
+    /// picture size: a preset (`4k`, `1440p`, `1080p`, `720p`) or `WIDTHxHEIGHT`
+    pub size: Option<String>,
+    pub fps: Option<u32>,
+    /// device pixel ratio (default: height / 720, so the page is laid out at 720 px high)
+    pub scale: Option<f64>,
+    /// x264 quality, lower = better and bigger
+    pub crf: Option<u32>,
+    /// language of the subtitles under the picture (none by default: the stage fills the video)
+    pub sub: Option<String>,
+}
+
+impl Video {
+    fn is_empty(&self) -> bool {
+        *self == Video::default()
+    }
+}
+
+/// Video size presets (`--size 4k`): (name, width, height).
+pub const VIDEO_SIZES: &[(&str, u32, u32)] = &[("4k", 3840, 2160), ("2160p", 3840, 2160), ("1440p", 2560, 1440), ("1080p", 1920, 1080), ("720p", 1280, 720)];
+
+/// The default video size: 4K.
+pub const VIDEO_SIZE: &str = "4k";
+
+/// A video size: a preset of [`VIDEO_SIZES`] or `WIDTHxHEIGHT`, both even and at least 16.
+pub fn video_size(s: &str) -> Option<(u32, u32)> {
+    let s = s.trim().to_ascii_lowercase();
+    if let Some(&(_, w, h)) = VIDEO_SIZES.iter().find(|(n, _, _)| *n == s) {
+        return Some((w, h));
+    }
+    let (w, h) = s.split_once('x')?;
+    let (w, h) = (w.parse::<u32>().ok()?, h.parse::<u32>().ok()?);
+    (w >= 16 && h >= 16 && w % 2 == 0 && h % 2 == 0 && w <= 7680 && h <= 4320).then_some((w, h))
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -262,6 +305,20 @@ impl Config {
                 t.push_str(&format!("{} = {}\n", k, q(v)));
             }
         }
+        if !self.video.is_empty() {
+            let v = &self.video;
+            t.push_str("\n[video]                   # `codecast video` defaults (its flags win)\n");
+            let mut line = |k: &str, val: Option<String>| {
+                if let Some(val) = val {
+                    t.push_str(&format!("{} = {}\n", k, val));
+                }
+            };
+            line("size", v.size.as_deref().map(q));
+            line("fps", v.fps.map(|n| n.to_string()));
+            line("scale", v.scale.map(|r| format!("{:?}", r)));
+            line("crf", v.crf.map(|n| n.to_string()));
+            line("sub", v.sub.as_deref().map(q));
+        }
         t
     }
 
@@ -304,6 +361,22 @@ impl Config {
                 bad.push(format!("colors.{}: `{}` is not a colour", k, v));
             }
         }
+        let v = &self.video;
+        if let Some(sz) = v.size.as_deref().filter(|s| video_size(s).is_none()) {
+            bad.push(format!("video.size `{}`: {} or WIDTHxHEIGHT (even numbers)", sz, VIDEO_SIZES.iter().map(|s| s.0).collect::<Vec<_>>().join(", ")));
+        }
+        if let Some(f) = v.fps.filter(|f| !(1..=120).contains(f)) {
+            bad.push(format!("video.fps {} out of 1..120", f));
+        }
+        if let Some(r) = v.scale.filter(|r| !(*r > 0.25 && *r <= 6.0)) {
+            bad.push(format!("video.scale {} out of 0.25..6", r));
+        }
+        if let Some(c) = v.crf.filter(|c| *c > 51) {
+            bad.push(format!("video.crf {} out of 0..51", c));
+        }
+        if let Some(l) = v.sub.as_deref().filter(|l| crate::i18n::lang(l).is_none()) {
+            bad.push(format!("video.sub: unknown lang `{}`", l));
+        }
         bad
     }
 }
@@ -322,6 +395,16 @@ mod tests {
         let bad = Config::from_toml("theme = \"neon\"\n[fonts]\ntitle = \"../x.ttf\"\n[colors]\naccent = \"red;}\"\nfoo = \"red\"\n").unwrap();
         assert_eq!(bad.problems().len(), 4, "{:?}", bad.problems());
         assert_eq!(Config::from_toml("rec_voice = \"heart and adam\"").unwrap().problems().len(), 1);
+        assert_eq!(Config::from_toml("[video]\nsize = \"8x8\"\nsub = \"xx\"\n").unwrap().problems().len(), 2);
+    }
+
+    #[test]
+    fn video_sizes() {
+        assert_eq!(video_size("4K"), Some((3840, 2160)));
+        assert_eq!(video_size("1080p"), Some((1920, 1080)));
+        assert_eq!(video_size("1280x720"), Some((1280, 720)));
+        assert_eq!(video_size("1281x720"), None);
+        assert_eq!(video_size("big"), None);
     }
 
     #[test]
@@ -330,6 +413,7 @@ mod tests {
         c.fonts.title = Some("fonts/My Font.ttf".into());
         c.colors.insert("hl-bg".into(), "#112233".into());
         c.colors.insert("accent".into(), "rgb(1, 2, 3)".into());
+        c.video = Video { size: Some("1440p".into()), fps: Some(60), scale: Some(2.0), crf: Some(18), sub: Some("ja".into()) };
         let back = Config::from_toml(&c.to_toml()).unwrap();
         assert_eq!(back, c, "{}", c.to_toml());
         assert_eq!(Config::from_toml(&Config::default().to_toml()).unwrap(), Config::default());

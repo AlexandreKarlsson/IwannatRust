@@ -154,23 +154,26 @@ enum Cmd {
         /// (its translation must exist: the author's translations/<lang>.json or the cache)
         #[arg(long, default_value = "en")]
         lang: String,
-        /// Subtitles under the caption in this language (en = the script as written) → NN-part.<…>.sub-<lang>.mp4
-        #[arg(long, default_value = "")]
-        sub: String,
+        /// Subtitles under the picture in this language (en = the script as written, none = off) → NN-part.<…>.sub-<lang>.mp4;
+        /// default: `[video] sub` of codecast.toml, else none (the stage fills the video)
+        #[arg(long)]
+        sub: Option<String>,
         /// Part numbers to film, e.g. `1,4` (default: every part with an up-to-date recording)
         #[arg(long, value_delimiter = ',')]
         parts: Vec<usize>,
-        #[arg(long, default_value_t = 30)]
-        fps: u32,
-        /// Video size, WIDTHxHEIGHT
-        #[arg(long, default_value = "1920x1080")]
-        size: String,
-        /// Page zoom: the player is laid out at size/scale, so text is larger in the video
-        #[arg(long, default_value_t = 1.5)]
-        scale: f64,
-        /// x264 quality, lower = better and bigger
-        #[arg(long, default_value_t = 20)]
-        crf: u32,
+        /// Frames per second (default: `[video] fps` of codecast.toml, else 30)
+        #[arg(long)]
+        fps: Option<u32>,
+        /// Video size: 4k, 1440p, 1080p, 720p or WIDTHxHEIGHT (default: `[video] size` of codecast.toml, else 4k)
+        #[arg(long)]
+        size: Option<String>,
+        /// Page zoom: the player is laid out at size/scale (default: `[video] scale`, else height/720,
+        /// so every size shows the same layout, only sharper)
+        #[arg(long)]
+        scale: Option<f64>,
+        /// x264 quality, lower = better and bigger (default: `[video] crf`, else 18)
+        #[arg(long)]
+        crf: Option<u32>,
         /// Seconds held on the last picture after the voice ends
         #[arg(long, default_value_t = 1.0)]
         tail: f64,
@@ -273,16 +276,24 @@ fn main() -> Result<()> {
         }
         Cmd::Voice { script, voice, voice2, speed, lang, path, gap, level, force, retranslate, fresh, written } => voice::run(&script, &voice::Opts { voice, voice2, speed, lang, path, gap, level, force, only: vec![], retranslate, fresh, written }),
         Cmd::Video { script, path, voice, lang, sub, parts, fps, size, scale, crf, tail, out, force, chrome } => {
-            let (width, height) = size
-                .split_once('x')
-                .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
-                .filter(|(w, h)| *w >= 16 && *h >= 16 && w % 2 == 0 && h % 2 == 0)
-                .ok_or_else(|| anyhow::anyhow!("--size: WIDTHxHEIGHT with even numbers, e.g. 1920x1080"))?;
+            // flags, then `[video]` of codecast.toml, then the defaults
+            let cv = codecast::read_config(&script)?.map(|c| c.video).unwrap_or_default();
+            let size = size.or(cv.size).unwrap_or_else(|| iwr_core::config::VIDEO_SIZE.to_string());
+            let (width, height) = iwr_core::config::video_size(&size).ok_or_else(|| {
+                let presets: Vec<_> = iwr_core::config::VIDEO_SIZES.iter().map(|s| s.0).collect();
+                anyhow::anyhow!("--size {size:?}: {} or WIDTHxHEIGHT with even numbers, e.g. 1920x1080", presets.join(", "))
+            })?;
+            let fps = fps.or(cv.fps).unwrap_or(30);
+            let scale = scale.or(cv.scale).unwrap_or(height as f64 / 720.0);
+            let crf = crf.or(cv.crf).unwrap_or(18);
+            // `--sub none` turns off the subtitles codecast.toml asks for
+            let sub = sub.or(cv.sub).filter(|s| s != "none").unwrap_or_default();
             anyhow::ensure!((1..=120).contains(&fps), "--fps: 1 to 120");
+            anyhow::ensure!(crf <= 51, "--crf: 0 to 51");
             for l in [&lang, &sub].into_iter().filter(|l| !l.is_empty()) {
                 anyhow::ensure!(iwr_core::i18n::lang(l).is_some(), "unknown language {l:?}");
             }
-            anyhow::ensure!(scale > 0.25 && scale <= 4.0, "--scale: above 0.25, at most 4");
+            anyhow::ensure!(scale > 0.25 && scale <= 6.0, "--scale: above 0.25, at most 6");
             let script = std::path::absolute(&script)?;
             let path = match path {
                 Some(p) => p,

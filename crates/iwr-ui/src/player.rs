@@ -1096,8 +1096,10 @@ pub fn PlayerBar() -> Element {
         });
     });
 
+    // a video with subtitles in another language shows them alone, in place of the caption
+    let sub_only = *state.render.read() && subtitle.is_some();
     rsx! {
-        div { class: "guide",
+        div { class: if sub_only { "guide subonly" } else { "guide" },
             if !pop.is_empty() && pop_closed() != Some((part_idx, cue_idx)) {
                 div { class: "pop", key: "{part_idx}-{cue_idx}-{answering.is_some()}", title: t::player::tip_pop(),
                     button { class: "x", title: t::player::close(), onclick: move |_| pop_closed.set(Some((part_idx, cue_idx))), "✕" }

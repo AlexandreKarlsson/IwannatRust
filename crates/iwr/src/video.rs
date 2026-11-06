@@ -1,7 +1,7 @@
 //! `codecast video`: film each recorded part of a codecast as an MP4 (H.264 + AAC).
 //!
-//! The player runs in its render mode (`/?render=N&voice=V`: the stage and the caption, no
-//! controls) inside a headless Chromium (`chromium-headless-shell`, the only build that lets a
+//! The player runs in its render mode (`/?render=N&voice=V`: the stage, the subtitles if
+//! asked for, no controls, the theme and fonts of `codecast.toml`) inside a headless Chromium (`chromium-headless-shell`, the only build that lets a
 //! client draw frames itself). Time is virtual: for every frame the renderer sets the player's
 //! clock (`window.__codecastTime(t)`), lets the page's timers and animations run exactly one
 //! frame (`Emulation.setVirtualTimePolicy`) and asks for that frame and its picture
@@ -31,7 +31,7 @@ pub struct Opts {
     pub voice: String,
     /// language of the recordings and captions (`en`, or one `codecast voice --lang` recorded)
     pub lang: String,
-    /// language of the subtitles under the caption (`""`: none)
+    /// language of the subtitles under the picture (`""`: none, the stage fills the video)
     pub sub: String,
     /// part numbers to film, 1-based (empty: all)
     pub parts: Vec<usize>,
@@ -210,11 +210,11 @@ pub fn in_docker(script: &Path, o: &Opts) -> Result<()> {
     cmd.args([IMAGE, "video", &script_in, "--path", &path, "--lang", &o.lang]);
     cmd.args(["--fps", &o.fps.to_string(), "--size", &format!("{}x{}", o.width, o.height), "--scale", &o.scale.to_string()]);
     cmd.args(["--crf", &o.crf.to_string(), "--tail", &o.tail.to_string()]);
-    for (flag, v) in [("--voice", &o.voice), ("--sub", &o.sub)] {
-        if !v.is_empty() {
-            cmd.args([flag, v]);
-        }
+    if !o.voice.is_empty() {
+        cmd.args(["--voice", &o.voice]);
     }
+    // explicit, so the `[video] sub` of codecast.toml is not read again in there
+    cmd.args(["--sub", if o.sub.is_empty() { "none" } else { &o.sub }]);
     if !o.parts.is_empty() {
         cmd.arg("--parts").arg(o.parts.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","));
     }
@@ -443,7 +443,7 @@ impl Frames {
         self.tick += self.dt;
         let mut p = json!({ "frameTimeTicks": self.base + self.tick, "interval": self.dt });
         if shot {
-            p["screenshot"] = json!({ "format": "jpeg", "quality": 92 });
+            p["screenshot"] = json!({ "format": "jpeg", "quality": 95 });
         }
         let r = cdp.call("HeadlessExperimental.beginFrame", p).await?;
         match r["screenshotData"].as_str() {
@@ -484,9 +484,18 @@ async fn film(browser_ws: &str, url: &str, j: &Job, o: &Opts) -> Result<()> {
         }
     }
     cdp.eval("window.__codecastTime(0)").await?;
-    // Let the first cue's camera settle for one second
+    // Let the first cue's camera settle for one second; the codecast's fonts (codecast.toml)
+    // start loading once text uses them: wait for them too
     for _ in 0..o.fps {
         fr.step(&mut cdp, false).await?;
+    }
+    let mut waited = 0;
+    while cdp.eval("document.fonts.status === 'loaded'").await?.as_bool() != Some(true) {
+        fr.step(&mut cdp, false).await?;
+        waited += 1;
+        if waited > 30 * o.fps {
+            bail!("the codecast's fonts never loaded");
+        }
     }
 
     // Start ffmpeg: JPEGs in, the recording laid under them

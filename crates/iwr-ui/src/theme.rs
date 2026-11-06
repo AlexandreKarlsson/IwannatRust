@@ -568,12 +568,17 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .settings .sub-help summary { cursor:pointer; }
 .settings .sub-help code { font-size:11px; background:var(--panel2); padding:1px 4px; border-radius:4px; }
 .guide .say.second { margin-left:24px; padding-left:10px; border-left:3px solid var(--accent); color:var(--text); font-style:italic; }
-/* video render mode (`?render=N`, `codecast video`): the stage and the caption as a subtitle band */
+/* video render mode (`?render=N`, `codecast video`): the stage, and the caption as a subtitle band when subtitles are asked for */
 .app.render .topbar, .app.render .resizer, .app.render .hud, .app.render .guide .ctl, .app.render .guide .parts, .app.render .guide audio, .app.render .guide .qs, .app.render .guide .pop .x, .app.render .guide .answer button { display:none !important; }
 .app.render .guide { justify-content:center; align-items:center; padding:12px 6vw; height:17vh; max-height:none; box-sizing:border-box; overflow:hidden; flex:none; }
 .app.render .guide .body { max-height:none; overflow:visible; text-align:center; font-size:22px; line-height:1.4; }
 .app.render .guide .say.second { margin-left:0; border-left:none; padding-left:0; }
 .app.render .guide .say.sub { font-size:0.85em; }
+.app.render .guide.subonly .say:not(.sub) { display:none; }
+.app.render .guide.subonly .say.sub { font-size:1em; }
+/* video without subtitles: no caption band, the stage takes the whole picture */
+.app.render.nocaption .guide { height:0; padding:0; border:none; }
+.app.render.nocaption .guide .body { display:none; }
 .guide .answer { margin-top:6px; border-left:3px solid var(--hi); background:var(--panel2); padding:8px 12px; border-radius:0 8px 8px 0; }
 .guide .answer .q { font-weight:600; color:var(--hi); margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .guide .answer .q .spacer { flex:1; }
