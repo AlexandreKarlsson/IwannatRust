@@ -7,7 +7,7 @@
 #   scripts/codecast.sh algo [CMD]      same commands, on the algorithms tour (codecast-algorithms/)
 #   scripts/codecast.sh check           validate every ref in the tour against the code (exit 1 on a broken ref)
 #   scripts/codecast.sh speak           print the tour as the voice will read it
-#   scripts/codecast.sh voice [ARGS]    record the tour with Kokoro TTS (NN-part.ogg + .times)
+#   scripts/codecast.sh voice [ARGS]    record the tour with Kokoro TTS (NN-part_<lang>_<voice>.ogg + .times)
 #   scripts/codecast.sh export [DIR]    static site (default: iwr-site/, gitignored)
 #   scripts/codecast.sh brief [--fn P]  the compact code brief codecast gives a writer; `--guide` adds the writing guide
 #

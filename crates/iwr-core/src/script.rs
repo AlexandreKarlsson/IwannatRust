@@ -14,7 +14,7 @@
 //! = src/main.rs:49:18-44      underline code       (this cue only)
 //! [9.4]                       start time in seconds (audio mode)
 //! times: 0 4.2 9.8            start times of the part's cues in order (written by `codecast voice`); `[t]` wins
-//! audio.ja: 01-welcome.ja.ogg recording of this part in another language (`codecast voice --lang ja`),
+//! audio.ja: 01-welcome_ja.ogg  recording of this part in another language (`codecast voice --lang ja`),
 //! times.ja: 0 3.1 8.7         with its cue times; played when the codecast is played in that language
 //! audio.en.am_adam: …         a recording by one Kokoro voice (`codecast voice` writes one per voice):
 //! times.en.am_adam: …         the listener picks the voice in the player
@@ -113,7 +113,7 @@ pub struct Part {
     pub voices: Vec<Voiced>,
 }
 
-/// A recording of a part in a language, by a voice: `audio.ja: 01-welcome.ja.ogg` and
+/// A recording of a part in a language, by a voice: `audio.ja: 01-welcome_ja.ogg` and
 /// `times.ja: 0 3.1 …` (the cues of the translated part, in order), or `audio.en.am_adam:` for
 /// one Kokoro voice among several.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -750,8 +750,8 @@ pub struct PartFile {
     pub audio: Option<String>,
     /// cue start times of that recording (sibling `01-welcome.times`, written by `codecast voice`)
     pub times: Vec<f64>,
-    /// recordings in other languages or by other voices (`01-welcome.ja.ogg` + `01-welcome.ja.times`,
-    /// `01-welcome.am_adam.ogg` + `.times`)
+    /// recordings in other languages or by other voices (`01-welcome_ja_jf-alpha.ogg` + `.times`,
+    /// `01-welcome_en_am-adam.ogg` + `.times`)
     pub voices: Vec<Voiced>,
 }
 

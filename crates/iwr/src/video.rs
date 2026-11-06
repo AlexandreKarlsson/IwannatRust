@@ -87,6 +87,9 @@ pub fn run(script: &Path, o: &Opts) -> Result<()> {
     let out_dir = o.out.clone().unwrap_or_else(|| loaded.dir.clone());
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
+    let part_stems: Vec<String> = std::fs::read_dir(&loaded.dir)
+        .map(|d| d.filter_map(|e| e.ok()?.file_name().into_string().ok()?.strip_suffix(".md").map(str::to_string)).collect())
+        .unwrap_or_default();
     let mut jobs = vec![];
     for (i, p) in s.parts.iter().enumerate() {
         let n = i + 1;
@@ -99,12 +102,14 @@ pub fn run(script: &Path, o: &Opts) -> Result<()> {
             continue;
         };
         let audio = loaded.dir.join(a);
-        let stem = Path::new(a).file_stem().and_then(|x| x.to_str()).unwrap_or("part").to_string();
-        let out = out_dir.join(if o.sub.is_empty() { format!("{stem}.mp4") } else { format!("{stem}.sub-{}.mp4", o.sub) });
+        let rec = Path::new(a).file_stem().and_then(|x| x.to_str()).unwrap_or("part").to_string();
+        // the part's own stem, the longest part file the recording's name starts with:
+        // `01-welcome_ja_jf-alpha` → `01-welcome`
+        let stem = part_stems.iter().filter(|s| rec.starts_with(s.as_str())).max_by_key(|s| s.len()).cloned().unwrap_or_else(|| rec.clone());
+        let out = out_dir.join(crate::codecast::video_name(&stem, lang, &o.sub));
         let times = audio.with_extension("times");
         let duration = read_duration(&times).or_else(|| probe_duration(&audio)).ok_or_else(|| anyhow!("{}: duration unknown (no `# duration` in {} and ffprobe failed)", a, times.display()))?;
-        // the part's text file: `01-welcome.am_michael` → `01-welcome.md`
-        let md = loaded.dir.join(format!("{}.md", stem.split('.').next().unwrap_or(&stem)));
+        let md = loaded.dir.join(format!("{stem}.md"));
         if !o.force && is_newer(&out, &[&audio, &times, &md]) {
             eprintln!("part {n} {}: {} is up to date (--force films it again)", p.name, out.display());
             continue;

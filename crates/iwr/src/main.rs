@@ -100,7 +100,7 @@ enum Cmd {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Record a `codecast/` directory with Kokoro TTS: NN-part.ogg + NN-part.times per part file
+    /// Record a `codecast/` directory with Kokoro TTS: NN-part_<lang>_<voice>.ogg + .times per part file
     Voice {
         /// The `codecast/` directory
         script: PathBuf,
@@ -108,13 +108,13 @@ enum Cmd {
         #[arg(long, default_value = voice::DEFAULT_VOICE)]
         voice: String,
         /// Kokoro voice of the `sp:` lines (default: one of the other gender in the language;
-        /// the same voice spoken higher when the language has only one) → NN-part.<voice>+<voice2>.ogg
+        /// the same voice spoken higher when the language has only one) → NN-part_<lang>_<voice>+<voice2>.ogg
         #[arg(long)]
         voice2: Option<String>,
         #[arg(long, default_value_t = 1.0)]
         speed: f32,
         /// Kokoro language (en-us, en-gb), or a codecast language to translate into and record:
-        /// ja, fr, es, it, pt → NN-part.<lang>.ogg + .times (default voice of that language)
+        /// ja, fr, es, it, pt → NN-part_<lang>_<voice>.ogg + .times (default voice of that language)
         #[arg(long, default_value = "en-us")]
         lang: String,
         /// Project path, for the names kept as code when translating (defaults to the directory's parent)
@@ -154,7 +154,7 @@ enum Cmd {
         /// (its translation must exist: the author's translations/<lang>.json or the cache)
         #[arg(long, default_value = "en")]
         lang: String,
-        /// Subtitles under the picture in this language (en = the script as written, none = off) → NN-part.<…>.sub-<lang>.mp4;
+        /// Subtitles under the picture in this language (en = the script as written, none = off) → NN-part_<lang>_sub-<lang>.mp4;
         /// default: `[video] sub` of codecast.toml, else none (the stage fills the video)
         #[arg(long)]
         sub: Option<String>,
@@ -177,7 +177,7 @@ enum Cmd {
         /// Seconds held on the last picture after the voice ends
         #[arg(long, default_value_t = 1.0)]
         tail: f64,
-        /// Output directory (default: next to the recordings, NN-part.<voice>.mp4)
+        /// Output directory (default: next to the recordings, NN-part_<lang>.mp4)
         #[arg(short, long)]
         out: Option<PathBuf>,
         /// Film parts whose video is up to date

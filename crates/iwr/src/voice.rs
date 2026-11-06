@@ -1,20 +1,20 @@
 //! `codecast voice`: record a `codecast/` directory with Kokoro TTS (open-weight, runs on the CPU).
 //!
-//! Each part file `NN-name.md` gets `NN-name.ogg` (Opus, ~18 kbps: small enough to commit) and
-//! `NN-name.times` (the start time and text hash of every cue). The loader turns the times into the
+//! Each part file `NN-name.md` gets `NN-name_en_<voice>.ogg` (Opus, ~18 kbps: small enough to commit) and
+//! `.times` (the start time and text hash of every cue). The loader turns the times into the
 //! part's `times:` line, so the player's recording mode follows the cues and the `.md` files stay as
 //! written; a part whose text changed since is spoken by TTS until it is recorded again. Kokoro runs in a Python
 //! sidecar (`kokoro-onnx`) set up on first use under the user's cache (`~/.cache/codecast/kokoro`, [`crate::python`]; `CODECAST_KOKORO` overrides).
 //!
 //! `--lang ja` (any codecast language Kokoro has voices for: ja, fr, es, it, pt) records the part
 //! translated the way the player translates it ([`crate::translate`], same cache) into
-//! `NN-name.ja.ogg` + `NN-name.ja.times`. The times file hashes the English cues, so the
+//! `NN-name_ja_<voice>.ogg` + `.times`. The times file hashes the English cues, so the
 //! recording goes stale when the English text changes. Japanese is phonemized by misaki
 //! (installed in the venv on first use), since espeak cannot read it. With `--written`, the parts
 //! are already in that language (a codecast written in Japanese): they are recorded as they are.
 //!
 //! A codecast with `sp:` lines is recorded by a pair of voices (`--voice2`, default
-//! [`v::second_voice`]): `NN-name.af_heart+am_fenrir.ogg`, the second voice saying those lines.
+//! [`v::second_voice`]): `NN-name_en_af-heart+am-fenrir.ogg`, the second voice saying those lines.
 //!
 //! The UI's Generate page runs the same recording through `codecast serve` ([`record`] with a progress
 //! callback and a cancel flag), shows every part's state ([`status`]) and previews voices ([`preview`]).
@@ -142,7 +142,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
         // the hashes are of the English cues: a translation goes stale with its source
         let hashes = codecast::hashes(&english);
         let code = target.unwrap_or("en");
-        // one recording per voice: `01-welcome.am_adam.ogg`, `01-welcome.ja.jf_alpha.ogg`
+        // one recording per voice: `01-welcome_en_am-adam.ogg`, `01-welcome_ja_jf-alpha.ogg`
         let stem = codecast::variant_stem(&stem, code, &o.voice);
         let times_path = dir.join(format!("{}.times", stem));
         let own = std::fs::read_to_string(&times_path).ok();
@@ -195,7 +195,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
 }
 
 /// Give a recording `codecast voice` made under the older one-per-language name (`01-welcome.ogg`,
-/// `01-welcome.ja.ogg`) its voice's name (`01-welcome.am_adam.ogg`), so that recording another
+/// `01-welcome_ja.ogg`) its voice's name (`01-welcome_en_am-adam.ogg`), so that recording another
 /// voice keeps it. Hand-made recordings (no `.times`) stay as they are.
 fn migrate(dir: &Path, stem: &str, lang: &str, report: &mut dyn FnMut(Event)) -> Result<()> {
     let old = codecast::variant_stem(stem, lang, "");
@@ -499,7 +499,7 @@ mod tests {
         }
         let gone = part_files(&dir).unwrap()[0].file_stem().unwrap().to_str().unwrap().to_string();
         for ext in ["ogg", "times"] {
-            std::fs::remove_file(dir.join(format!("{gone}.af_heart.{ext}"))).unwrap();
+            std::fs::remove_file(dir.join(format!("{gone}_en_af-heart.{ext}"))).unwrap();
         }
         let st = status(Some(&dir));
         std::fs::remove_dir_all(&dir).unwrap();

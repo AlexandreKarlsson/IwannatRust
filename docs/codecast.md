@@ -239,7 +239,7 @@ before it (`[4.5] sp: …`), and its caption is indented with a coloured bar. Cl
   every part of it: `--voice2 am_michael` (default: a voice of the other gender in the language).
   On the Generate page the *Voices* card has two slots, main and second: click a slot then a
   voice, or drag a voice onto a slot; ⇄ swaps them, ✕ goes back to the default second voice.
-  Files are named by the pair, `01-welcome.af_heart+am_fenrir.ogg`; the player lists the pair as
+  Files are named by the pair, `01-welcome_en_af-heart+am-fenrir.ogg`; the player lists the pair as
   *Heart & Fenrir*. A language with one voice (French: `ff_siwis`), or `--voice2` equal to
   `--voice`, gets the same voice spoken 12 % higher (synthesized slower, played faster: same
   length). Moving a line to or from the second voice makes its part out of date.
@@ -506,7 +506,7 @@ the result. Directives, refs, diagrams and code stay as written.
 - **Voice.** The browser speaks it with a voice of that language (Chrome has Japanese), or a
   recording: `codecast voice codecast/ --lang ja` translates each part the same way and records it with
   Kokoro (`jf_alpha` by default; Japanese phonemes by misaki, installed on first use; code and
-  other Latin words read as English) into `NN-part.ja.jf_alpha.ogg` + `.times`, meant to be
+  other Latin words read as English) into `NN-part_ja_jf-alpha.ogg` + `.times`, meant to be
   committed next to the English ones. The loader turns them into `audio.ja.jf_alpha:` / `times.ja.jf_alpha:` lines;
   the player plays them in Japanese, TTS speaks the parts without one. The times hash the English
   cues: edit the English text and the Japanese recording goes stale (`codecast check` says so) until
@@ -596,8 +596,10 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 
 **Generated recording (the default way to voice a codecast).** `codecast voice codecast/` speaks every
 cue with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (open-weight TTS, CPU, ~4× real time)
-and writes `NN-part.<voice>.ogg` + `NN-part.<voice>.times` (`01-welcome.am_adam.ogg`) next to each
-part file. **Every voice keeps its own files**: record the codecast with two voices and the player
+and writes `NN-part_<lang>_<voice>.ogg` + `.times` (`01-welcome_en_am-adam.ogg`: underscores separate
+the part, the language and the voice, whose own `_` is written `-`) next to each part file; `codecast
+video` films them as `NN-part_<lang>.mp4`. Files under the older dotted names
+(`01-welcome.ja.jf_alpha.ogg`, `.mp4`) are renamed the next time the codecast is loaded. **Every voice keeps its own files**: record the codecast with two voices and the player
 offers both (the *recorded voice* chip under its mode menu lists them with how many parts each
 covers; the pick is remembered). A part the picked voice did not record, or whose text changed
 since, is spoken by the browser voice, never by another recorded voice: the chip then shows

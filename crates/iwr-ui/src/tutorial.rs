@@ -31,25 +31,25 @@ fn tutorial() -> Tutorial {
 }
 
 const EN: &[(&str, &str, &str, Asset)] = &[
-        ("01-welcome", include_str!("../assets/tutorial/01-welcome.md"), include_str!("../assets/tutorial/01-welcome.af_heart.times"), asset!("/assets/tutorial/01-welcome.af_heart.ogg")),
-        ("02-the-player", include_str!("../assets/tutorial/02-the-player.md"), include_str!("../assets/tutorial/02-the-player.af_heart.times"), asset!("/assets/tutorial/02-the-player.af_heart.ogg")),
-        ("03-files-and-folders", include_str!("../assets/tutorial/03-files-and-folders.md"), include_str!("../assets/tutorial/03-files-and-folders.af_heart.times"), asset!("/assets/tutorial/03-files-and-folders.af_heart.ogg")),
-        ("04-reading-code", include_str!("../assets/tutorial/04-reading-code.md"), include_str!("../assets/tutorial/04-reading-code.af_heart.times"), asset!("/assets/tutorial/04-reading-code.af_heart.ogg")),
-        ("05-the-views", include_str!("../assets/tutorial/05-the-views.md"), include_str!("../assets/tutorial/05-the-views.af_heart.times"), asset!("/assets/tutorial/05-the-views.af_heart.ogg")),
-        ("06-sketches-and-notes", include_str!("../assets/tutorial/06-sketches-and-notes.md"), include_str!("../assets/tutorial/06-sketches-and-notes.af_heart.times"), asset!("/assets/tutorial/06-sketches-and-notes.af_heart.ogg")),
-        ("07-around-the-app", include_str!("../assets/tutorial/07-around-the-app.md"), include_str!("../assets/tutorial/07-around-the-app.af_heart.times"), asset!("/assets/tutorial/07-around-the-app.af_heart.ogg")),
-        ("08-your-own-codecast", include_str!("../assets/tutorial/08-your-own-codecast.md"), include_str!("../assets/tutorial/08-your-own-codecast.af_heart.times"), asset!("/assets/tutorial/08-your-own-codecast.af_heart.ogg")),
+        ("01-welcome", include_str!("../assets/tutorial/01-welcome.md"), include_str!("../assets/tutorial/01-welcome_en_af-heart.times"), asset!("/assets/tutorial/01-welcome_en_af-heart.ogg")),
+        ("02-the-player", include_str!("../assets/tutorial/02-the-player.md"), include_str!("../assets/tutorial/02-the-player_en_af-heart.times"), asset!("/assets/tutorial/02-the-player_en_af-heart.ogg")),
+        ("03-files-and-folders", include_str!("../assets/tutorial/03-files-and-folders.md"), include_str!("../assets/tutorial/03-files-and-folders_en_af-heart.times"), asset!("/assets/tutorial/03-files-and-folders_en_af-heart.ogg")),
+        ("04-reading-code", include_str!("../assets/tutorial/04-reading-code.md"), include_str!("../assets/tutorial/04-reading-code_en_af-heart.times"), asset!("/assets/tutorial/04-reading-code_en_af-heart.ogg")),
+        ("05-the-views", include_str!("../assets/tutorial/05-the-views.md"), include_str!("../assets/tutorial/05-the-views_en_af-heart.times"), asset!("/assets/tutorial/05-the-views_en_af-heart.ogg")),
+        ("06-sketches-and-notes", include_str!("../assets/tutorial/06-sketches-and-notes.md"), include_str!("../assets/tutorial/06-sketches-and-notes_en_af-heart.times"), asset!("/assets/tutorial/06-sketches-and-notes_en_af-heart.ogg")),
+        ("07-around-the-app", include_str!("../assets/tutorial/07-around-the-app.md"), include_str!("../assets/tutorial/07-around-the-app_en_af-heart.times"), asset!("/assets/tutorial/07-around-the-app_en_af-heart.ogg")),
+        ("08-your-own-codecast", include_str!("../assets/tutorial/08-your-own-codecast.md"), include_str!("../assets/tutorial/08-your-own-codecast_en_af-heart.times"), asset!("/assets/tutorial/08-your-own-codecast_en_af-heart.ogg")),
 ];
 
 const JA: &[(&str, &str, &str, Asset)] = &[
-        ("01-welcome", include_str!("../assets/tutorial/ja/01-welcome.md"), include_str!("../assets/tutorial/ja/01-welcome.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/01-welcome.ja.jf_alpha.ogg")),
-        ("02-the-player", include_str!("../assets/tutorial/ja/02-the-player.md"), include_str!("../assets/tutorial/ja/02-the-player.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/02-the-player.ja.jf_alpha.ogg")),
-        ("03-files-and-folders", include_str!("../assets/tutorial/ja/03-files-and-folders.md"), include_str!("../assets/tutorial/ja/03-files-and-folders.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/03-files-and-folders.ja.jf_alpha.ogg")),
-        ("04-reading-code", include_str!("../assets/tutorial/ja/04-reading-code.md"), include_str!("../assets/tutorial/ja/04-reading-code.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/04-reading-code.ja.jf_alpha.ogg")),
-        ("05-the-views", include_str!("../assets/tutorial/ja/05-the-views.md"), include_str!("../assets/tutorial/ja/05-the-views.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/05-the-views.ja.jf_alpha.ogg")),
-        ("06-sketches-and-notes", include_str!("../assets/tutorial/ja/06-sketches-and-notes.md"), include_str!("../assets/tutorial/ja/06-sketches-and-notes.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/06-sketches-and-notes.ja.jf_alpha.ogg")),
-        ("07-around-the-app", include_str!("../assets/tutorial/ja/07-around-the-app.md"), include_str!("../assets/tutorial/ja/07-around-the-app.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/07-around-the-app.ja.jf_alpha.ogg")),
-        ("08-your-own-codecast", include_str!("../assets/tutorial/ja/08-your-own-codecast.md"), include_str!("../assets/tutorial/ja/08-your-own-codecast.ja.jf_alpha.times"), asset!("/assets/tutorial/ja/08-your-own-codecast.ja.jf_alpha.ogg")),
+        ("01-welcome", include_str!("../assets/tutorial/ja/01-welcome.md"), include_str!("../assets/tutorial/ja/01-welcome_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/01-welcome_ja_jf-alpha.ogg")),
+        ("02-the-player", include_str!("../assets/tutorial/ja/02-the-player.md"), include_str!("../assets/tutorial/ja/02-the-player_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/02-the-player_ja_jf-alpha.ogg")),
+        ("03-files-and-folders", include_str!("../assets/tutorial/ja/03-files-and-folders.md"), include_str!("../assets/tutorial/ja/03-files-and-folders_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/03-files-and-folders_ja_jf-alpha.ogg")),
+        ("04-reading-code", include_str!("../assets/tutorial/ja/04-reading-code.md"), include_str!("../assets/tutorial/ja/04-reading-code_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/04-reading-code_ja_jf-alpha.ogg")),
+        ("05-the-views", include_str!("../assets/tutorial/ja/05-the-views.md"), include_str!("../assets/tutorial/ja/05-the-views_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/05-the-views_ja_jf-alpha.ogg")),
+        ("06-sketches-and-notes", include_str!("../assets/tutorial/ja/06-sketches-and-notes.md"), include_str!("../assets/tutorial/ja/06-sketches-and-notes_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/06-sketches-and-notes_ja_jf-alpha.ogg")),
+        ("07-around-the-app", include_str!("../assets/tutorial/ja/07-around-the-app.md"), include_str!("../assets/tutorial/ja/07-around-the-app_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/07-around-the-app_ja_jf-alpha.ogg")),
+        ("08-your-own-codecast", include_str!("../assets/tutorial/ja/08-your-own-codecast.md"), include_str!("../assets/tutorial/ja/08-your-own-codecast_ja_jf-alpha.times"), asset!("/assets/tutorial/ja/08-your-own-codecast_ja_jf-alpha.ogg")),
 ];
 
 /// Cue start times of a `.times` file (`start-seconds text-hash` lines, `#` comments).

@@ -12,7 +12,7 @@ pub const DEFAULT_VOICE: &str = "af_heart";
 pub struct VoiceLang {
     /// what `codecast voice --lang` takes: Kokoro's (`en-us`, `en-gb`) for English, else a codecast language (`ja`)
     pub arg: &'static str,
-    /// the codecast language its recordings are for (`en`, `ja`): `NN-part.ogg` or `NN-part.ja.ogg`
+    /// the codecast language its recordings are for (`en`, `ja`): `NN-part_en_<voice>.ogg` or `NN-part_ja_<voice>.ogg`
     pub code: &'static str,
     /// Kokoro's language
     pub kokoro: &'static str,

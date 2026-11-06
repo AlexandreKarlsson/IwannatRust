@@ -73,6 +73,9 @@ pub fn locate(project: &Path) -> Option<PathBuf> {
 /// Read a script file or directory.
 pub fn load(path: &Path) -> Result<Loaded> {
     if path.is_dir() {
+        for (old, new) in migrate_names(path) {
+            eprintln!("renamed {old} → {new}");
+        }
         let index = std::fs::read_to_string(path.join("index.md")).unwrap_or_default();
         let mut parts: Vec<PartFile> = Vec::new();
         let mut entries: Vec<PathBuf> = std::fs::read_dir(path).with_context(|| format!("reading {}", path.display()))?.filter_map(|e| e.ok().map(|e| e.path())).collect();
@@ -110,7 +113,7 @@ pub fn load(path: &Path) -> Result<Loaded> {
                     stale.push(pf.stem.clone());
                 }
             }
-            // `01-welcome.am_adam.ogg` (one voice), `01-welcome.ja.ogg` / `01-welcome.ja.jf_alpha.ogg`
+            // `01-welcome_en_am-adam.ogg` (one voice), `01-welcome_ja.ogg` / `01-welcome_ja_jf-alpha.ogg`
             // (Japanese) + their `.times`: each current while the English text it was made from is
             // (the hashes are of the English cues)
             for (lang, voice) in variants(&entries, &pf.stem) {
@@ -131,22 +134,38 @@ pub fn load(path: &Path) -> Result<Loaded> {
     }
 }
 
-/// The file stem of a part's recording in `lang` by `voice`: `01-welcome.am_adam`,
-/// `01-welcome.ja.jf_alpha`; without a voice, the older names `01-welcome`, `01-welcome.ja`.
+/// The file stem of a part's recording in `lang` by `voice`: `01-welcome_en_am-michael`,
+/// `01-welcome_ja_jf-alpha` (the voice's `_` written `-`, so `_` only separates the fields);
+/// without a voice, `01-welcome_ja`, and the part's own `01-welcome` for English.
 pub fn variant_stem(stem: &str, lang: &str, voice: &str) -> String {
-    let mut s = stem.to_string();
-    for w in [if lang == "en" { "" } else { lang }, voice] {
-        if !w.is_empty() {
-            s.push('.');
-            s.push_str(w);
-        }
+    match (lang, voice) {
+        ("en", "") => stem.to_string(),
+        (l, "") => format!("{stem}_{l}"),
+        (l, v) => format!("{stem}_{l}_{}", v.replace('_', "-")),
     }
-    s
 }
 
-/// (language, voice) of a recording's file stem, for the part `stem`: `01-welcome.am_adam` →
-/// (`en`, `am_adam`), `01-welcome.ja` → (`ja`, ``), `01-welcome.ja.jf_alpha` → (`ja`, `jf_alpha`).
+/// The name of a part's video in `lang`: `01-welcome_ja.mp4`, with subtitles `01-welcome_ja_sub-en.mp4`.
+pub fn video_name(stem: &str, lang: &str, sub: &str) -> String {
+    if sub.is_empty() { format!("{stem}_{lang}.mp4") } else { format!("{stem}_{lang}_sub-{sub}.mp4") }
+}
+
+/// (language, voice) of a recording's file stem, for the part `stem`: `01-welcome_en_am-michael` →
+/// (`en`, `am_michael`), `01-welcome_ja` → (`ja`, ``), `01-welcome_ja_jf-alpha` → (`ja`, `jf_alpha`).
 pub fn parse_variant(file_stem: &str, stem: &str) -> Option<(String, String)> {
+    let rest = file_stem.strip_prefix(stem)?.strip_prefix('_')?;
+    let (l, v) = match rest.split_once('_') {
+        Some((l, v)) => (l, v.replace('-', "_")),
+        None => (rest, String::new()),
+    };
+    let lang_ok = l == "en" || iwr_core::i18n::lang(l).is_some();
+    let voice_ok = if v.is_empty() { l != "en" } else { iwr_core::voice::is_voice_id(&v) };
+    (lang_ok && voice_ok).then(|| (l.to_string(), v))
+}
+
+/// The older dotted names (`01-welcome.am_adam`, `01-welcome.ja`, `01-welcome.ja.jf_alpha`):
+/// (language, voice), only to rename them.
+fn parse_dotted_variant(file_stem: &str, stem: &str) -> Option<(String, String)> {
     let rest = file_stem.strip_prefix(stem)?.strip_prefix('.')?;
     let is_lang = |l: &str| l != "en" && iwr_core::i18n::lang(l).is_some();
     match rest.split_once('.') {
@@ -155,6 +174,46 @@ pub fn parse_variant(file_stem: &str, stem: &str) -> Option<(String, String)> {
         Some((l, v)) if is_lang(l) && iwr_core::voice::is_voice_id(v) => Some((l.into(), v.into())),
         _ => None,
     }
+}
+
+/// Rename the recordings and videos of a codecast directory from the older dotted names
+/// (`01-welcome.ja.jf_alpha.ogg`, `.times`, `.mp4`, `.sub-en.mp4`) to the current ones
+/// (`01-welcome_ja_jf-alpha.ogg`, `01-welcome_ja.mp4`); returns what moved. A file whose new name
+/// is taken, or that cannot be renamed (a read-only copy), stays.
+pub fn migrate_names(dir: &Path) -> Vec<(String, String)> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let names: Vec<String> = rd.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect();
+    let stems: Vec<&str> = names.iter().filter_map(|n| n.strip_suffix(".md")).filter(|s| !matches!(*s, "index" | "glossary")).collect();
+    let mut moved = vec![];
+    for name in &names {
+        let Some((base, ext)) = name.rsplit_once('.') else { continue };
+        let new = if ext == "mp4" {
+            // `<recording stem>[.sub-xx].mp4`, not a half-filmed `.part.mp4`
+            let (rec, sub) = match base.rsplit_once(".sub-") { Some((r, s)) => (r, s), None => (base, "") };
+            if rec.ends_with(".part") {
+                continue;
+            }
+            stems.iter().filter(|s| rec.starts_with(**s)).max_by_key(|s| s.len()).and_then(|s| {
+                let (lang, _) = if rec == *s { ("en".to_string(), String::new()) } else { parse_dotted_variant(rec, s)? };
+                Some(video_name(s, &lang, sub))
+            })
+        } else if ext == "times" || AUDIO_EXTS.contains(&ext) {
+            stems.iter().filter(|s| base.starts_with(**s)).max_by_key(|s| s.len()).and_then(|s| {
+                let (lang, voice) = parse_dotted_variant(base, s)?;
+                Some(format!("{}.{ext}", variant_stem(s, &lang, &voice)))
+            })
+        } else {
+            None
+        };
+        let Some(new) = new else { continue };
+        if new == *name || dir.join(&new).exists() {
+            continue;
+        }
+        if std::fs::rename(dir.join(name), dir.join(&new)).is_ok() {
+            moved.push((name.clone(), new));
+        }
+    }
+    moved
 }
 
 /// The recordings of part `stem` other than its own `01-welcome.ogg`, from a directory listing:
@@ -177,8 +236,14 @@ pub fn header_voice(times: &str) -> Option<String> {
 
 /// How to record a stale stem again: ` --voice am_adam`, ` --lang ja`, ` --lang ja --voice jf_alpha`.
 pub fn lang_arg(stem: &str) -> String {
-    let part = stem.split('.').next().unwrap_or(stem);
-    match parse_variant(stem, part) {
+    // `<part>_<lang>_<voice>` or `<part>_<lang>`: the part may hold `_` itself, so read from the right
+    let found = stem.rsplitn(3, '_').collect::<Vec<_>>();
+    let pick = match found.as_slice() {
+        [_, _, part] => parse_variant(stem, part).or_else(|| stem.rsplit_once('_').and_then(|(p, _)| parse_variant(stem, p))),
+        [_, part] => parse_variant(stem, part),
+        _ => None,
+    };
+    match pick {
         Some((l, v)) => {
             let mut a = String::new();
             if l != "en" {
@@ -314,5 +379,61 @@ mod tutorial_tests {
         assert!(loaded.stale.is_empty(), "record the Japanese tutorial again: {:?}", loaded.stale);
         let s = iwr_core::script::parse(&loaded.text);
         assert!(s.parts.iter().all(|p| p.voices.iter().any(|v| v.lang == "ja" && v.voice == "jf_alpha" && v.times.len() == p.cues.len())));
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn stems_use_underscores_only() {
+        assert_eq!(variant_stem("01-welcome", "en", ""), "01-welcome");
+        assert_eq!(variant_stem("01-welcome", "ja", ""), "01-welcome_ja");
+        assert_eq!(variant_stem("01-welcome", "en", "am_michael"), "01-welcome_en_am-michael");
+        assert_eq!(variant_stem("01-welcome", "ja", "jf_alpha"), "01-welcome_ja_jf-alpha");
+        assert_eq!(variant_stem("01-a", "en", "am_michael+af_heart"), "01-a_en_am-michael+af-heart");
+        assert_eq!(video_name("01-welcome", "ja", ""), "01-welcome_ja.mp4");
+        assert_eq!(video_name("01-welcome", "en", "ja"), "01-welcome_en_sub-ja.mp4");
+    }
+
+    #[test]
+    fn parses_its_own_stems() {
+        assert_eq!(parse_variant("01-welcome_en_am-michael", "01-welcome"), Some(("en".into(), "am_michael".into())));
+        assert_eq!(parse_variant("01-welcome_ja_jf-alpha", "01-welcome"), Some(("ja".into(), "jf_alpha".into())));
+        assert_eq!(parse_variant("01-welcome_ja", "01-welcome"), Some(("ja".into(), String::new())));
+        assert_eq!(parse_variant("01-welcome_en", "01-welcome"), None);
+        assert_eq!(parse_variant("02-how_it-runs_ja", "02-how"), None);
+        assert_eq!(parse_variant("02-how_it-runs_ja", "02-how_it-runs"), Some(("ja".into(), String::new())));
+        assert_eq!(lang_arg("01-welcome_ja_jf-alpha"), " --lang ja --voice jf_alpha");
+        assert_eq!(lang_arg("02-how_it-runs_en_am-adam"), " --voice am_adam");
+        assert_eq!(lang_arg("02-how_it-runs_ja"), " --lang ja");
+    }
+
+    #[test]
+    fn renames_dotted_names_once() {
+        let dir = std::env::temp_dir().join(format!("codecast-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["01-welcome.md", "01-welcome.am_michael.ogg", "01-welcome.am_michael.times", "01-welcome.ja.jf_alpha.ogg", "01-welcome.ja.jf_alpha.times", "01-welcome.am_michael.mp4", "01-welcome.ja.jf_alpha.sub-en.mp4", "01-welcome.ja.jf_alpha.part.mp4", "01-welcome.ogg"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let moved = migrate_names(&dir);
+        assert_eq!(moved.len(), 6);
+        let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["01-welcome.md", "01-welcome.ogg", "01-welcome_en.mp4", "01-welcome_en_am-michael.ogg", "01-welcome_en_am-michael.times", "01-welcome_ja_jf-alpha.ogg", "01-welcome_ja_jf-alpha.times", "01-welcome_ja_sub-en.mp4", "01-welcome.ja.jf_alpha.part.mp4"].iter().map(|s| s.to_string()).collect::<Vec<_>>().tap_sort());
+        assert!(migrate_names(&dir).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    trait TapSort {
+        fn tap_sort(self) -> Self;
+    }
+    impl TapSort for Vec<String> {
+        fn tap_sort(mut self) -> Self {
+            self.sort();
+            self
+        }
     }
 }

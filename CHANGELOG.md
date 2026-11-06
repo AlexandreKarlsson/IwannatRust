@@ -6,6 +6,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Recordings and videos are named with underscores only: `01-welcome_en_am-michael.ogg` + `.times`,
+  `01-welcome_ja_jf-alpha.ogg`, videos `01-welcome_ja.mp4` (`_ja_sub-en.mp4` with subtitles); the
+  voice's own `_` is written `-`. Loading a codecast directory renames files under the older dotted
+  names (`01-welcome.ja.jf_alpha.ogg`, `01-welcome.am_michael.mp4`) once.
+- `!` on the plan page takes part numbers and ranges (`! 2-9`): those parts glow, the others dim.
+- A codecast's own diagram fills the stage when no side panel is open (no item details beside
+  it), and the camera keeps the whole diagram while it reads, else frames the lit nodes without
+  leaving an empty band.
+
 ### Added
 
 - The interface speaks English and Japanese: every button, menu, setting, tooltip and message,
