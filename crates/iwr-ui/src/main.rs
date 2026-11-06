@@ -716,6 +716,7 @@ fn App() -> Element {
     let is_plan = *state.mode.read() == Mode::Plan;
     let chart = (*state.mode.read() == Mode::Chart).then(|| state.chart.read().clone());
     let is_graph = !is_code && !is_plan && chart.is_none();
+    let is_diagram = *state.mode.read() == Mode::Diagram;
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
     let settings_open = *state.settings_open.read();
@@ -775,9 +776,12 @@ fn App() -> Element {
                     }
                 } else {
                     canvas::Canvas {}
-                    div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
-                    // the side panel takes the details' place
-                    if has_side { side::SidePanel {} } else { panels::Details {} }
+                    // the side panel takes the details' place; a codecast's own diagram has no
+                    // item to detail, so without a side panel it gets the whole width (like a chart)
+                    if has_side || !is_diagram {
+                        div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
+                    }
+                    if has_side { side::SidePanel {} } else if !is_diagram { panels::Details {} }
                 }
                 if has_side && (is_code || is_plan || chart.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }

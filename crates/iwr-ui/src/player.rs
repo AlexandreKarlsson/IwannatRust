@@ -11,6 +11,9 @@ use iwr_core::script::{self, Cue, Question, Resolved, Script};
 use iwr_core::views::Mode;
 use std::rc::Rc;
 
+/// A codecast diagram shown whole at this zoom or closer still reads; farther, the camera frames the cue's nodes.
+const DIAGRAM_READABLE_K: f64 = 0.7;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Voice {
     Tts,
@@ -642,6 +645,17 @@ impl State {
                 self.fit(&graph);
                 if zoom {
                     self.frame(&lit);
+                } else if in_diagram {
+                    // a codecast's diagram is a picture: keep it whole while its text stays
+                    // readable, else bring every lit node in and keep the picture against the edges
+                    if self.view.read().k < DIAGRAM_READABLE_K {
+                        let k = self.view.read().k.clamp(0.8, 1.2);
+                        self.view.write().k = k;
+                        let (x1, y1) = lit.iter().fold((f64::MAX, f64::MAX), |(x, y), n| (x.min(n.x), y.min(n.y)));
+                        let (x2, y2) = lit.iter().fold((f64::MIN, f64::MIN), |(x, y), n| (x.max(n.x + n.w), y.max(n.y + n.h)));
+                        self.center_on(x1, y1, x2 - x1, y2 - y1);
+                        self.clamp_to(&graph);
+                    }
                 } else {
                     let k = self.view.read().k.clamp(0.8, 1.2);
                     self.view.write().k = k;
@@ -651,6 +665,22 @@ impl State {
                 self.fit(&graph);
             }
         }
+    }
+
+    /// Pan so the graph covers the canvas where it is bigger than it (no empty band beside it),
+    /// and stays centred along an axis where it is smaller.
+    fn clamp_to(&mut self, g: &iwr_core::views::Graph) {
+        let (_, _, cw, ch) = *self.canvas_rect.read();
+        let cw = if cw > 0.0 { cw } else { 800.0 };
+        let ch = if ch > 0.0 { ch } else { 600.0 };
+        let mut v = *self.view.read();
+        let clamp = |t: f64, size: f64, view: f64| {
+            const M: f64 = 20.0;
+            if size + 2.0 * M <= view { (view - size) / 2.0 } else { t.clamp(view - size - M, M) }
+        };
+        v.tx = clamp(v.tx, g.width * v.k, cw);
+        v.ty = clamp(v.ty, g.height * v.k, ch);
+        self.view.set(v);
     }
 
     /// `+ zoom` on a graph: the camera as close as `nodes` all fit in the canvas, but no closer
