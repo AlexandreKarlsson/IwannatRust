@@ -1,5 +1,6 @@
 //! Load a cargo project, a C project, or a bare directory of source files from disk.
 
+use crate::progress::{Progress, Stage};
 use std::path::{Path, PathBuf};
 
 pub struct Loaded {
@@ -24,6 +25,11 @@ fn read_other(p: &Path) -> String {
 
 /// Walk `root` and collect its files (relative path, content); sources first, entry points before the rest.
 pub fn load(root: &Path) -> std::io::Result<Loaded> {
+    load_with(root, &mut |_| {})
+}
+
+/// [`load`] that reports every 25 files read (`Stage::Reading`, `total` unknown).
+pub fn load_with(root: &Path, report: &mut dyn FnMut(&Progress)) -> std::io::Result<Loaded> {
     let root = root.canonicalize()?;
     let (root, single) = if root.is_file() { (root.parent().unwrap().to_path_buf(), Some(root.clone())) } else { (root, None) };
     let mut name = root.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "project".into());
@@ -53,6 +59,9 @@ pub fn load(root: &Path) -> std::io::Result<Loaded> {
                 continue;
             }
             let rel = p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+            if files.len() % 25 == 0 {
+                report(&Progress { stage: Stage::Reading, done: files.len(), files: files.len(), current: rel.clone(), ..Default::default() });
+            }
             if p.extension().map(|e| e == "rs").unwrap_or(false) {
                 if let Ok(c) = std::fs::read_to_string(p) {
                     files.push((rel, c));

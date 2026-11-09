@@ -2,6 +2,7 @@
 //! Bodies are kept around so the second pass (`resolve`) can build CFGs and
 //! resolve calls once every item is known.
 
+use crate::progress::{Progress, Stage};
 use crate::model::*;
 use crate::text::*;
 use std::collections::HashMap;
@@ -174,17 +175,23 @@ fn vis_of(v: &syn::Visibility) -> Visibility {
     }
 }
 
-/// Parse all files and collect items.
-pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collected {
+/// Parse all files and collect items. `report` hears about every source file parsed.
+pub fn collect(name: &str, root: &str, files: Vec<(String, String)>, report: &mut dyn FnMut(&Progress)) -> Collected {
     let mut project = Project { name: name.to_string(), root: root.to_string(), ..Default::default() };
     let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], module_index: HashMap::new() };
     ctx.module_for("crate");
     let names = package_names(&files);
     let mut c_files: Vec<(FileId, String, String)> = Vec::new();
+    let total = files.iter().filter(|(p, _)| SourceLang::of_path(p).is_some()).count();
+    let mut parsed = 0usize;
 
     for (path, content) in files {
         let file_id = ctx.project.files.len();
         let lang = SourceLang::of_path(&path);
+        if lang.is_some() {
+            parsed += 1;
+            report(&Progress { stage: Stage::Parsing, done: parsed, total, current: path.clone(), files: file_id + 1, items: ctx.project.items.len(), ..Default::default() });
+        }
         let text = !content.is_empty() || lang.is_some();
         ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone(), lang, text });
         match lang {
