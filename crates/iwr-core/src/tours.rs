@@ -407,7 +407,7 @@ fn todo(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Vec<Cue> {
     // (file, line, what fn, sentence)
     let mut stops: Vec<(FileId, usize, Option<ItemId>, String)> = Vec::new();
     let (mut notes, mut unsafes, mut panics) = (0, 0, 0);
-    for f in p.files.iter().filter(|f| f.rust && f.text) {
+    for f in p.files.iter().filter(|f| f.is_code() && f.text) {
         let module = p.modules.iter().filter(|m| m.file == Some(f.id)).min_by_key(|m| m.path.len());
         if module.is_some_and(|m| !in_scope(p, m.id, scope) || crate::views::is_test_module(p, m.id)) || (module.is_none() && scope.is_some()) {
             continue;
@@ -476,7 +476,7 @@ fn file_name(f: &SourceFile) -> String {
 
 fn files(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Tour {
     let mut stops: Vec<(&SourceFile, Option<&Module>)> = Vec::new();
-    for f in p.files.iter().filter(|f| f.rust) {
+    for f in p.files.iter().filter(|f| f.is_code()) {
         let module = p.modules.iter().filter(|m| m.file == Some(f.id)).min_by_key(|m| m.path.len());
         let keep = match module {
             Some(m) => in_scope(p, m.id, scope) && !crate::views::is_test_module(p, m.id),

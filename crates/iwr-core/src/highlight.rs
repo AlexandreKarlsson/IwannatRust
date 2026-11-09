@@ -1,4 +1,4 @@
-//! Syntax highlighting for the source panes: small lexers (Rust, shell, Terraform/HCL,
+//! Syntax highlighting for the source panes: small lexers (Rust, C, shell, Terraform/HCL,
 //! TOML/YAML-like config) that cut a file into coloured tokens, line by line.
 //! Syntactic only, tolerant of broken code.
 
@@ -55,6 +55,7 @@ pub type Line = Vec<(Tok, String)>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
     Rust,
+    C,
     Shell,
     /// Terraform and other HCL files.
     Hcl,
@@ -70,6 +71,7 @@ impl Lang {
         let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
         match ext.as_str() {
             "rs" => Lang::Rust,
+            "c" | "h" => Lang::C,
             "sh" | "bash" | "zsh" | "ksh" | "bats" | "bashrc" | "zshrc" | "profile" | "envrc" => Lang::Shell,
             "tf" | "tfvars" | "hcl" | "nomad" => Lang::Hcl,
             "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" => Lang::Conf,
@@ -90,6 +92,7 @@ impl Lang {
 pub fn file(path: &str, src: &str) -> Vec<Line> {
     match Lang::detect(path, src) {
         Lang::Rust => rust(src),
+        Lang::C => c(src),
         Lang::Shell => shell(src),
         Lang::Hcl => hcl(src),
         Lang::Conf => conf(src),
@@ -195,6 +198,92 @@ pub fn rust(src: &str) -> Vec<Line> {
                 if w.starts_with(|x: char| x.is_uppercase()) { Tok::Type } else { Tok::Fn }
             } else if w.starts_with(|x: char| x.is_uppercase()) {
                 Tok::Type
+            } else {
+                Tok::Plain
+            };
+            prev_word = w;
+            out.push(tok, &c[start..i]);
+            continue;
+        } else {
+            i += 1;
+            Tok::Plain
+        };
+        if !c[start..i].iter().all(|x| x.is_whitespace()) {
+            prev_word.clear();
+        }
+        out.push(tok, &c[start..i]);
+    }
+    out.finish(src)
+}
+
+const C_KEYWORDS: &[&str] = &[
+    "auto", "break", "case", "const", "continue", "default", "do", "else", "enum", "extern", "for", "goto", "if", "inline", "register", "restrict", "return", "sizeof", "static", "struct", "switch", "typedef", "union", "volatile", "while", "_Atomic", "_Noreturn", "_Static_assert", "_Thread_local",
+];
+const C_TYPES: &[&str] = &["void", "char", "short", "int", "long", "float", "double", "signed", "unsigned", "_Bool", "_Complex", "size_t", "ssize_t", "bool", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uintptr_t", "intptr_t", "FILE"];
+const C_BUILTINS: &[&str] = &["NULL", "true", "false", "EOF", "stdin", "stdout", "stderr"];
+
+/// Highlight a C file: preprocessor lines as attributes, `/** */` and `///` as docs, types by
+/// name (`int`, `size_t`, `*_t`, after `struct`), functions by the `(` that follows.
+pub fn c(src: &str) -> Vec<Line> {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = Out { lines: vec![Vec::new()] };
+    let mut i = 0;
+    let mut prev_word = String::new();
+    while i < c.len() {
+        let ch = c[i];
+        let start = i;
+        let tok = if ch == '/' && c.get(i + 1) == Some(&'/') {
+            let doc = matches!(c.get(i + 2), Some('!')) || (c.get(i + 2) == Some(&'/') && c.get(i + 3) != Some(&'/'));
+            i = line_end(&c, i);
+            if doc { Tok::Doc } else { Tok::Comment }
+        } else if ch == '/' && c.get(i + 1) == Some(&'*') {
+            let doc = matches!(c.get(i + 2), Some('!')) || (c.get(i + 2) == Some(&'*') && c.get(i + 3) != Some(&'/'));
+            i += 2;
+            while i < c.len() && !(c[i] == '*' && c.get(i + 1) == Some(&'/')) {
+                i += 1;
+            }
+            i = (i + 2).min(c.len());
+            if doc { Tok::Doc } else { Tok::Comment }
+        } else if ch == '#' && line_start(&c, i) {
+            // a preprocessor line, continued by a trailing `\`
+            loop {
+                i = line_end(&c, i);
+                if c[..i].iter().rev().take_while(|x| **x != '\n').find(|x| !x.is_whitespace()) == Some(&'\\') && i < c.len() {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            Tok::Attr
+        } else if ch == '"' {
+            i = quote_end(&c, i, '"', true);
+            Tok::Str
+        } else if ch == '\'' {
+            i = quote_end(&c, i, '\'', true);
+            Tok::Str
+        } else if ch.is_ascii_digit() || (ch == '.' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
+            i += 1;
+            while i < c.len() && (is_ident(c[i]) || c[i] == '.' || (matches!(c[i], '+' | '-') && matches!(c[i - 1], 'e' | 'E' | 'p' | 'P'))) {
+                i += 1;
+            }
+            Tok::Num
+        } else if is_ident_start(ch) {
+            while i < c.len() && is_ident(c[i]) {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            let after_tag = matches!(prev_word.as_str(), "struct" | "union" | "enum");
+            let tok = if C_KEYWORDS.contains(&w.as_str()) {
+                Tok::Keyword
+            } else if C_BUILTINS.contains(&w.as_str()) {
+                Tok::Builtin
+            } else if C_TYPES.contains(&w.as_str()) || after_tag || w.ends_with("_t") {
+                Tok::Type
+            } else if next_non_space(&c, i) == Some('(') {
+                Tok::Fn
+            } else if w.len() > 1 && w.chars().all(|x| x.is_ascii_uppercase() || x.is_ascii_digit() || x == '_') {
+                // a macro constant
+                Tok::Macro
             } else {
                 Tok::Plain
             };

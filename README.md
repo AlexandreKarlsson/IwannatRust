@@ -6,7 +6,7 @@
 
 **Understand any codebase in minutes, and give it a presentation that never goes out of date.**
 
-*Rust today; [more languages](#supported-languages) on request.*
+*Rust and C today; [more languages](#supported-languages) on request.*
 
 [![Rust](https://img.shields.io/badge/Rust-stable-f59e0b?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Dioxus](https://img.shields.io/badge/UI-Dioxus%200.7%20%E2%86%92%20WASM-60a5fa)](https://dioxuslabs.com)
@@ -91,8 +91,9 @@ Optional: on the same page, record a natural voice for it (Kokoro, offline), the
 | Language | Status |
 |---|---|
 | Rust | ✅ Supported |
+| C | ✅ Supported (tree-sitter; no preprocessing, `.h` files join their `.c`) |
 
-Only Rust for now. More languages (Python, PHP, TypeScript, Go, ...) can be added.
+A project may mix both (a Rust crate with C sources). More languages (Python, PHP, TypeScript, Go, ...) can be added.
 If you want one, say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues): languages people ask for come first.
 
 ## Commands

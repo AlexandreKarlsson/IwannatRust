@@ -106,7 +106,7 @@ pub fn CodeView() -> Element {
     let files: Vec<(usize, String)> = p.files.iter().map(|f| (f.id, f.path.clone())).collect();
     let module_doc = p.modules.iter().find(|m| m.file == Some(file)).and_then(|m| m.doc.clone());
     // a non-Rust text file has no blocks: its coloured source takes the whole view
-    let source_only = !sf.rust && sf.text;
+    let source_only = !sf.is_code() && sf.text;
     // a cue that enlarges the source shows it
     let show_source = show_source || source_only || *state.focus.read() == Some(iwr_core::script::Panel::Source);
 

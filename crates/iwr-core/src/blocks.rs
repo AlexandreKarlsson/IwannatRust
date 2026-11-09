@@ -1,24 +1,24 @@
 //! Simplified "code as blocks" tree: the nested structure of a function body
 //! (loops, branches, calls, statements) without expression noise. Variables are
 //! attached to the block that uses them, so they only show up where they matter.
+//!
+//! Like [`crate::cfg`], the [`Builder`] is language-neutral (ids, scopes, block
+//! kinds, notes); the Rust walker is below, the C one in [`crate::c::blocks`].
 
+use crate::cfg::{contains, Facts};
 use crate::model::*;
 use crate::text::*;
 pub use crate::model::{Block, BlockKind};
 use std::collections::HashSet;
 use syn::visit::Visit;
 
-struct Builder<'a> {
+/// Shared part of the block tree construction, driven by a language-specific walker.
+pub(crate) struct Builder<'a> {
     file: FileId,
     calls: &'a [CallEdge],
+    /// Locals in scope, innermost last; `uses` keeps only names found here.
     scope: Vec<HashSet<String>>,
     next_id: usize,
-}
-
-fn contains(outer: &Span, inner: &Span) -> bool {
-    outer.file == inner.file
-        && (outer.line_start, outer.col_start) <= (inner.line_start, inner.col_start)
-        && (outer.line_end, outer.col_end) >= (inner.line_end, inner.col_end)
 }
 
 /// Identifiers bound by a pattern.
@@ -81,16 +81,6 @@ fn expr_idents(e: &syn::Expr, shallow: bool) -> Vec<String> {
     v.out
 }
 
-#[derive(Default)]
-struct Facts {
-    has_try: bool,
-    has_await: bool,
-    has_panic: bool,
-    has_unwrap: bool,
-    has_return: bool,
-    has_closure: bool,
-}
-
 fn facts(e: &syn::Expr) -> Facts {
     struct V(Facts);
     impl<'ast> Visit<'ast> for V {
@@ -132,8 +122,20 @@ fn is_structured(e: &syn::Expr) -> bool {
     matches!(e, syn::Expr::If(_) | syn::Expr::Match(_) | syn::Expr::Loop(_) | syn::Expr::While(_) | syn::Expr::ForLoop(_) | syn::Expr::Block(_) | syn::Expr::Unsafe(_))
 }
 
+// ---- language-neutral construction ----
+
 impl<'a> Builder<'a> {
-    fn new_block(&mut self, kind: BlockKind, label: String, detail: String, span: Span) -> Block {
+    /// A builder whose outermost scope holds the function's parameters.
+    pub(crate) fn new(file: FileId, calls: &'a [CallEdge], params: &[String]) -> Self {
+        Builder { file, calls, scope: vec![params.iter().cloned().collect()], next_id: 1 }
+    }
+
+    pub(crate) fn file(&self) -> FileId {
+        self.file
+    }
+
+    /// A block with the next id; its `calls` are the project functions called inside `span`.
+    pub(crate) fn new_block(&mut self, kind: BlockKind, label: String, detail: String, span: Span) -> Block {
         let id = self.next_id;
         self.next_id += 1;
         let mut calls: Vec<ItemId> = self.calls.iter().filter(|c| c.to.is_some() && c.kind != CallKind::Construct && contains(&span, &c.span)).filter_map(|c| c.to).collect();
@@ -141,11 +143,12 @@ impl<'a> Builder<'a> {
         Block { id, kind, label: shorten(&label, 70), detail, span, children: vec![], defines: vec![], uses: vec![], calls, note: None }
     }
 
-    fn in_scope(&self, name: &str) -> bool {
+    pub(crate) fn in_scope(&self, name: &str) -> bool {
         self.scope.iter().any(|s| s.contains(name))
     }
 
-    fn define(&mut self, names: &[String]) {
+    /// Names a block defines, visible to what follows it in the same scope.
+    pub(crate) fn define(&mut self, names: &[String]) {
         if let Some(s) = self.scope.last_mut() {
             for n in names {
                 s.insert(n.clone());
@@ -153,16 +156,60 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// A nested scope holding `names` (a loop pattern, an arm pattern, closure arguments).
+    pub(crate) fn push_scope(&mut self, names: &[String]) {
+        self.scope.push(names.iter().cloned().collect());
+    }
+
+    pub(crate) fn pop_scope(&mut self) {
+        self.scope.pop();
+    }
+
+    /// Of the names an expression reads, those that are locals in scope.
+    pub(crate) fn uses_in_scope(&self, names: Vec<String>) -> Vec<String> {
+        names.into_iter().filter(|n| self.in_scope(n)).collect()
+    }
+
+    /// The kind of a leaf statement: what it does that matters most, else `default`.
+    pub(crate) fn leaf_kind(&self, f: &Facts, span: &Span, default: BlockKind) -> BlockKind {
+        let has_calls = self.calls.iter().any(|c| c.to.is_some() && c.kind != CallKind::Construct && contains(span, &c.span));
+        if f.has_return {
+            BlockKind::Return
+        } else if f.has_try {
+            BlockKind::Propagate
+        } else if f.has_panic || f.has_unwrap {
+            BlockKind::Panic
+        } else if f.has_await {
+            BlockKind::Await
+        } else if has_calls {
+            BlockKind::Call
+        } else {
+            default
+        }
+    }
+
+    /// The root block of a function (its signature) with `children`, every block given its note.
+    pub(crate) fn root(self, signature: String, fn_span: Span, params: Vec<String>, children: Vec<Block>, source: &str) -> Block {
+        let mut root = Block { id: 0, kind: BlockKind::Fn, label: signature.clone(), detail: signature, span: fn_span, children, defines: params, uses: vec![], calls: vec![], note: None };
+        let lines: Vec<&str> = source.lines().collect();
+        add_notes(&mut root, &lines);
+        root
+    }
+}
+
+// ---- Rust walker (syn) ----
+
+impl<'a> Builder<'a> {
     fn uses_of(&self, e: &syn::Expr, shallow: bool) -> Vec<String> {
-        expr_idents(e, shallow).into_iter().filter(|n| self.in_scope(n)).collect()
+        self.uses_in_scope(expr_idents(e, shallow))
     }
 
     fn block(&mut self, b: &syn::Block, out: &mut Vec<Block>) {
-        self.scope.push(HashSet::new());
+        self.push_scope(&[]);
         for s in &b.stmts {
             self.stmt(s, out);
         }
-        self.scope.pop();
+        self.pop_scope();
     }
 
     fn stmt(&mut self, s: &syn::Stmt, out: &mut Vec<Block>) {
@@ -224,23 +271,6 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn leaf_kind(&self, f: &Facts, span: &Span, default: BlockKind) -> BlockKind {
-        let has_calls = self.calls.iter().any(|c| c.to.is_some() && c.kind != CallKind::Construct && contains(span, &c.span));
-        if f.has_return {
-            BlockKind::Return
-        } else if f.has_try {
-            BlockKind::Propagate
-        } else if f.has_panic || f.has_unwrap {
-            BlockKind::Panic
-        } else if f.has_await {
-            BlockKind::Await
-        } else if has_calls {
-            BlockKind::Call
-        } else {
-            default
-        }
-    }
-
     /// Closures inside a statement become child blocks so their body is explorable.
     fn closure_children(&mut self, e: &syn::Expr, parent: &mut Block) {
         struct V<'b>(Vec<&'b syn::ExprClosure>);
@@ -259,13 +289,13 @@ impl<'a> Builder<'a> {
             for p in &c.inputs {
                 pat_idents(p, &mut defs);
             }
-            self.scope.push(defs.iter().cloned().collect());
+            self.push_scope(&defs);
             let mut kids = Vec::new();
             match &*c.body {
                 syn::Expr::Block(bl) => self.block(&bl.block, &mut kids),
                 other => self.expr(other, &mut kids),
             }
-            self.scope.pop();
+            self.pop_scope();
             b.defines = defs;
             b.children = kids;
             parent.children.push(b);
@@ -288,10 +318,10 @@ impl<'a> Builder<'a> {
                     if let syn::Expr::Let(l) = &*cur.cond {
                         pat_idents(&l.pat, &mut defs);
                     }
-                    self.scope.push(defs.iter().cloned().collect());
+                    self.push_scope(&defs);
                     let mut kids = Vec::new();
                     self.block(&cur.then_branch, &mut kids);
-                    self.scope.pop();
+                    self.pop_scope();
                     b.defines = defs;
                     b.children = kids;
                     out.push(b);
@@ -331,13 +361,13 @@ impl<'a> Builder<'a> {
                     let mut ab = self.new_block(BlockKind::Arm, pat.clone(), pat, span_of(arm, self.file));
                     let mut defs = Vec::new();
                     pat_idents(&arm.pat, &mut defs);
-                    self.scope.push(defs.iter().cloned().collect());
+                    self.push_scope(&defs);
                     let mut kids = Vec::new();
                     match &*arm.body {
                         syn::Expr::Block(bl) => self.block(&bl.block, &mut kids),
                         other => self.expr(other, &mut kids),
                     }
-                    self.scope.pop();
+                    self.pop_scope();
                     ab.defines = defs;
                     ab.children = kids;
                     b.children.push(ab);
@@ -359,10 +389,10 @@ impl<'a> Builder<'a> {
                 if let syn::Expr::Let(l) = &*w.cond {
                     pat_idents(&l.pat, &mut defs);
                 }
-                self.scope.push(defs.iter().cloned().collect());
+                self.push_scope(&defs);
                 let mut kids = Vec::new();
                 self.block(&w.body, &mut kids);
-                self.scope.pop();
+                self.pop_scope();
                 b.defines = defs;
                 b.children = kids;
                 out.push(b);
@@ -373,10 +403,10 @@ impl<'a> Builder<'a> {
                 b.uses = self.uses_of(&f.expr, true);
                 let mut defs = Vec::new();
                 pat_idents(&f.pat, &mut defs);
-                self.scope.push(defs.iter().cloned().collect());
+                self.push_scope(&defs);
                 let mut kids = Vec::new();
                 self.block(&f.body, &mut kids);
-                self.scope.pop();
+                self.pop_scope();
                 b.defines = defs;
                 b.children = kids;
                 out.push(b);
@@ -420,7 +450,6 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Build the block tree of a function.
 /// Give every block the short `//` comment just above it, when the block starts its own line
 /// (`} else if` would read the comment closing the branch before).
 fn add_notes(b: &mut Block, lines: &[&str]) {
@@ -433,6 +462,7 @@ fn add_notes(b: &mut Block, lines: &[&str]) {
     }
 }
 
+/// Build the block tree of a Rust function.
 pub fn build(sig: &syn::Signature, body: &syn::Block, file: FileId, calls: &[CallEdge], fn_span: Span, source: &str) -> Block {
     let mut params = Vec::new();
     for input in &sig.inputs {
@@ -441,12 +471,8 @@ pub fn build(sig: &syn::Signature, body: &syn::Block, file: FileId, calls: &[Cal
             syn::FnArg::Typed(t) => pat_idents(&t.pat, &mut params),
         }
     }
-    let mut b = Builder { file, calls, scope: vec![params.iter().cloned().collect()], next_id: 1 };
-    let mut root = Block { id: 0, kind: BlockKind::Fn, label: tokens_to_string(sig), detail: tokens_to_string(sig), span: fn_span, children: vec![], defines: params, uses: vec![], calls: vec![], note: None };
+    let mut b = Builder::new(file, calls, &params);
     let mut kids = Vec::new();
     b.block(body, &mut kids);
-    root.children = kids;
-    let lines: Vec<&str> = source.lines().collect();
-    add_notes(&mut root, &lines);
-    root
+    b.root(tokens_to_string(sig), fn_span, params, kids, source)
 }

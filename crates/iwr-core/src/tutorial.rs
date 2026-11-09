@@ -19,7 +19,7 @@ use crate::script;
 
 /// The refs the placeholders stand for in `p`, by name.
 fn refs(p: &Project) -> Vec<(&'static str, String)> {
-    let rust: Vec<&crate::model::SourceFile> = p.files.iter().filter(|f| f.rust).collect();
+    let rust: Vec<&crate::model::SourceFile> = p.files.iter().filter(|f| f.is_code()).collect();
     let mut dirs: Vec<(&str, usize)> = Vec::new();
     for f in &rust {
         for (i, _) in f.path.match_indices('/') {
