@@ -90,6 +90,17 @@ codecast voice  codecast/     record the codecast with Kokoro
 
 `scripts/iwr` with no argument lists everything. Full list: [docs/cli.md](docs/cli.md).
 
+Keep only the script in git. Recordings and videos are generated and rebuilt from it, so ignore
+them in your repository's `.gitignore`:
+
+```gitignore
+codecast/**/*.ogg
+codecast/**/*.times
+codecast/**/*.mp4
+```
+
+Publish the videos elsewhere (a release, GitHub Pages) if you want to share them.
+
 ## How it is built
 
 All Rust, in one binary with no JavaScript dependencies: the analyzer (`syn`), the layout engine

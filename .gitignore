@@ -23,3 +23,9 @@ target
 # IwannatRust
 iwr-site/
 crates/iwr-ui/dist/
+
+# Codecast recordings and videos: generated, rebuilt by `codecast voice` / `codecast video`
+# (the tutorial's recordings in crates/iwr-ui/assets/tutorial/ stay tracked)
+/codecast/**/*.ogg
+/codecast/**/*.times
+/codecast/**/*.mp4
