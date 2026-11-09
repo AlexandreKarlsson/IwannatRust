@@ -1,0 +1,20 @@
+# The loading page (`loading.rs`): shown while `codecast serve` analyzes the project.
+
+analyzing = "Analyzing {name}"
+connecting = "Connecting to the server…"
+static_loading = "Loading the project…"
+stage_reading = "Reading the files"
+stage_parsing = "Parsing the sources"
+stage_linking = "Linking the types"
+stage_calls = "Resolving the calls"
+stage_done = "Ready"
+stage_failed = "The analysis failed"
+# the four counters under the bar
+files = "files"
+items = "items"
+calls = "calls"
+functions = "functions"
+elapsed = "{secs} s"
+of = "{done} of {total}"
+hint = "Big projects take a while: every file is parsed, then the flow of every function is built."
+failed_hint = "Fix the problem and run `codecast serve` again."

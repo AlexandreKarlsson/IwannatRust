@@ -1,0 +1,20 @@
+# The loading page (`loading.rs`): shown while `codecast serve` analyzes the project.
+
+analyzing = "{name} を解析中"
+connecting = "サーバーに接続中…"
+static_loading = "プロジェクトを読み込み中…"
+stage_reading = "ファイルを読み込んでいます"
+stage_parsing = "ソースを解析しています"
+stage_linking = "型を結び付けています"
+stage_calls = "呼び出しを解決しています"
+stage_done = "準備完了"
+stage_failed = "解析に失敗しました"
+# the four counters under the bar
+files = "ファイル"
+items = "項目"
+calls = "呼び出し"
+functions = "関数"
+elapsed = "{secs} 秒"
+of = "{done} / {total}"
+hint = "大きなプロジェクトは時間がかかります。すべてのファイルを解析してから、各関数の流れを組み立てます。"
+failed_hint = "問題を直してから `codecast serve` をもう一度実行してください。"

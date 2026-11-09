@@ -21,7 +21,8 @@ HTTP API of `serve`:
 | Route | Response |
 |-------|----------|
 | `GET /api/project` | `Project` JSON (see [model.md](model.md)) |
-| `GET /api/version` | integer, increments on every re-analysis |
+| `GET /api/version` | integer, increments on every re-analysis; `0` while the first analysis runs (`/api/project` answers 503 then) |
+| `GET /api/status` | `Status` JSON: how far the running (or last) analysis is (`stage`, `done` / `total`, the file or function it is on, counts of files / items / calls, `elapsed_ms`, `error`); the loading page polls it |
 | `GET /api/script` | the `--script` file as text, a directory assembled into one (re-read each request), 404 if none |
 | `GET /api/audio` | the `--audio` file, 404 if none |
 | `GET /api/codecast/NAME` | a file of the script's directory: a recording named by an `audio:` line, or a font of `codecast.toml` (no path escapes) |

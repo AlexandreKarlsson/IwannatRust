@@ -592,6 +592,52 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .md ul { margin:3px 0 3px 18px; padding:0; }
 .progress { height:3px; background:var(--panel3); border-radius:2px; overflow:hidden; }
 .progress div { height:100%; background:var(--accent); transition:width .25s linear; }
+/* ---- loading page (loading.rs): shown while the server analyzes the project */
+.loading { position:relative; flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent) 10%, var(--bg)), var(--bg) 70%); }
+.loading .backdrop { position:absolute; inset:0; width:100%; height:100%; opacity:.55; pointer-events:none; }
+.loading .backdrop .box { fill:var(--panel); stroke:var(--border); stroke-width:1.5; animation: ld-box 2.4s ease-in-out infinite; }
+.loading .backdrop .box.lit { stroke:var(--accent); fill:color-mix(in srgb, var(--accent) 18%, var(--panel)); }
+.loading .backdrop .edge { fill:none; stroke:var(--border); stroke-width:1.5; stroke-dasharray:260; stroke-dashoffset:260; animation: ld-edge 3.2s ease-in-out infinite; }
+.loading .backdrop .edge.lit { stroke:var(--accent); }
+@keyframes ld-edge { 0% { stroke-dashoffset:260; opacity:0; } 25% { opacity:1; } 60% { stroke-dashoffset:0; opacity:1; } 85% { stroke-dashoffset:0; opacity:0; } 100% { stroke-dashoffset:260; opacity:0; } }
+@keyframes ld-box { 0%, 100% { opacity:.35; transform:translateY(0); } 50% { opacity:1; transform:translateY(-3px); } }
+.loading .card { position:relative; z-index:1; width:min(560px, calc(100vw - 32px)); background:color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(10px); border:1px solid var(--border); border-radius:16px; padding:22px 26px 18px; box-shadow: 0 24px 60px -24px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--accent) 15%, transparent); animation: ld-in .5s ease-out; }
+@keyframes ld-in { from { opacity:0; transform:translateY(10px) scale(.98); } to { opacity:1; transform:none; } }
+.loading .head { display:flex; align-items:center; gap:16px; margin-bottom:16px; }
+.loading .glow { display:inline-flex; padding:10px; border-radius:14px; background:color-mix(in srgb, var(--accent) 14%, transparent); animation: ld-glow 2s ease-in-out infinite; }
+@keyframes ld-glow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); } 50% { box-shadow: 0 0 28px 6px color-mix(in srgb, var(--accent) 35%, transparent); } }
+.loading .title { font-size:19px; font-weight:700; letter-spacing:.2px; }
+.loading .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; color:var(--muted); margin-top:2px; word-break:break-all; }
+.loading .steps { list-style:none; margin:0 0 14px; padding:0; display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
+.loading .steps li { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); padding:6px 8px; border-radius:8px; background:var(--panel2); border:1px solid transparent; transition: all .3s; }
+.loading .steps li .dot { width:8px; height:8px; border-radius:50%; background:var(--border); flex:none; }
+.loading .steps li.done { color:var(--text); }
+.loading .steps li.done .dot { background:var(--accent); }
+.loading .steps li.now { color:var(--text); border-color:color-mix(in srgb, var(--accent) 50%, transparent); background:color-mix(in srgb, var(--accent) 10%, var(--panel2)); }
+.loading .steps li.now .dot { background:var(--accent); animation: ld-dot 1s ease-in-out infinite; }
+@keyframes ld-dot { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); } }
+.loading .bar { position:relative; height:8px; border-radius:99px; background:var(--panel3); overflow:hidden; }
+.loading .bar .fill { height:100%; border-radius:99px; background: linear-gradient(90deg, var(--accent), var(--hi)); transition: width .25s ease-out; box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); }
+.loading .bar.indeterminate .fill { width:40% !important; animation: ld-slide 1.4s ease-in-out infinite; }
+@keyframes ld-slide { 0% { transform:translateX(-100%); } 100% { transform:translateX(260%); } }
+.loading .line { display:flex; align-items:baseline; gap:10px; margin-top:8px; font-size:12px; }
+.loading .line .stage { font-weight:600; }
+.loading .line .of, .loading .line .elapsed { color:var(--muted); font-variant-numeric: tabular-nums; }
+.loading .line .spacer { flex:1; }
+.loading .current { margin-top:10px; height:22px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; animation: ld-cur .25s ease-out; }
+.loading .current code { color:var(--code); background:transparent; padding:0; font-size:12px; }
+@keyframes ld-cur { from { opacity:0; transform:translateX(6px); } to { opacity:1; transform:none; } }
+.loading .counts { display:grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap:8px; margin-top:16px; }
+.loading .count { background:var(--panel2); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; }
+.loading .count .n { font-size:20px; font-weight:700; font-variant-numeric: tabular-nums; color:var(--text); transition: color .2s; }
+.loading .count .l { font-size:11px; color:var(--muted); }
+.loading .hint { margin-top:14px; font-size:11px; color:var(--muted); line-height:1.5; }
+.loading .error { margin-top:12px; border:1px solid color-mix(in srgb, #ef4444 50%, var(--border)); background:color-mix(in srgb, #ef4444 10%, var(--panel2)); border-radius:10px; padding:10px 12px; }
+.loading .error pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; color:var(--text); }
+.loading.failed .bar .fill { background:#ef4444; box-shadow:none; }
+.loading.failed .glow { animation:none; background:color-mix(in srgb, #ef4444 14%, transparent); }
+.loading.failed .backdrop .box.lit, .loading.failed .backdrop .edge.lit { stroke:#ef4444; }
+@media (prefers-reduced-motion: reduce) { .loading * { animation:none !important; } }
 .status { color:var(--muted); font-size:11px; }
 .kbd { border:1px solid var(--border); border-radius:4px; padding:0 4px; font-size:10px; color:var(--muted); }
 /* ---- icons, icon buttons with hover labels */

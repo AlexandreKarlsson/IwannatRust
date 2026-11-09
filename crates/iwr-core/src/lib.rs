@@ -17,6 +17,7 @@ pub mod chart;
 pub mod diagram;
 pub mod sequence;
 pub mod model;
+pub mod progress;
 pub mod guide;
 pub mod script;
 pub mod tutorial;
@@ -50,8 +51,15 @@ pub use model::Project;
 /// Analyze in-memory source files. `files` are `(relative path, content)`.
 #[cfg(feature = "parse")]
 pub fn analyze_sources(name: &str, root: &str, files: Vec<(String, String)>) -> Project {
-    let collected = parse::collect(name, root, files);
-    resolve::finish(collected)
+    analyze_sources_with(name, root, files, &mut |_| {})
+}
+
+/// [`analyze_sources`] that reports how far it is: `report` is called per file parsed and per
+/// function resolved (a loading page follows it; see [`progress`]).
+#[cfg(feature = "parse")]
+pub fn analyze_sources_with(name: &str, root: &str, files: Vec<(String, String)>, report: &mut dyn FnMut(&progress::Progress)) -> Project {
+    let collected = parse::collect(name, root, files, report);
+    resolve::finish(collected, report)
 }
 
 /// Analyze a single source text as `src/main.rs`.
@@ -63,8 +71,15 @@ pub fn analyze_source(source: &str) -> Project {
 /// Analyze a project directory (or single file) on disk.
 #[cfg(feature = "fs")]
 pub fn analyze_path(path: &std::path::Path) -> std::io::Result<Project> {
-    let loaded = loader::load(path)?;
-    Ok(analyze_sources(&loaded.name, &loaded.root.to_string_lossy(), loaded.files))
+    analyze_path_with(path, &mut |_| {})
+}
+
+/// [`analyze_path`] that reports how far it is (files found while reading, then as
+/// [`analyze_sources_with`]).
+#[cfg(feature = "fs")]
+pub fn analyze_path_with(path: &std::path::Path, report: &mut dyn FnMut(&progress::Progress)) -> std::io::Result<Project> {
+    let loaded = loader::load_with(path, report)?;
+    Ok(analyze_sources_with(&loaded.name, &loaded.root.to_string_lossy(), loaded.files, report))
 }
 
 /// Shorten a label for display (kept here so the UI can use it without the `parse` feature).

@@ -15,6 +15,7 @@ use rust_embed::RustEmbed;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::future::IntoFuture;
 use std::time::{Duration, Instant};
 
 #[derive(RustEmbed)]
@@ -22,8 +23,12 @@ use std::time::{Duration, Instant};
 struct Assets;
 
 struct Shared {
+    /// The served project; an empty one until the first analysis is done (`version` is `0`
+    /// then, and `/api/project` answers 503)
     project: RwLock<Arc<Project>>,
     version: RwLock<u64>,
+    /// How far the running (or last) analysis is, and when it started: what `/api/status` answers
+    status: Mutex<(iwr_core::progress::Status, Option<Instant>)>,
     path: PathBuf,
     script: Option<PathBuf>,
     audio: Option<PathBuf>,
@@ -69,8 +74,13 @@ fn watch_sources(watcher: &mut impl Watcher, root: &Path) {
 }
 
 fn analyze(path: &Path) -> Result<Project> {
+    analyze_with(path, &mut |_| {})
+}
+
+/// [`analyze`] that reports how far it is to `report` (the loading page follows it).
+fn analyze_with(path: &Path, report: &mut dyn FnMut(&iwr_core::progress::Progress)) -> Result<Project> {
     let started = Instant::now();
-    let p = iwr_core::analyze_path(path).with_context(|| format!("analyzing {}", path.display()))?;
+    let p = iwr_core::analyze_path_with(path, report).with_context(|| format!("analyzing {}", path.display()))?;
     eprintln!(
         "analyzed {}: {} files, {} items, {} calls in {:.0?}",
         p.name,
@@ -85,18 +95,16 @@ fn analyze(path: &Path) -> Result<Project> {
     Ok(p)
 }
 
-pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
-    let project = analyze(&path)?;
-    // a `codecast/` directory or `codecast.md` next to the project is picked up automatically
-    let script = script.or_else(|| crate::codecast::locate(&path));
-    if let Some(s) = &script {
+/// Say on stderr what is wrong with the codecast next to a freshly analyzed project.
+fn check_script(project: &Project, script: Option<&Path>) -> Result<()> {
+    if let Some(s) = script {
         let loaded = crate::codecast::load(s)?;
         let sc = iwr_core::script::parse(&loaded.text);
-        for b in iwr_core::script::check(&project, &sc) {
+        for b in iwr_core::script::check(project, &sc) {
             eprintln!("script: {}", b);
         }
         if let Some(g) = &loaded.glossary {
-            for b in crate::codecast::check_glossary(&project, g) {
+            for b in crate::codecast::check_glossary(project, g) {
                 eprintln!("script: {}", b);
             }
         }
@@ -113,7 +121,64 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
         }
         eprintln!("script {} ({}): {} part(s), {} cue(s)", sc.title, s.display(), sc.parts.len(), sc.cue_count());
     }
-    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(project)), version: RwLock::new(1), path: path.clone(), script, audio, voice_job: Default::default(), voice_cancel: AtomicBool::new(false) });
+    Ok(())
+}
+
+/// Analyze the project on a blocking thread, the loading page following through `/api/status`;
+/// on success it becomes the served project (`version` bumped). The first analysis's error is
+/// fatal (the server stops), a re-analysis's is reported and the old project stays.
+async fn reanalyze(shared: &AppState, first: bool) -> Result<()> {
+    {
+        let mut st = shared.status.lock().unwrap();
+        st.0.busy = true;
+        st.0.error = None;
+        st.0.progress = Default::default();
+        st.1 = Some(Instant::now());
+    }
+    let path = shared.path.clone();
+    let for_report = shared.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        analyze_with(&path, &mut |p| {
+            let mut st = for_report.status.lock().unwrap();
+            st.0.progress = p.clone();
+        })
+    })
+    .await;
+    let outcome = match result {
+        Ok(Ok(p)) => {
+            if let Err(e) = check_script(&p, shared.script.as_deref()) {
+                if first {
+                    return Err(e);
+                }
+                eprintln!("script: {e:#}");
+            }
+            let name = p.name.clone();
+            *shared.project.write().unwrap() = Arc::new(p);
+            *shared.version.write().unwrap() += 1;
+            let mut st = shared.status.lock().unwrap();
+            st.0.name = name;
+            st.0.ready = true;
+            st.0.progress.stage = iwr_core::progress::Stage::Done;
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(anyhow::anyhow!("analysis panicked: {e}")),
+    };
+    if let Err(e) = &outcome {
+        let mut st = shared.status.lock().unwrap();
+        st.0.progress.stage = iwr_core::progress::Stage::Failed;
+        st.0.error = Some(format!("{e:#}"));
+    }
+    shared.status.lock().unwrap().0.busy = false;
+    outcome
+}
+
+pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBuf>, audio: Option<PathBuf>) -> Result<()> {
+    // a `codecast/` directory or `codecast.md` next to the project is picked up automatically
+    let script = script.or_else(|| crate::codecast::locate(&path));
+    let name = path.canonicalize().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
+    let status = iwr_core::progress::Status { name, path: path.display().to_string(), ..Default::default() };
+    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(Project::default())), version: RwLock::new(0), status: Mutex::new((status, None)), path: path.clone(), script, audio, voice_job: Default::default(), voice_cancel: AtomicBool::new(false) });
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         // file watcher → re-analyze (debounced)
@@ -142,14 +207,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
                     // debounce
                     tokio::time::sleep(Duration::from_millis(250)).await;
                     while rx.try_recv().is_ok() {}
-                    let path = shared.path.clone();
-                    match tokio::task::spawn_blocking(move || analyze(&path)).await {
-                        Ok(Ok(p)) => {
-                            *shared.project.write().unwrap() = Arc::new(p);
-                            *shared.version.write().unwrap() += 1;
-                        }
-                        Ok(Err(e)) => eprintln!("re-analysis failed: {e:#}"),
-                        Err(e) => eprintln!("re-analysis panicked: {e}"),
+                    if let Err(e) = reanalyze(&shared, false).await {
+                        eprintln!("re-analysis failed: {e:#}");
                     }
                 }
             });
@@ -158,6 +217,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
         let app = Router::new()
             .route("/api/project", get(api_project))
             .route("/api/version", get(api_version))
+            .route("/api/status", get(api_status))
             .route("/api/script", get(api_script))
             .route("/api/glossary", get(api_glossary))
             .route("/api/audio", get(api_audio))
@@ -176,7 +236,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/voice/preview", post(api_voice_preview))
             .fallback(static_handler)
             .layer(tower_http::cors::CorsLayer::permissive())
-            .with_state(shared);
+            .with_state(shared.clone());
         let addr = format!("127.0.0.1:{port}");
         let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("binding {addr}"))?;
         let url = format!("http://{addr}");
@@ -187,12 +247,30 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
         if open_browser {
             let _ = open::that(&url);
         }
-        axum::serve(listener, app).await?;
+        // the page is up at once: it shows the analysis going while the first one runs
+        let first = {
+            let shared = shared.clone();
+            async move { reanalyze(&shared, true).await }
+        };
+        let server = axum::serve(listener, app).into_future();
+        tokio::pin!(server);
+        tokio::select! {
+            r = &mut server => r?,
+            r = first => {
+                // a failed first analysis stops the server; a good one keeps serving
+                r?;
+                server.await?;
+            }
+        }
         Ok::<(), anyhow::Error>(())
     })
 }
 
 async fn api_project(State(s): State<AppState>) -> Response {
+    if *s.version.read().unwrap() == 0 {
+        // still analyzing: the page shows `/api/status` meanwhile
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     let p = s.project.read().unwrap().clone();
     // serialize on a blocking thread: projects can be large
     let body = tokio::task::spawn_blocking(move || serde_json::to_vec(&*p)).await.unwrap().unwrap();
@@ -201,6 +279,16 @@ async fn api_project(State(s): State<AppState>) -> Response {
 
 async fn api_version(State(s): State<AppState>) -> Json<u64> {
     Json(*s.version.read().unwrap())
+}
+
+/// How far the running (or last) analysis is: what the loading page shows.
+async fn api_status(State(s): State<AppState>) -> Json<iwr_core::progress::Status> {
+    let st = s.status.lock().unwrap();
+    let mut status = st.0.clone();
+    if let Some(t) = st.1 {
+        status.elapsed_ms = t.elapsed().as_millis() as u64;
+    }
+    Json(status)
 }
 
 /// The codecast script as text (re-read on every request so edits show up on reload).

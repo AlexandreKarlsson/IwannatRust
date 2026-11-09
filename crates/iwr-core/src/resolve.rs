@@ -5,6 +5,7 @@
 //! - per-function stats and control-flow graphs
 
 use crate::cfg;
+use crate::progress::{Progress, Stage};
 use crate::model::*;
 use crate::parse::{Body, Collected, FnBody};
 use crate::text::*;
@@ -436,8 +437,10 @@ fn hint_types(body: &syn::Block, sig: &syn::Signature) -> HashSet<String> {
     v.0
 }
 
-pub fn finish(c: Collected) -> Project {
+pub fn finish(c: Collected, report: &mut dyn FnMut(&Progress)) -> Project {
     let Collected { mut project, bodies, use_paths } = c;
+    let counts = |p: &Project, calls: usize| Progress { files: p.files.len(), items: p.items.len(), calls, ..Default::default() };
+    report(&Progress { stage: Stage::Linking, ..counts(&project, 0) });
 
     // ---- link impls to types / traits, methods to owner types ----
     let ix = build_index(&project);
@@ -555,7 +558,11 @@ pub fn finish(c: Collected) -> Project {
     // ---- calls + CFG ----
     let mut all_calls: Vec<CallEdge> = Vec::new();
     let mut cfgs: Vec<(ItemId, Cfg, Block, Stats, usize)> = Vec::new();
-    for FnBody { item, file, body } in &bodies {
+    for (i, FnBody { item, file, body }) in bodies.iter().enumerate() {
+        // every 8th function: the loading page follows the names going by
+        if i % 8 == 0 {
+            report(&Progress { stage: Stage::Calls, done: i, total: bodies.len(), current: project.items[*item].name.clone(), ..counts(&project, all_calls.len()) });
+        }
         let fn_span = project.items[*item].span;
         let source = &project.files[*file].content;
         let body_lines = fn_span.line_end + 1 - fn_span.line_start;
@@ -650,5 +657,6 @@ pub fn finish(c: Collected) -> Project {
     }
     ext.sort();
     project.external_crates = ext;
+    report(&Progress { stage: Stage::Done, done: bodies.len(), total: bodies.len(), ..counts(&project, project.calls.len()) });
     project
 }

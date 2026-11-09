@@ -11,6 +11,7 @@ mod fonts;
 mod generate;
 mod i18n;
 mod icons;
+mod loading;
 mod md;
 mod panels;
 mod player;
@@ -581,6 +582,11 @@ fn App() -> Element {
         state.live.set(live);
         loop {
             let v = if live { fetch_version().await.unwrap_or(0) } else { 1 };
+            // version 0: the server is still analyzing (the loading page follows `/api/status`)
+            if live && v == 0 {
+                gloo_timers::future::sleep(std::time::Duration::from_millis(300)).await;
+                continue;
+            }
             if first || v != *state.version.read() {
                 match fetch_project(if live { "/api/project" } else { "project.json" }).await {
                     Ok(p) => {
@@ -732,6 +738,7 @@ fn App() -> Element {
     let sub_lang_empty = state.sub_lang.read().is_empty();
     let sidebar_open = (sidebar_open && !render) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
     let welcome_open = *state.welcome_open.read();
+    let loaded = state.project.read().is_some();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
@@ -740,7 +747,9 @@ fn App() -> Element {
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }, if render && sub_lang_empty { " nocaption" } else { "" }),
             panels::TopBar {}
-            if settings_open {
+            if !loaded {
+                loading::LoadingPage {}
+            } else if settings_open {
                 settings::SettingsPage {}
             } else if generate_open {
                 generate::GeneratePage {}
@@ -793,7 +802,8 @@ fn App() -> Element {
             if has_guide {
                 player::PlayerBar {}
             }
-            if welcome_open {
+            // the first-start dialog waits for the project (the loading page shows meanwhile)
+            if welcome_open && loaded {
                 tutorial::Welcome {}
             }
             if let Some(name) = spot.filter(|_| has_guide) {
