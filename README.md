@@ -9,6 +9,7 @@
 *Rust and C today; [more languages](#supported-languages) on request.*
 
 [![Rust](https://img.shields.io/badge/Rust-stable-f59e0b?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![C](https://img.shields.io/badge/C-supported-a8b9cc?logo=c&logoColor=white)](#supported-languages)
 [![Dioxus](https://img.shields.io/badge/UI-Dioxus%200.7%20%E2%86%92%20WASM-60a5fa)](https://dioxuslabs.com)
 [![No JS deps](https://img.shields.io/badge/JavaScript%20deps-none-34d399)](#how-it-is-built)
 [![License: MIT](https://img.shields.io/badge/License-MIT-c084fc)](LICENSE)
@@ -26,7 +27,7 @@ knows it is busy. IwannatRust reads the code and gives every project:
   lights up what it is talking about, underlines code, zooms in, and answers questions. It is
   spoken by a recorded voice or the browser, or you read it.
 - 👥 **The same explanation for everyone**: newcomers, reviewers, a handover, someone learning
-  Rust. The authors write it once, or have an AI write it from `codecast brief`, and `codecast check` keeps
+  Rust or C. The authors write it once, or have an AI write it from `codecast brief`, and `codecast check` keeps
   every reference in sync with the code.
 
 A project without a codecast still gets one: the built-in tour, written from its code.
@@ -93,7 +94,9 @@ Optional: on the same page, record a natural voice for it (Kokoro, offline), the
 | Rust | ✅ Supported |
 | C | ✅ Supported (tree-sitter; no preprocessing, `.h` files join their `.c`) |
 
-A project may mix both (a Rust crate with C sources). More languages (Python, PHP, TypeScript, Go, ...) can be added.
+Point `codecast serve` at any directory of `.c` / `.h` files: every file is a module, functions get
+their flow graph, `struct`s and `typedef`s their types view, `#define`s are constants. A project may
+mix both (a Rust crate with C sources). More languages (Python, PHP, TypeScript, Go, ...) can be added.
 If you want one, say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues): languages people ask for come first.
 
 ## Commands
@@ -121,9 +124,10 @@ Publish the videos elsewhere (a release, GitHub Pages) if you want to share them
 
 ## How it is built
 
-All Rust, in one binary with no JavaScript dependencies: the analyzer (`syn`), the layout engine
-(written here), the tour generator and the Dioxus → WebAssembly UI. The analysis is syntactic (no
-type checker), so it is fast on any crate that parses and right most of the time.
+All Rust, in one binary with no JavaScript dependencies: the analyzers (`syn` for Rust,
+tree-sitter for C), the layout engine (written here), the tour generator and the Dioxus →
+WebAssembly UI. The analysis is syntactic (no type checker, no C preprocessor), so it is fast on
+any project that parses and right most of the time.
 `crates/iwr-core` compiles to wasm and can be used on its own ([docs/embedding.md](docs/embedding.md)).
 
 ## Documentation
