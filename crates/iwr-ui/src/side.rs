@@ -9,6 +9,7 @@ use crate::State;
 use dioxus::prelude::*;
 use iwr_core::bytes::{self, Layout, Size};
 use iwr_core::script::Side;
+use std::rc::Rc;
 
 /// Field colours, in order; padding (`_`) is grey.
 pub(crate) const PALETTE: [&str; 8] = ["#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa", "#2dd4bf", "#fb923c", "#f87171"];
@@ -17,6 +18,15 @@ const PADDING: &str = "#9ca3af";
 #[component]
 pub fn SidePanel() -> Element {
     let mut state = use_context::<State>();
+    // new content: flash the panel so the change is not missed (restart the animation)
+    let mut shown = use_signal(|| 0usize);
+    use_effect(move || {
+        let ptr = state.side.read().as_ref().map_or(0, |s| Rc::as_ptr(s) as usize);
+        if ptr != 0 && ptr != *shown.peek() {
+            document::eval("try { const s = document.querySelector('.side'); if (s) { s.classList.remove('flash'); void s.offsetWidth; s.classList.add('flash'); } } catch (e) {}");
+        }
+        shown.set(ptr);
+    });
     let Some(side) = state.side.read().clone() else { return rsx! {} };
     let dw = *state.details_w.read();
     let (kind, title) = match side.as_ref() {

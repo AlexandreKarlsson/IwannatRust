@@ -248,7 +248,7 @@ impl State {
         if let Some(p) = project {
             if let Some(sd) = &q.side {
                 let side = self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).and_then(|part| script::find_side(part, sd).ok().flatten());
-                self.side.set(side.map(Rc::new));
+                self.set_side(side);
             }
             self.apply_directives(&p, q.show.as_deref(), q.hl.as_ref(), q.code.as_deref());
         }
@@ -402,6 +402,15 @@ impl State {
     }
 
     /// The diagram `@ diagram[:ref]` names in the current part.
+    /// Show `side` in the side panel. The same content keeps its `Rc`, so the panel flashes only
+    /// when what it shows really changes.
+    fn set_side(&mut self, side: Option<script::Side>) {
+        if self.side.peek().as_deref() == side.as_ref() {
+            return;
+        }
+        self.side.set(side.map(Rc::new));
+    }
+
     pub fn find_diagram(&self, r: Option<&str>) -> Option<iwr_core::diagram::Diagram> {
         let s = self.script.read().clone()?;
         let part = s.parts.get(*self.part_idx.read())?;
@@ -487,7 +496,7 @@ impl State {
         }
         // `|` lines are sticky inside a part too
         let side = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::side_at(part, cue_idx));
-        self.side.set(side.map(Rc::new));
+        self.set_side(side);
         // and `+` lines: the enlarged panel, or the part of the app in the light
         let focus = self.script.read().as_ref().and_then(|s| s.parts.get(part)).and_then(|part| script::focus_at(part, cue_idx));
         let (panel, spot, zoom) = match focus {

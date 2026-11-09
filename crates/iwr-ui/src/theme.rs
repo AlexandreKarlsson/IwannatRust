@@ -734,6 +734,14 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 /* ---- settings page */
 /* side panel: `|` lines of a codecast (byte layouts, notes, small diagrams) */
 .side { width:45vw; min-width:240px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; min-height:0; min-width:0; }
+/* new content: border glows, header lights, body slides in (class restarted by side.rs) */
+.side.flash { animation: side-flash 1.4s ease-out; }
+.side.flash .side-head { animation: side-head-flash 1.4s ease-out; }
+.side.flash .side-body { animation: side-in .35s ease-out; }
+@keyframes side-flash { 0%, 25% { box-shadow: inset 3px 0 0 var(--hi), -6px 0 22px color-mix(in srgb, var(--hi) 40%, transparent); } 100% { box-shadow: inset 0 0 0 transparent, 0 0 0 transparent; } }
+@keyframes side-head-flash { 0%, 25% { background: color-mix(in srgb, var(--hi) 22%, transparent); } 100% { background: transparent; } }
+@keyframes side-in { from { opacity:0; transform: translateX(14px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { .side.flash, .side.flash .side-head, .side.flash .side-body { animation:none; } }
 .side-head { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--border); }
 .side-head .kind { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:0 7px; }
 .side-head .title { font-weight:700; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
