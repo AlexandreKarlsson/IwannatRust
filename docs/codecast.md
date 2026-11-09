@@ -583,7 +583,7 @@ fn crate::run  src/main.rs:47-67  "Parse the input, schedule the tasks and execu
 `b<n> <kind> <label> ＋defined used → callee`. Demo crate: ~2.3k tokens with bodies, ~600 without.
 `--fn crate::run` prints one function plus the signatures of what it calls and who calls it.
 
-**Writing one:** give an agent `codecast brief <path> --guide` (the writing guide from
+**Writing one:** the Generate page's *Write the script with an AI* card makes the prompt (`iwr_core::prompt`); or give an agent `codecast brief <path> --guide` (the writing guide from
 [writing-codecasts.md](writing-codecasts.md) followed by the brief), then `codecast check` its output.
 
 ## Player

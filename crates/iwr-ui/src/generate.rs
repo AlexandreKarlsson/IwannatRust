@@ -295,6 +295,7 @@ pub fn GeneratePage() -> Element {
                         }
                     }
                 }
+                crate::prompt::PromptCard { has_codecast: !matches!(status.problem, Some(iwr_core::voice::VoiceProblem::NoCodecast)) }
                 if let Some(problem) = status.problem.clone() {
                     div { class: "gen-card gen-empty",
                         div { class: "gen-empty-icon", Icon { name: "voice", size: 34 } }

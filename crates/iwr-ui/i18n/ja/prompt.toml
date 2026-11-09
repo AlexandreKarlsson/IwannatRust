@@ -1,0 +1,77 @@
+# Generate ページのプロンプトカード (prompt.rs)
+kicker = "ステップ 0 · 台本"
+title = "AI に台本を書かせる"
+intro = "いくつかの質問に答え、プロンプトをコピーして、プロジェクトで開いた AI エージェント (Claude Code、Codex…) に貼り付けます。エージェントがコードと執筆ガイドを読み、codecast/ を書いてチェックします。"
+open = "プロンプトを作る"
+close = "閉じる"
+copy = "プロンプトをコピー"
+copied = "コピーしました: エージェントに貼り付けてください"
+copy_failed = "ブラウザがコピーを拒否しました: テキストを選択してコピーしてください"
+reset = "リセット"
+preview = "プロンプト"
+help = "空欄の項目は AI が決めます。"
+
+[task]
+label = "作業"
+new = "新しいコードキャスト"
+improve = "改善する"
+add = "パートを追加"
+
+[field]
+subject = "テーマ"
+subject_ph = "プロジェクト全体、モジュール、機能…"
+audience = "対象"
+example = "追いかける具体例"
+example_ph = "例: アンの注文、クリックからデータベースまで"
+parts = "パート数"
+parts_auto = "AI に任せる"
+humour = "ユーモア"
+metaphor = "たとえ"
+metaphor_ph = "例: 郵便局 (手紙がリクエスト)"
+pages = "ページ"
+pages_help = "クリックで切り替え: 多めに → 必須 → 使わない → 自由。"
+notes = "メモ"
+notes_ph = "その他: 口調、省くこと…"
+
+[audience]
+newcomer = "このコードは初めて"
+beginner = "Rust も初めて"
+expert = "経験者"
+
+[humour]
+none = "なし"
+light = "少し"
+playful = "多め"
+
+[metaphor]
+none = "なし"
+ai = "AI に任せる"
+mine = "自分で"
+
+[want]
+prefer = "多めに"
+must = "必須"
+avoid = "使わない"
+
+[switch]
+plan_first = "先に構成を見せる"
+edit_code = "コードにコメントを追加してよい"
+two_voices = "2 人目の声が質問する"
+questions = "クリックできる質問"
+
+[page]
+arch = "アーキテクチャ"
+flow = "制御フロー"
+code = "コード"
+calls = "呼び出しツリー"
+sequence = "呼び出しシーケンス"
+types = "型"
+errors = "エラー"
+branches = "分岐"
+structure = "構造"
+diagram = "図"
+seqdiagram = "シーケンス図"
+chart = "グラフ"
+bytes = "バイト配置"
+example = "データ例"
+tours = "自動ツアー"

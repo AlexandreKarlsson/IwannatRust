@@ -9,6 +9,7 @@
 //! (positions) → [`guide`] (step-by-step walkthrough).
 
 pub mod brief;
+pub mod prompt;
 pub mod config;
 pub mod bytes;
 pub mod chart;

@@ -55,6 +55,23 @@ by `codecast video`.
 
 https://github.com/user-attachments/assets/2b99506f-5d02-4b04-b611-26e007f69902
 
+## Make a codecast for your project
+
+You need the `codecast` binary (see *Quick start*) and an AI coding agent (Claude Code, Codex,
+Cursor…). Three steps:
+
+1. **Open your project in the app:** `codecast serve path/to/your/project`, then click
+   **generate** in the top bar.
+2. **Make the prompt:** the first card, *Write the script with an AI*, asks a few questions
+   (subject, audience, humour, a metaphor, which pages to use…). Leave any of them empty and the
+   AI decides. Click **Copy the prompt**.
+3. **Paste it into your agent**, opened in your project folder. It reads your code and the writing
+   guide by itself, shows you the plan, writes `codecast/` and checks it. The app reloads on its
+   own: click **codecast** in the top bar to play it.
+
+Optional: on the same page, record a natural voice for it (Kokoro, offline), then share it with
+`codecast export path/to/your/project -o site/`.
+
 ## What is in it
 
 | | |

@@ -1,0 +1,77 @@
+# The prompt card of the Generate page (prompt.rs): a prompt for an AI agent that writes the codecast.
+kicker = "Step 0 · the script"
+title = "Write the script with an AI"
+intro = "Answer a few questions, copy the prompt, paste it into your AI agent (Claude Code, Codex…) opened in the project. It reads the code and the writing guide itself, writes codecast/ and checks it."
+open = "Make a prompt"
+close = "Hide"
+copy = "Copy the prompt"
+copied = "Copied: paste it into your agent"
+copy_failed = "Copy blocked by the browser: select the text and copy it"
+reset = "Reset"
+preview = "The prompt"
+help = "Leave a field empty and the AI decides."
+
+[task]
+label = "Task"
+new = "New codecast"
+improve = "Improve it"
+add = "Add parts"
+
+[field]
+subject = "Subject"
+subject_ph = "the whole project, a module, a feature…"
+audience = "Audience"
+example = "Follow one example"
+example_ph = "e.g. Ann's order, from the click to the database"
+parts = "Parts"
+parts_auto = "AI decides"
+humour = "Humour"
+metaphor = "Metaphor"
+metaphor_ph = "e.g. the post office: letters are requests"
+pages = "Pages"
+pages_help = "Click a page: favour → required → avoid → free."
+notes = "Notes"
+notes_ph = "anything else: tone, what to skip, a deadline joke…"
+
+[audience]
+newcomer = "New to this code"
+beginner = "New to Rust"
+expert = "Experts"
+
+[humour]
+none = "None"
+light = "Light"
+playful = "Playful"
+
+[metaphor]
+none = "None"
+ai = "AI picks"
+mine = "Mine"
+
+[want]
+prefer = "favour"
+must = "required"
+avoid = "avoid"
+
+[switch]
+plan_first = "Show me the plan first"
+edit_code = "May add comments to the code"
+two_voices = "Second voice asks questions"
+questions = "Clickable questions"
+
+[page]
+arch = "Architecture"
+flow = "Control flow"
+code = "Code"
+calls = "Call tree"
+sequence = "Call sequence"
+types = "Types"
+errors = "Errors"
+branches = "Branches"
+structure = "Structure"
+diagram = "Diagram"
+seqdiagram = "Sequence diagram"
+chart = "Chart"
+bytes = "Byte layout"
+example = "Data example"
+tours = "Generated tours"

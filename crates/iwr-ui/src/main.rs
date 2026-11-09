@@ -14,6 +14,7 @@ mod icons;
 mod md;
 mod panels;
 mod player;
+mod prompt;
 mod settings;
 mod side;
 mod source;
