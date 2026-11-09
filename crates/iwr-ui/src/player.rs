@@ -840,7 +840,8 @@ pub fn PlayerBar() -> Element {
     let Some(part) = s.parts.get(part_idx) else { return rsx! {} };
     let Some(cue) = part.cues.get(cue_idx) else { return rsx! {} };
     let total = part.cues.len();
-    let pct = (cue_idx + 1) as f64 / total.max(1) as f64 * 100.0;
+    // how far the voice is into the part, moving with the words inside a cue
+    let pct = part.progress(cue_idx, *state.cue_frac.read()) * 100.0;
     let title = s.title.clone();
     // recordings play with 🎧, otherwise a voice reads at the TTS rate
     let (recorded, rate) = (voice == Voice::Audio, *state.tts_rate.read());
@@ -908,7 +909,7 @@ pub fn PlayerBar() -> Element {
         }
         let Some(cue) = state.current_cue() else { return };
         // the cue is spoken from its start: its chart markers fire again as the voice reaches them
-        if !cue.marks.is_empty() && *state.cue_frac.peek() != 0.0 {
+        if *state.cue_frac.peek() != 0.0 {
             state.cue_frac.set(0.0);
         }
         let text = iwr_core::speech::spoken(&cue.say, &state.pronounce.peek());
@@ -935,18 +936,14 @@ pub fn PlayerBar() -> Element {
                "#,
             serde_json::to_string(&text).unwrap_or_else(|_| "\"\"".into()),
             voice = voice_js(&speech_lang(&state.lang.peek(), &text), &state.tts_names(), cue.second()),
-            // chart markers: how far the voice is, from word boundaries, else from the time spoken
-            progress = if cue.marks.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    r#"const n = {n}, est = {est:.0};
-                       u.onboundary = (e) => {{ seen = true; dioxus.send("b:" + e.charIndex / n); }};
-                       iv = setInterval(() => {{ if (!seen) dioxus.send("b:" + Math.min(0.98, (performance.now() - t0) / est)); }}, 200);"#,
-                    n = text.encode_utf16().count().max(1),
-                    est = text.chars().count() as f64 * 1000.0 / (14.0 * rate.max(0.1))
-                )
-            }
+            // how far the voice is (chart markers, progress bar): from word boundaries, else from the time spoken
+            progress = format!(
+                r#"const n = {n}, est = {est:.0};
+                   u.onboundary = (e) => {{ seen = true; dioxus.send("b:" + e.charIndex / n); }};
+                   iv = setInterval(() => {{ if (!seen) dioxus.send("b:" + Math.min(0.98, (performance.now() - t0) / est)); }}, 200);"#,
+                n = text.encode_utf16().count().max(1),
+                est = text.chars().count() as f64 * 1000.0 / (14.0 * rate.max(0.1))
+            )
         );
         let my_gen = *state.tts_gen.peek();
         let cue_no = *state.cue_idx.peek() + 1;
@@ -1123,12 +1120,10 @@ pub fn PlayerBar() -> Element {
                             }
                             // how far into the cue: up to the next cue's start, or an estimate of its length
                             let cues = &s.parts[pi].cues;
-                            if !cues[ci].marks.is_empty() {
-                                let end = cues.get(ci + 1).and_then(|c| c.t).unwrap_or(best_t + cues[ci].say.chars().count() as f64 / 14.0);
-                                let f = ((t - best_t) / (end - best_t).max(0.1)).clamp(0.0, 1.0);
-                                if (f - *state.cue_frac.peek()).abs() > 0.01 {
-                                    state.cue_frac.set(f);
-                                }
+                            let end = cues.get(ci + 1).and_then(|c| c.t).unwrap_or(best_t + cues[ci].say.chars().count() as f64 / 14.0);
+                            let f = ((t - best_t) / (end - best_t).max(0.1)).clamp(0.0, 1.0);
+                            if (f - *state.cue_frac.peek()).abs() > 0.01 {
+                                state.cue_frac.set(f);
                             }
                         }
                     }

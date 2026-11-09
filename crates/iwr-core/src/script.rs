@@ -166,6 +166,19 @@ impl Part {
         (self.cues.iter().map(|c| speech_secs(&c.say, rate) + CUE_GAP).sum(), false)
     }
 
+    /// How far into the part, 0 to 1, when the voice is `frac` (0 to 1) into cue `cue`: each cue
+    /// weighs as long as it takes to say, so a long cue moves the bar further than a short one.
+    pub fn progress(&self, cue: usize, frac: f64) -> f64 {
+        let w = |c: &Cue| speech_secs(&c.say, 1.0) + CUE_GAP;
+        let total: f64 = self.cues.iter().map(w).sum();
+        if total <= 0.0 {
+            return 0.0;
+        }
+        let before: f64 = self.cues.iter().take(cue).map(w).sum();
+        let here = self.cues.get(cue).map(w).unwrap_or(0.0);
+        ((before + frac.clamp(0.0, 1.0) * here) / total).clamp(0.0, 1.0)
+    }
+
     fn voiced(&mut self, key: &str) -> &mut Voiced {
         let (lang, voice) = key.split_once('.').unwrap_or((key, ""));
         if let Some(i) = self.voices.iter().position(|v| v.lang == lang && v.voice == voice) {
