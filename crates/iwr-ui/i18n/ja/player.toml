@@ -30,6 +30,7 @@ subtitle = "字幕（設定 › コードキャスト › 字幕）"
 back = "コードキャストに戻る（space / Esc）"
 own_question = "スクリプトの質問"
 glossary_question = "Rust 用語集から"
+length = "コードキャスト全体の長さ：録音済みのパートは録音から、その他は文章量から推定（≈ は推定）"
 
 [voice]
 tts = "🔊 音声（TTS）"
@@ -66,5 +67,5 @@ failed = "⚠ {name} の翻訳を利用できません：{error}。英語で再�
 
 [plan_page]
 none = "コードキャストが読み込まれていません。"
-intro = "{parts}、{cues}。パートをクリックすると再生します。通しツアーでは全パートを順に再生します。"
+intro = "{parts}、{cues}、{time}。パートをクリックすると再生します。通しツアーでは全パートを順に再生します。"
 diagram = "図"

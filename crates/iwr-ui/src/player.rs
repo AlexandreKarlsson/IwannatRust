@@ -842,6 +842,9 @@ pub fn PlayerBar() -> Element {
     let total = part.cues.len();
     let pct = (cue_idx + 1) as f64 / total.max(1) as f64 * 100.0;
     let title = s.title.clone();
+    // recordings play with 🎧, otherwise a voice reads at the TTS rate
+    let (recorded, rate) = (voice == Voice::Audio, *state.tts_rate.read());
+    let length = crate::generate::length(s.duration(recorded, rate));
     let say = cue.say.clone();
     // a `sp:` line: the second voice says it, the caption sits apart
     let second = cue.second();
@@ -1210,10 +1213,10 @@ pub fn PlayerBar() -> Element {
             }
             div { class: "body",
                 div { class: "parts",
-                    span { class: "status cast-title", "{title} · " }
+                    span { class: "status cast-title", "{title} · " span { title: t::player::tip_length(), "{length}" } " · " }
                     for (i, p) in s.parts.iter().enumerate() {
-                        { let name = p.name.clone(); let n = p.cues.len(); rsx! {
-                            button { class: if i == part_idx { "small active" } else { "small" }, title: t::player::cues(n), onclick: move |_| state.goto_part(i), "{name}" }
+                        { let name = p.name.clone(); let tip = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate))); rsx! {
+                            button { class: if i == part_idx { "small active" } else { "small" }, title: "{tip}", onclick: move |_| state.goto_part(i), "{name}" }
                         } }
                     }
                     if n_parts > 1 && cue_idx + 1 >= total && part_idx + 1 < n_parts {
@@ -1303,6 +1306,8 @@ pub fn PlanPage() -> Element {
     let cur = *state.part_idx.read();
     let n_parts = s.parts.len();
     let total = s.cue_count();
+    let (recorded, rate) = (*state.voice.read() == Voice::Audio, *state.tts_rate.read());
+    let length = crate::generate::length(s.duration(recorded, rate));
     // `! 2-9` on the plan page: those parts glow, the others step back
     let lit: Vec<usize> = state.hl_ids.read().iter().filter_map(|r| script::plan_parts(r, n_parts)).flatten().collect();
     use_effect(move || {
@@ -1320,7 +1325,7 @@ pub fn PlanPage() -> Element {
                 h2 { Icon { name: "plan".to_string(), size: 22 } "{s.title}" }
                 p { class: "intro",
                     if let Some(i) = &s.summary { "{i} · " }
-                    {t::player::plan_page_intro(t::player::parts(n_parts), t::player::cues(total))}
+                    span { title: t::player::tip_length(), {t::player::plan_page_intro(t::player::parts(n_parts), t::player::cues(total), &length)} }
                 }
                 ol {
                     for (i, p) in s.parts.iter().enumerate() {
@@ -1328,7 +1333,7 @@ pub fn PlanPage() -> Element {
                             let first = p.cues.first().map(|c| c.say.clone()).unwrap_or_default();
                             let summary = p.summary.clone().unwrap_or_else(|| iwr_core::shorten(&script::plain(&first), 140));
                             let nq: usize = p.cues.iter().map(|c| c.questions.len()).sum();
-                            let mut meta = t::player::cues(p.cues.len());
+                            let mut meta = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate)));
                             if nq > 0 {
                                 meta.push_str(&format!(" · {}", t::player::questions(nq)));
                             }

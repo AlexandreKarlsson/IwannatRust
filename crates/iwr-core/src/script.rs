@@ -138,7 +138,34 @@ impl Voiced {
     }
 }
 
+/// Speaking pace used to guess how long text lasts: words per second at rate 1 (Kokoro and the
+/// browser voices speak about 190 words a minute).
+const WORDS_PER_SEC: f64 = 3.2;
+/// Characters per second for text written without spaces (Japanese, Chinese).
+const CJK_PER_SEC: f64 = 7.0;
+/// Pause between two cues, in seconds (the player waits this long before the next one).
+const CUE_GAP: f64 = 0.4;
+
+/// Seconds a voice needs to say `say` at `rate` (1 = normal), guessed from its words.
+pub fn speech_secs(say: &str, rate: f64) -> f64 {
+    let text = speakable(say);
+    let cjk = text.chars().filter(|c| matches!(*c as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xf900..=0xfaff)).count();
+    let words = text.split_whitespace().filter(|w| w.chars().any(|c| c.is_alphanumeric() && (c as u32) < 0x3040)).count();
+    (words as f64 / WORDS_PER_SEC + cjk as f64 / CJK_PER_SEC) / rate.max(0.1)
+}
+
 impl Part {
+    /// How long the part lasts, in seconds, and whether that is measured: from its recording's
+    /// cue times when `recorded` (the recording is what plays) and every cue has one (the last
+    /// cue's length guessed), otherwise guessed from the words at `rate`.
+    pub fn duration(&self, recorded: bool, rate: f64) -> (f64, bool) {
+        let Some(last) = self.cues.last() else { return (0.0, true) };
+        if recorded && self.cues.iter().all(|c| c.t.is_some()) {
+            return (last.t.unwrap_or(0.0) + speech_secs(&last.say, 1.0), true);
+        }
+        (self.cues.iter().map(|c| speech_secs(&c.say, rate) + CUE_GAP).sum(), false)
+    }
+
     fn voiced(&mut self, key: &str) -> &mut Voiced {
         let (lang, voice) = key.split_once('.').unwrap_or((key, ""));
         if let Some(i) = self.voices.iter().position(|v| v.lang == lang && v.voice == voice) {
@@ -359,6 +386,12 @@ pub struct Question {
 }
 
 impl Script {
+    /// How long the whole codecast lasts, in seconds (see [`Part::duration`]), and whether every
+    /// part is measured from a recording.
+    pub fn duration(&self, recorded: bool, rate: f64) -> (f64, bool) {
+        self.parts.iter().map(|p| p.duration(recorded, rate)).fold((0.0, true), |(t, all), (d, m)| (t + d, all && m))
+    }
+
     pub fn cue_count(&self) -> usize {
         self.parts.iter().map(|p| p.cues.len()).sum()
     }
@@ -1658,5 +1691,31 @@ mod plan_parts_tests {
         assert_eq!(plan_parts("4-2", 19), None);
         assert_eq!(plan_parts("18-20", 19), None);
         assert_eq!(plan_parts("cfg", 19), None);
+    }
+}
+
+#[cfg(test)]
+mod duration_tests {
+    use super::parse;
+
+    #[test]
+    fn recorded_parts_use_their_times() {
+        let s = parse("# T\n\n## One\ntimes: 0 10\nHello there.\n\nSecond cue here.\n\n## Two\nFive words are said here.\n");
+        let (one, measured) = s.parts[0].duration(true, 1.0);
+        assert!(measured && one > 10.0 && one < 12.0, "{one}");
+        let (two, measured) = s.parts[1].duration(true, 1.0);
+        assert!(!measured && two > 1.5 && two < 3.0, "{two}");
+        let (all, measured) = s.duration(true, 1.0);
+        assert!(!measured && (all - one - two).abs() < 1e-9);
+        // the browser voice speaks in place of the recording: guessed
+        assert!(!s.parts[0].duration(false, 1.0).1);
+        // a faster voice says the unrecorded part sooner
+        assert!(s.parts[1].duration(true, 2.0).0 < two);
+    }
+
+    #[test]
+    fn japanese_is_counted_by_characters() {
+        let s = parse("# T\n\n## 一\nこれは日本語の文章です。\n");
+        assert!(s.parts[0].duration(true, 1.0).0 > 1.0);
     }
 }

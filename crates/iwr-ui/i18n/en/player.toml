@@ -30,6 +30,7 @@ subtitle = "subtitle (Settings › Codecast › Subtitles)"
 back = "back to the codecast (space / Esc)"
 own_question = "question from the script"
 glossary_question = "from the Rust glossary"
+length = "How long the whole codecast lasts: recorded parts from their recordings, the others guessed from their words (≈ = guessed)"
 
 [voice]
 tts = "🔊 voice (TTS)"
@@ -66,5 +67,5 @@ failed = "⚠ no {name}: {error}. Playing in English."
 
 [plan_page]
 none = "No codecast loaded."
-intro = "{parts}, {cues}. Click a part to play it; the full tour plays them all in a row."
+intro = "{parts}, {cues}, {time}. Click a part to play it; the full tour plays them all in a row."
 diagram = "diagram"

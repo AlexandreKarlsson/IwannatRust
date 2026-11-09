@@ -124,9 +124,15 @@ pub fn badge(state: &State) -> (usize, Option<u32>, usize) {
     (todo, running, stale)
 }
 
-fn clock(secs: f64) -> String {
+/// `m:ss`, or `h:mm:ss` from an hour on.
+pub fn clock(secs: f64) -> String {
     let s = secs.max(0.0).round() as u64;
-    format!("{}:{:02}", s / 60, s % 60)
+    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{}:{:02}", s / 60, s % 60) }
+}
+
+/// A length from [`iwr_core::script::Part::duration`]: `1:23`, or `≈ 1:23` when guessed from the words.
+pub fn length((secs, measured): (f64, bool)) -> String {
+    if measured { clock(secs) } else { format!("≈ {}", clock(secs)) }
 }
 
 fn size(kb: u64) -> String {
