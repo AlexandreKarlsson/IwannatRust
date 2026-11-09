@@ -37,6 +37,7 @@ notes_ph = "その他: 口調、省くこと…"
 newcomer = "このコードは初めて"
 beginner = "Rust も初めて"
 expert = "経験者"
+child = "子どもにもわかるように"
 
 [humour]
 none = "なし"

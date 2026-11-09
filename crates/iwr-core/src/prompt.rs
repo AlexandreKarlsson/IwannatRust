@@ -25,6 +25,8 @@ pub enum Audience {
     RustBeginner,
     /// knows the field: reviewers, maintainers
     Expert,
+    /// explain it like to a child: everyday words, no jargon
+    Child,
 }
 
 /// How much humour.
@@ -188,6 +190,7 @@ pub fn build(path: &str, o: &PromptOptions) -> String {
             Audience::Newcomer => "- Audience: knows Rust, new to this code",
             Audience::RustBeginner => "- Audience: new to Rust too; explain the language mechanisms met",
             Audience::Expert => "- Audience: experienced (reviewers, maintainers); dense, skip basics",
+            Audience::Child => "- Audience: explain it like to a ten-year-old: everyday words, short sentences, a picture for every idea, jargon only after the plain words",
         }
         .into(),
     );
@@ -257,6 +260,8 @@ mod tests {
         assert!(s.contains("- Use at least once: mermaid sequenceDiagram"));
         assert!(s.contains("- Avoid: chart block"));
         assert!(s.contains("about 3 parts"));
+        let s = build(".", &PromptOptions { audience: Audience::Child, ..Default::default() });
+        assert!(s.contains("ten-year-old"));
         // every chip state comes back to free
         assert_eq!(Want::Free.next().next().next().next(), Want::Free);
     }

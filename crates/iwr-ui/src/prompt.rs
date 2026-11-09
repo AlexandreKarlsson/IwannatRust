@@ -114,7 +114,7 @@ pub fn PromptCard(has_codecast: bool) -> Element {
                         }
                         {text(opts, t::prompt::field_subject(), t::prompt::field_subject_ph(), o.subject.clone(), |o, v| o.subject = v)}
                         div { class: "pr-row", span { {t::prompt::field_audience()} }
-                            {seg(opts, o.audience, vec![(Audience::Newcomer, t::prompt::audience_newcomer()), (Audience::RustBeginner, t::prompt::audience_beginner()), (Audience::Expert, t::prompt::audience_expert())], |o, v| o.audience = v)}
+                            {seg(opts, o.audience, vec![(Audience::Newcomer, t::prompt::audience_newcomer()), (Audience::RustBeginner, t::prompt::audience_beginner()), (Audience::Expert, t::prompt::audience_expert()), (Audience::Child, t::prompt::audience_child())], |o, v| o.audience = v)}
                         }
                         {text(opts, t::prompt::field_example(), t::prompt::field_example_ph(), o.example.clone(), |o, v| o.example = v)}
                         label { class: "pr-row", span { {t::prompt::field_parts()} }

@@ -37,6 +37,7 @@ notes_ph = "anything else: tone, what to skip, a deadline joke…"
 newcomer = "New to this code"
 beginner = "New to Rust"
 expert = "Experts"
+child = "Like to a child"
 
 [humour]
 none = "None"

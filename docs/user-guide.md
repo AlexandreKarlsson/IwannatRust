@@ -115,7 +115,7 @@ serve`) or download it.
 ## Write the script with an AI
 
 The first card of the Generate page (`codecast serve`) builds a prompt for an AI agent: the task
-(new codecast, improve it, add parts), subject, audience, an example to follow, the number of
+(new codecast, improve it, add parts), subject, audience (new to the code, new to Rust, experts, or like to a child), an example to follow, the number of
 parts, humour, a metaphor (none, the AI's, or yours), pages to favour, require or avoid (click a
 chip to cycle), and switches (plan first, may comment the code, second voice, `?` questions).
 Empty fields leave the choice to the AI. *Copy the prompt* and paste it into an agent opened in
