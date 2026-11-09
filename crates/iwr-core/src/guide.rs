@@ -649,7 +649,7 @@ pub fn build(p: &Project, root: Option<ItemId>, opts: &GuideOptions) -> Vec<Guid
         None => p.modules.first().and_then(|m| told_doc(m.doc.as_ref(), lang)),
     }
     .unwrap_or_default();
-    let n_files = p.files.iter().filter(|f| f.rust).count();
+    let n_files = p.files.iter().filter(|f| f.is_code()).count();
     let size = tg::intro_size(lang, tg::intro_files(lang, n_files), tg::intro_modules(lang, p.modules.len()), tg::intro_fns(lang, n_fn), tg::intro_types(lang, n_ty));
     let welcome = tr::sentences(lang, &[&tg::intro_welcome(lang, &p.name), &goal, &size]);
     let big_picture = tg::intro_big_picture(lang);

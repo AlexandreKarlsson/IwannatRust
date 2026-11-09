@@ -18,19 +18,27 @@ pub struct Collected {
 pub struct FnBody {
     pub item: ItemId,
     pub file: FileId,
-    pub block: syn::Block,
-    pub sig: syn::Signature,
+    pub body: Body,
 }
 
-struct Ctx<'a> {
-    project: &'a mut Project,
-    bodies: Vec<FnBody>,
-    use_paths: Vec<(ModuleId, Vec<String>)>,
+/// A function body kept for the second pass, in the syntax tree of its language.
+pub enum Body {
+    Rust { block: syn::Block, sig: syn::Signature },
+    /// A C definition: its tree-sitter tree and the `function_definition` node's byte range.
+    C { tree: tree_sitter::Tree, start: usize, end: usize },
+}
+
+/// State of the first pass, shared by the Rust and C collectors.
+pub(crate) struct Ctx<'a> {
+    pub(crate) project: &'a mut Project,
+    pub(crate) bodies: Vec<FnBody>,
+    pub(crate) use_paths: Vec<(ModuleId, Vec<String>)>,
     module_index: HashMap<String, ModuleId>,
 }
 
 impl<'a> Ctx<'a> {
-    fn module_for(&mut self, path: &str) -> ModuleId {
+    /// The module at `path` (`crate::a::b`), created with its parents when missing.
+    pub(crate) fn module_for(&mut self, path: &str) -> ModuleId {
         if let Some(id) = self.module_index.get(path) {
             return *id;
         }
@@ -61,7 +69,7 @@ impl<'a> Ctx<'a> {
         id
     }
 
-    fn push_item(&mut self, mut item: Item) -> ItemId {
+    pub(crate) fn push_item(&mut self, mut item: Item) -> ItemId {
         let id = self.project.items.len();
         item.id = id;
         self.project.modules[item.module].items.push(id);
@@ -172,14 +180,20 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
     let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], module_index: HashMap::new() };
     ctx.module_for("crate");
     let names = package_names(&files);
+    let mut c_files: Vec<(FileId, String, String)> = Vec::new();
 
     for (path, content) in files {
         let file_id = ctx.project.files.len();
-        let rust = path.ends_with(".rs");
-        let text = !content.is_empty() || rust;
-        ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone(), rust, text });
-        if !rust {
-            continue;
+        let lang = SourceLang::of_path(&path);
+        let text = !content.is_empty() || lang.is_some();
+        ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone(), lang, text });
+        match lang {
+            Some(SourceLang::Rust) => {}
+            Some(SourceLang::C) => {
+                c_files.push((file_id, path, content));
+                continue;
+            }
+            None => continue,
         }
         let ast = match syn::parse_file(&content) {
             Ok(a) => a,
@@ -203,6 +217,11 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>) -> Collecte
         collect_items(&mut ctx, &ast.items, mid, &mpath, file_id);
     }
 
+    // C files after the Rust ones: a mixed project keeps `crate` for the Rust side
+    if !c_files.is_empty() {
+        crate::c::collect(&mut ctx, c_files);
+    }
+
     // sort children/items deterministically by name for stable output
     for m in &mut ctx.project.modules {
         m.children.sort();
@@ -216,7 +235,7 @@ fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str,
         match it {
             syn::Item::Fn(f) => {
                 let id = push_fn(ctx, &f.sig, &f.vis, &f.attrs, mid, mpath, file, span_of(f, file), None, None, None);
-                ctx.bodies.push(FnBody { item: id, file, block: (*f.block).clone(), sig: f.sig.clone() });
+                ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: (*f.block).clone(), sig: f.sig.clone() } });
             }
             syn::Item::Struct(s) => {
                 let is_tuple = matches!(s.fields, syn::Fields::Unnamed(_));
@@ -300,7 +319,7 @@ fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str,
                         );
                         methods.push(id);
                         if let Some(b) = &m.default {
-                            ctx.bodies.push(FnBody { item: id, file, block: b.clone(), sig: m.sig.clone() });
+                            ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: b.clone(), sig: m.sig.clone() } });
                         }
                     }
                 }
@@ -357,7 +376,7 @@ fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str,
                             None,
                         );
                         methods.push(id);
-                        ctx.bodies.push(FnBody { item: id, file, block: m.block.clone(), sig: m.sig.clone() });
+                        ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: m.block.clone(), sig: m.sig.clone() } });
                     }
                 }
                 if let ItemExtra::Impl(ii) = &mut ctx.project.items[iid].extra {

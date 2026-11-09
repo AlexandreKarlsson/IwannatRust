@@ -158,6 +158,20 @@ if t.cost > budget {        // ← title "Out of budget" on the exit arrow
   them. Title the ones that matter to the story.
 - `else if` chains: put the comment on its own line above the `if`, not after `} else`.
 
+## C projects
+
+The same rules, with C comments. The analyzer reads `.c` and `.h` files (a header joins the
+`.c` of the same name into one module):
+
+| Comment | Where | Becomes |
+|---------|-------|---------|
+| `/** … */`, `/*! … */` or `//!` lines | top of the file, or any first comment followed by a blank line | the **module's box** (first line is the title) |
+| `/** … */`, `///`, or a plain `/* … */` / `//` block | directly above a function, `struct`, `enum`, `typedef`, global or `#define` | the item's **heading** and tooltip |
+| `//` or a one-line `/* … */` | the line just above a statement, `if`, `switch`, loop or `goto` | the **node's label** in Flow, the **block heading** in Code |
+
+A `/** */` block with Doxygen markers (`@brief`, `@param`) is kept as written: put the title on
+its first line. Licence headers (a first comment mentioning copyright or a licence) are ignored.
+
 ## Writing code inside comments
 
 Put code in backticks: `` `parse_all` ``, `` `Task::weight` ``, `` `&tasks` ``. In the UI it is

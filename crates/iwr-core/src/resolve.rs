@@ -6,16 +6,17 @@
 
 use crate::cfg;
 use crate::model::*;
-use crate::parse::{Collected, FnBody};
+use crate::parse::{Body, Collected, FnBody};
 use crate::text::*;
 use std::collections::{HashMap, HashSet};
 use syn::visit::Visit;
 
-struct Index {
+/// Name indexes of the project, for the heuristics below and for the C resolver.
+pub(crate) struct Index {
     /// type name → ids (struct / enum / trait / alias)
     types: HashMap<String, Vec<ItemId>>,
     /// free fn name → ids
-    fns: HashMap<String, Vec<ItemId>>,
+    pub(crate) fns: HashMap<String, Vec<ItemId>>,
     /// method name → ids
     methods: HashMap<String, Vec<ItemId>>,
     /// full path → id
@@ -79,7 +80,7 @@ fn reachable(p: &Project, ix: &Index, id: ItemId, module: ModuleId) -> bool {
 
 /// Pick the candidate closest to `module` (same module, then ancestor, then anything in a crate
 /// this one can reach: another crate of a workspace only when its sources name it).
-fn prefer_module(p: &Project, ix: &Index, cands: &[ItemId], module: ModuleId) -> Option<ItemId> {
+pub(crate) fn prefer_module(p: &Project, ix: &Index, cands: &[ItemId], module: ModuleId) -> Option<ItemId> {
     let cands: Vec<ItemId> = cands.iter().copied().filter(|c| reachable(p, ix, *c, module)).collect();
     let cands = &cands[..];
     if cands.is_empty() {
@@ -203,15 +204,16 @@ struct CallVisitor<'a> {
     stats: Stats,
 }
 
+/// Counts shown in a function's summary.
 #[derive(Default)]
-struct Stats {
-    question_marks: usize,
-    unwraps: usize,
-    expects: usize,
-    panics: usize,
-    awaits: usize,
-    loops: usize,
-    branches: usize,
+pub(crate) struct Stats {
+    pub question_marks: usize,
+    pub unwraps: usize,
+    pub expects: usize,
+    pub panics: usize,
+    pub awaits: usize,
+    pub loops: usize,
+    pub branches: usize,
 }
 
 fn key(s: &Span) -> (usize, usize, usize, usize) {
@@ -494,15 +496,11 @@ pub fn finish(c: Collected) -> Project {
         let mut rels = Vec::new();
         let mut resolve_fields = |fields: &mut Vec<Field>, prefix: &str| {
             for f in fields.iter_mut() {
-                if let Ok(ty) = syn::parse_str::<syn::Type>(&f.ty) {
-                    let mut names = Vec::new();
-                    type_idents(&ty, &mut names);
-                    for nme in names {
-                        if let Some(t) = resolve_type(&project, &ix, &nme, module) {
-                            if t != id && !f.refs.contains(&t) {
-                                f.refs.push(t);
-                                rels.push((t, format!("{}{}", prefix, f.name)));
-                            }
+                for nme in type_names(&f.ty) {
+                    if let Some(t) = resolve_type(&project, &ix, &nme, module) {
+                        if t != id && !f.refs.contains(&t) {
+                            f.refs.push(t);
+                            rels.push((t, format!("{}{}", prefix, f.name)));
                         }
                     }
                 }
@@ -517,14 +515,11 @@ pub fn finish(c: Collected) -> Project {
                 }
             }
             ItemExtra::TypeAlias { target } => {
-                if let Ok(ty) = syn::parse_str::<syn::Type>(target) {
-                    let mut names = Vec::new();
-                    type_idents(&ty, &mut names);
-                    for nme in names {
-                        if let Some(t) = resolve_type(&project, &ix, &nme, module) {
-                            if t != id {
-                                project.type_rels.push(TypeRel { from: id, to: t, kind: TypeRelKind::Aliases, label: None });
-                            }
+                let mut seen = HashSet::new();
+                for nme in type_names(target) {
+                    if let Some(t) = resolve_type(&project, &ix, &nme, module) {
+                        if t != id && seen.insert(t) {
+                            project.type_rels.push(TypeRel { from: id, to: t, kind: TypeRelKind::Aliases, label: None });
                         }
                     }
                 }
@@ -542,14 +537,10 @@ pub fn finish(c: Collected) -> Project {
         let Some(f) = project.items[id].fn_info() else { continue };
         let mut names = Vec::new();
         for p in &f.params {
-            if let Ok(ty) = syn::parse_str::<syn::Type>(&p.ty) {
-                type_idents(&ty, &mut names);
-            }
+            names.extend(type_names(&p.ty));
         }
         if let Some(r) = &f.ret {
-            if let Ok(ty) = syn::parse_str::<syn::Type>(r) {
-                type_idents(&ty, &mut names);
-            }
+            names.extend(type_names(r));
         }
         let mut seen = HashSet::new();
         for nme in names {
@@ -564,7 +555,22 @@ pub fn finish(c: Collected) -> Project {
     // ---- calls + CFG ----
     let mut all_calls: Vec<CallEdge> = Vec::new();
     let mut cfgs: Vec<(ItemId, Cfg, Block, Stats, usize)> = Vec::new();
-    for FnBody { item, file, block, sig } in &bodies {
+    for FnBody { item, file, body } in &bodies {
+        let fn_span = project.items[*item].span;
+        let source = &project.files[*file].content;
+        let body_lines = fn_span.line_end + 1 - fn_span.line_start;
+        let (block, sig) = match body {
+            Body::Rust { block, sig } => (block, sig),
+            Body::C { tree, start, end } => {
+                let node = tree.root_node().descendant_for_byte_range(*start, *end).unwrap_or_else(|| tree.root_node());
+                let (edges, stats) = crate::c::body::analyze(&project, &ix, *item, *file, node, source);
+                let cfg = crate::c::cfg::build(node, *file, &edges, fn_span, source);
+                let blocks = crate::c::blocks::build(node, *file, &edges, fn_span, source);
+                cfgs.push((*item, cfg, blocks, stats, body_lines));
+                all_calls.extend(edges);
+                continue;
+            }
+        };
         let module = project.items[*item].module;
         let owner = project.items[*item].fn_info().and_then(|f| f.owner_type_name.clone());
         let mut hints = hint_types(block, sig);
@@ -605,10 +611,8 @@ pub fn finish(c: Collected) -> Project {
         v.edges.clear();
         v.stats = Stats::default();
         v.visit_block(block);
-        let fn_span = project.items[*item].span;
-        let cfg = cfg::build(block, *file, &v.edges, fn_span, &project.files[*file].content);
-        let blocks = crate::blocks::build(sig, block, *file, &v.edges, fn_span, &project.files[*file].content);
-        let body_lines = fn_span.line_end + 1 - fn_span.line_start;
+        let cfg = cfg::build(block, *file, &v.edges, fn_span, source);
+        let blocks = crate::blocks::build(sig, block, *file, &v.edges, fn_span, source);
         cfgs.push((*item, cfg, blocks, v.stats, body_lines));
         all_calls.extend(v.edges);
     }

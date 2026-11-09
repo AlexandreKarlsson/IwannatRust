@@ -1337,7 +1337,7 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
             format!("{} fn · {} types · {} submodules", n_fn, n_ty, shown.len())
         };
         let is_ws_root = module.path == "crate" && module.file.is_none() && !module.children.is_empty();
-        let name = if is_ws_root { format!("workspace {}", p.name) } else if module.path == "crate" { format!("crate {}", p.name) } else if module.parent == Some(0) && p.module(0).file.is_none() { format!("crate {}", module.name) } else { module.name.clone() };
+        let name = if is_ws_root { format!("workspace {}", p.name) } else if module.path == "crate" { p.root_label() } else if module.parent == Some(0) && p.module(0).file.is_none() { format!("crate {}", module.name) } else { module.name.clone() };
         // a short first `//!` line says what the module is for: it becomes the label, the
         // module and its file move to the caption underneath
         let file = module.file.map(|f| p.file(f).path.clone());
@@ -1599,7 +1599,7 @@ fn structure(p: &Project, opts: &ViewOptions) -> Graph {
         if module.path == "crate" && module.file.is_none() && items.is_empty() {
             continue; // virtual workspace root: nothing to show as a block
         }
-        let label = if module.path == "crate" { format!("crate {}", p.name) } else { module.path.clone() };
+        let label = if module.path == "crate" { p.root_label() } else { module.path.clone() };
         g.nodes.push(VNode {
             id: mid.clone(),
             label,

@@ -199,6 +199,21 @@ pub fn type_idents(ty: &syn::Type, out: &mut Vec<String>) {
     V(out).visit_type(ty);
 }
 
+/// The names a type text mentions, in any language: `Vec<Client>` → [Vec, Client] through syn;
+/// a C type (`struct task *`, `const char *`) → its words minus the keywords.
+pub fn type_names(ty: &str) -> Vec<String> {
+    if let Ok(t) = syn::parse_str::<syn::Type>(ty) {
+        let mut out = Vec::new();
+        type_idents(&t, &mut out);
+        return out;
+    }
+    const C_KEYWORDS: &[&str] = &["struct", "union", "enum", "const", "volatile", "restrict", "unsigned", "signed", "int", "char", "short", "long", "float", "double", "void", "static", "extern", "register", "_Bool", "_Atomic", "inline"];
+    ty.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty() && !C_KEYWORDS.contains(w) && !w.starts_with(|c: char| c.is_ascii_digit()))
+        .map(String::from)
+        .collect()
+}
+
 /// Last segment of a path as string.
 pub fn path_last(p: &syn::Path) -> String {
     p.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()

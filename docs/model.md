@@ -4,11 +4,12 @@
 
 ```
 Project { name, root, files[], modules[], items[], calls[], type_rels[], main?, external_crates[], diagnostics[] }
-SourceFile { id, path, content }
+SourceFile { id, path, content, lang?, text }   lang: rust | c (absent: listed, not analyzed)
 Span { file, line_start, col_start, line_end, col_end }
 Module { id, name, path, file?, parent?, children[], items[], uses[], span?, doc?, is_test }
 Item { id, kind, name, path, module, vis, span, signature, doc?, attrs[], extra }
   kind: function | method | struct | enum | trait | type_alias | const | static | module | impl
+        C: function (a `#define F(x)` too, attr `macro`), struct (a `union` has attr `union`), enum, type_alias (`typedef`), const (`#define X 1`, attr `macro`), static
   vis:  private | crate | public | restricted
   extra (tagged by "kind"):
     fn         FnInfo

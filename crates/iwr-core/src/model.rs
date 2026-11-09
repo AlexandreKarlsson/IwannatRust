@@ -17,12 +17,39 @@ pub struct SourceFile {
     /// Path relative to the project root, using `/` separators.
     pub path: String,
     pub content: String,
-    /// Rust source (parsed); other files are listed and shown but not analyzed.
-    #[serde(default = "default_true")]
-    pub rust: bool,
+    /// Source the analyzer read (Rust, C); other files are listed and shown but not analyzed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<SourceLang>,
     /// False for binary or oversized files (content empty).
     #[serde(default = "default_true")]
     pub text: bool,
+}
+
+impl SourceFile {
+    /// Was this file analyzed (items, calls, flow), whatever its language?
+    pub fn is_code(&self) -> bool {
+        self.lang.is_some()
+    }
+}
+
+/// A language the analyzer reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceLang {
+    Rust,
+    C,
+}
+
+impl SourceLang {
+    /// The language of a file, from its extension (`.rs`; `.c` and `.h`).
+    pub fn of_path(path: &str) -> Option<SourceLang> {
+        let ext = path.rsplit(['/', '\\']).next().unwrap_or(path).rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase())?;
+        match ext.as_str() {
+            "rs" => Some(SourceLang::Rust),
+            "c" | "h" => Some(SourceLang::C),
+            _ => None,
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -539,6 +566,14 @@ impl Project {
     /// Items that are functions or methods.
     pub fn functions(&self) -> impl Iterator<Item = &Item> + '_ {
         self.items.iter().filter(|i| i.is_callable())
+    }
+    /// Does the project hold Rust sources? (C-only projects are not called a "crate".)
+    pub fn has_rust(&self) -> bool {
+        self.files.iter().any(|f| f.lang == Some(SourceLang::Rust))
+    }
+    /// The word for the root module: `crate NAME` in Rust, the bare name otherwise.
+    pub fn root_label(&self) -> String {
+        if self.has_rust() { format!("crate {}", self.name) } else { self.name.clone() }
     }
 }
 
