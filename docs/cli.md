@@ -23,6 +23,8 @@ HTTP API of `serve`:
 | `GET /api/project` | `Project` JSON (see [model.md](model.md)) |
 | `GET /api/version` | integer, increments on every re-analysis; `0` while the first analysis runs (`/api/project` answers 503 then) |
 | `GET /api/status` | `Status` JSON: how far the running (or last) analysis is (`stage`, `done` / `total`, the file or function it is on, counts of files / items / calls, `elapsed_ms`, `error`); the loading page polls it |
+| `GET /api/casts` | `CastMap` JSON: the folders under the git root (else the served folder) that have a codecast and Rust or C sources, as a tree with the folders in between (chains of them folded); per codecast its title, parts, cues, guessed length, recorded languages; `current` marks the served folder. Hidden folders, `target/`, `node_modules/` are not searched. The cast map draws it |
+| `POST /api/root` | JSON `{path}` (a folder of `/api/casts` that has a codecast, as its path from the map's top) → that folder becomes the served project: analyzed from scratch (`/api/version` answers `0` meanwhile, then a number above every earlier one), its own codecast is the script (`--script` / `--audio` come back with the folder `serve` was started on). 202; 404 for a folder without a codecast, 409 `recording` / `analyzing` while a voice job or an analysis runs; same-origin loopback only |
 | `GET /api/script` | the `--script` file as text, a directory assembled into one (re-read each request), 404 if none |
 | `GET /api/audio` | the `--audio` file, 404 if none |
 | `GET /api/codecast/NAME` | a file of the script's directory: a recording named by an `audio:` line, or a font of `codecast.toml` (no path escapes) |

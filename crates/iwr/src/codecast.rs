@@ -70,6 +70,118 @@ pub fn locate(project: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The folder a served path stands for: itself, or the folder of a single file.
+pub fn project_dir(project: &Path) -> PathBuf {
+    let p = project.canonicalize().unwrap_or_else(|_| project.to_path_buf());
+    if p.is_file() {
+        p.parent().map(Path::to_path_buf).unwrap_or(p)
+    } else {
+        p
+    }
+}
+
+/// Where the cast map starts: the git root above the project, else the project's own folder.
+pub fn map_top(project: &Path) -> PathBuf {
+    let dir = project_dir(project);
+    dir.ancestors().find(|a| a.join(".git").exists()).map(Path::to_path_buf).unwrap_or(dir)
+}
+
+/// What the cast map shows about a codecast: read from the script alone (no analysis, nothing
+/// renamed or written), `None` when it cannot be read.
+pub fn info(script_path: &Path) -> Option<iwr_core::casts::CastInfo> {
+    let mut langs: Vec<String> = Vec::new();
+    let text = if script_path.is_dir() {
+        let index = std::fs::read_to_string(script_path.join("index.md")).unwrap_or_default();
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(script_path).ok()?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort();
+        let mut parts = Vec::new();
+        for f in entries.iter().filter(|f| f.extension().and_then(|e| e.to_str()) == Some("md")) {
+            let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+            if stem == "index" || stem == "glossary" {
+                continue;
+            }
+            // a recording named after the part alone is English
+            if AUDIO_EXTS.iter().any(|e| script_path.join(format!("{stem}.{e}")).is_file()) {
+                langs.push("en".into());
+            }
+            langs.extend(variants(&entries, &stem).into_iter().map(|(lang, _)| lang));
+            parts.push(PartFile { text: std::fs::read_to_string(f).ok()?, stem, audio: None, times: vec![], voices: vec![] });
+        }
+        script::assemble(&index, &parts)
+    } else {
+        std::fs::read_to_string(script_path).ok()?
+    };
+    langs.sort();
+    langs.dedup();
+    let sc = script::parse(&text);
+    Some(iwr_core::casts::CastInfo { title: sc.title.clone(), parts: sc.parts.len(), cues: sc.cue_count(), secs: sc.duration(false, 1.0).0, langs })
+}
+
+/// Folders a scan for codecasts does not enter: hidden ones, build output, dependencies, and a
+/// codecast's own directory.
+fn skip_dir(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "target" | "node_modules" | "codecast")
+}
+
+/// Is there Rust or C source somewhere under `dir`? Gives up (no) after a few thousand entries.
+fn has_source(dir: &Path, seen: &mut usize) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    let mut dirs = Vec::new();
+    for e in rd.flatten() {
+        *seen += 1;
+        if *seen > 5000 {
+            return false;
+        }
+        let p = e.path();
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            if !skip_dir(&e.file_name().to_string_lossy()) {
+                dirs.push(p);
+            }
+        } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x, "rs" | "c" | "h")) {
+            return true;
+        }
+    }
+    dirs.iter().any(|d| has_source(d, seen))
+}
+
+/// Most folders a scan for codecasts visits before it gives up (a huge checkout).
+const MAX_SCAN: usize = 50_000;
+
+/// The codecasts around `project`: every folder under the git root (see [`map_top`]) that has
+/// one and sources to show, as a tree. Build output, dependencies, hidden folders and the codecast folders
+/// themselves are not entered; links are not followed.
+pub fn discover(project: &Path) -> iwr_core::casts::CastMap {
+    let top = map_top(project);
+    let current = project_dir(project);
+    let rel = |p: &Path| p.strip_prefix(&top).unwrap_or(Path::new("")).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/");
+    let mut found = Vec::new();
+    let mut stack = vec![top.clone()];
+    let mut seen = 0usize;
+    let mut partial = false;
+    while let Some(dir) = stack.pop() {
+        seen += 1;
+        if seen > MAX_SCAN {
+            partial = true;
+            break;
+        }
+        // a `codecast.md` in a folder without sources is a document, not a codecast to play
+        if let Some(i) = locate(&dir).filter(|_| has_source(&dir, &mut 0)).and_then(|s| info(&s)) {
+            found.push((rel(&dir), Some(i)));
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !skip_dir(&name) && e.file_type().is_ok_and(|t| t.is_dir()) {
+                stack.push(e.path());
+            }
+        }
+    }
+    let name = top.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| top.display().to_string());
+    let mut map = iwr_core::casts::CastMap::build(&top.display().to_string(), &name, found, &rel(&current));
+    map.partial = partial;
+    map
+}
+
 /// Read a script file or directory.
 pub fn load(path: &Path) -> Result<Loaded> {
     if path.is_dir() {
@@ -435,5 +547,45 @@ mod naming_tests {
             self.sort();
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod discover_tests {
+    use super::*;
+
+    /// A codecast in the top folder and in a sub-folder are both on the map, the folder between
+    /// them too; build output and hidden folders are not searched.
+    #[test]
+    fn finds_the_codecasts_under_the_git_root() {
+        let top = std::env::temp_dir().join(format!("iwr-discover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let write = |rel: &str, text: &str| {
+            let f = top.join(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, text).unwrap();
+        };
+        write(".git/HEAD", "");
+        write("codecast.md", "# Whole\n\n## One\nHello.\n");
+        write("src/main.rs", "fn main() {}\n");
+        write("crates/core/src/lib.rs", "");
+        write("docs/codecast.md", "# The format\n");
+        write("crates/core/codecast/index.md", "# Core\n");
+        write("crates/core/codecast/01-a.md", "## A\nFirst.\n");
+        write("crates/core/codecast/01-a_ja.ogg", "");
+        write("target/codecast.md", "# Built\n");
+        write(".hidden/codecast.md", "# Hidden\n");
+        let top = top.canonicalize().unwrap();
+
+        // served from the sub-folder: the scan still starts at the git root
+        let m = discover(&top.join("crates/core"));
+        let paths: Vec<&str> = m.nodes.iter().map(|n| n.path.as_str()).collect();
+        assert_eq!(paths, ["", "crates", "crates/core"]);
+        assert_eq!(m.nodes[0].cast.as_ref().unwrap().title, "Whole");
+        assert!(m.nodes[1].cast.is_none());
+        let core = m.nodes[2].cast.as_ref().unwrap();
+        assert_eq!((core.title.as_str(), core.parts, core.langs.as_slice()), ("Core", 1, &["ja".to_string()][..]));
+        assert!(m.nodes[2].current && !m.partial);
+        std::fs::remove_dir_all(&top).unwrap();
     }
 }

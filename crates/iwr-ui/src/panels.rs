@@ -73,6 +73,9 @@ pub fn TopBar() -> Element {
                     }
                 }
             }
+            if live && state.has_other_casts() {
+                IconButton { name: "map", tip: t::panels::top_map_tip().to_string(), active: *state.map_open.read(), onclick: move |_| { if *state.map_open.read() { state.map_open.set(false) } else { state.open_map() } } }
+            }
             crate::i18n::LangPicker { compact: true }
             IconButton { name: "question", tip: t::panels::top_help_tip().to_string(), active: *state.welcome_open.read(), onclick: move |_| { state.close_pages(); state.welcome_open.set(true); } }
             IconButton { name: "settings", tip: t::panels::top_settings_tip().to_string(), active: settings_open, onclick: move |_| { state.close_pages(); state.settings_open.set(!settings_open); } }

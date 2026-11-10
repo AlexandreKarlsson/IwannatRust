@@ -4,6 +4,7 @@
 #![allow(non_snake_case)]
 
 mod canvas;
+mod castmap;
 mod chart;
 mod code;
 mod design;
@@ -185,6 +186,10 @@ pub struct State {
     pub render: Signal<bool>,
     // ---- settings
     pub settings_open: Signal<bool>,
+    /// the cast map (jump to another folder's codecast) is shown over the page
+    pub map_open: Signal<bool>,
+    /// the codecasts around the served project, from `/api/casts` (`codecast serve` only)
+    pub casts: Signal<Option<Rc<iwr_core::casts::CastMap>>>,
     /// the Generate page (record the codecast's voice with Kokoro)
     pub generate_open: Signal<bool>,
     /// every part and its recordings, from `/api/voice` (`codecast serve` only)
@@ -285,6 +290,7 @@ impl State {
     pub fn close_pages(&mut self) {
         self.settings_open.set(false);
         self.generate_open.set(false);
+        self.map_open.set(false);
     }
 
     pub fn save_layout(&self) {
@@ -485,6 +491,8 @@ fn App() -> Element {
         drag: Signal::new(None),
         animate: Signal::new(false),
         settings_open: Signal::new(false),
+        map_open: Signal::new(false),
+        casts: Signal::new(None),
         generate_open: Signal::new(false),
         voice_status: Signal::new(None),
         voice_job: Signal::new(None),
@@ -563,11 +571,12 @@ fn App() -> Element {
                 state.set_lang(l);
             }
         }
-        // `?page=generate` / `?page=settings` open that page
+        // `?page=generate` / `?page=settings` / `?page=map` open that page
         if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('page') || '';").await {
             match v.as_str() {
                 Some("generate") => state.generate_open.set(true),
                 Some("settings") => state.settings_open.set(true),
+                Some("map") => state.open_map(),
                 _ => {}
             }
         }
@@ -580,16 +589,30 @@ fn App() -> Element {
         let mut first = true;
         let live = fetch_version().await.is_some();
         state.live.set(live);
+        if live {
+            spawn(async move { state.load_casts().await });
+        }
         loop {
             let v = if live { fetch_version().await.unwrap_or(0) } else { 1 };
             // version 0: the server is still analyzing (the loading page follows `/api/status`)
             if live && v == 0 {
+                // back to 0 after a project was shown: the server now serves another folder
+                // (the cast map, maybe in another tab). Start over on a fresh page
+                if !first {
+                    document::eval("location.reload();");
+                    break;
+                }
                 gloo_timers::future::sleep(std::time::Duration::from_millis(300)).await;
                 continue;
             }
             if first || v != *state.version.read() {
                 match fetch_project(if live { "/api/project" } else { "project.json" }).await {
                     Ok(p) => {
+                        // another folder's project (the jump was missed between two polls)
+                        if state.project.peek().as_ref().is_some_and(|old| old.root != p.root) {
+                            document::eval("location.reload();");
+                            break;
+                        }
                         let root = views::default_root(&p);
                         state.project.set(Some(Rc::new(p)));
                         state.version.set(v);
@@ -613,6 +636,12 @@ fn App() -> Element {
                                 let s = iwr_core::script::parse(&text);
                                 state.own_script.set(Some((Rc::new(s.clone()), state.audio_url.peek().clone(), state.audio_base.peek().clone())));
                                 state.load_script(s);
+                                // `?page=plan`: where a jump from the cast map lands
+                                if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('page') || '';").await {
+                                    if v.as_str() == Some("plan") {
+                                        state.set_mode(Mode::Plan);
+                                    }
+                                }
                                 // `?render=N&voice=V`: `codecast video` films part N with voice V
                                 if let Ok(v) = document::eval("const q = new URLSearchParams(location.search); return [q.get('render') || '', q.get('voice') || '', q.get('sub') || ''];").await {
                                     let get = |i: usize| v.get(i).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -700,7 +729,9 @@ fn App() -> Element {
                     "t" => { state.close_pages(); state.start_tour() }
                     "," => { let v = *state.settings_open.read(); state.close_pages(); state.settings_open.set(!v) }
                     "Escape" => {
-                        if *state.welcome_open.read() {
+                        if *state.map_open.read() {
+                            state.map_open.set(false)
+                        } else if *state.welcome_open.read() {
                             state.close_welcome()
                         } else if *state.settings_open.read() || *state.generate_open.read() {
                             state.close_pages()
@@ -743,6 +774,7 @@ fn App() -> Element {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         style { {chart::CSS} }
+        style { {castmap::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }, if render && sub_lang_empty { " nocaption" } else { "" }),
@@ -805,6 +837,9 @@ fn App() -> Element {
             // the first-start dialog waits for the project (the loading page shows meanwhile)
             if welcome_open && loaded {
                 tutorial::Welcome {}
+            }
+            if *state.map_open.read() {
+                castmap::CastMapPage {}
             }
             if let Some(name) = spot.filter(|_| has_guide) {
                 tutorial::Spot { key: "{name}", name: name.to_string() }

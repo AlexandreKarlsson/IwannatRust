@@ -1,0 +1,15 @@
+# The cast map (`castmap.rs`): jump to the codecast of a sub-folder or of a parent folder.
+
+title = "このプロジェクトのコードキャスト"
+scanning = "コードキャストを探しています…"
+# badge on the folder being served
+here = "現在地"
+no_cast = "コードキャストなし"
+parts = "{n} パート"
+open_tip = "「{title}」を開く：フォルダーを解析し、プランページから始めます"
+hint = "箱はコードキャストを持つフォルダーです。クリックで移動します。破線のフォルダーは途中の道です。"
+partial = "フォルダーが多すぎるため検索を途中で止めました。一部のコードキャストが表示されていない可能性があります。"
+busy_recording = "音声を録音中です。完了を待つか、生成ページでキャンセルしてからもう一度試してください。"
+busy_analyzing = "解析中です。完了してからもう一度試してください。"
+failed = "コードキャストを開けませんでした：{error}"
+close = "閉じる（Esc）"

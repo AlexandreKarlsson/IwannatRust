@@ -10,6 +10,7 @@
 //! (positions) → [`guide`] (step-by-step walkthrough).
 
 pub mod brief;
+pub mod casts;
 pub mod prompt;
 pub mod config;
 pub mod bytes;

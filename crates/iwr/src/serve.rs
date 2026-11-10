@@ -27,17 +27,74 @@ struct Shared {
     /// then, and `/api/project` answers 503)
     project: RwLock<Arc<Project>>,
     version: RwLock<u64>,
+    /// The highest version served before the root last changed: the next one is above it, so a
+    /// page that missed the `0` in between still sees a new version
+    past_version: std::sync::atomic::AtomicU64,
     /// How far the running (or last) analysis is, and when it started: what `/api/status` answers
     status: Mutex<(iwr_core::progress::Status, Option<Instant>)>,
-    path: PathBuf,
-    script: Option<PathBuf>,
-    audio: Option<PathBuf>,
+    /// What is served now; the cast map swaps it (`POST /api/root`)
+    root: RwLock<Root>,
+    /// What `codecast serve` was started with: jumping back to its folder restores `--script` / `--audio`
+    first_root: Root,
+    /// Tells the re-analysis task that a source changed
+    changes: tokio::sync::mpsc::UnboundedSender<()>,
+    /// The watch on the served folder; replaced when the root changes
+    watcher: Mutex<Option<notify::RecommendedWatcher>>,
     /// the Generate page's recording (one at a time), and when it started
     voice_job: Mutex<(iwr_core::voice::VoiceJob, Option<Instant>)>,
     voice_cancel: AtomicBool,
 }
 
+/// A served project: its folder (or file), its codecast and the `--audio` file, if any.
+#[derive(Clone)]
+struct Root {
+    path: PathBuf,
+    script: Option<PathBuf>,
+    audio: Option<PathBuf>,
+}
+
+impl Shared {
+    fn path(&self) -> PathBuf {
+        self.root.read().unwrap().path.clone()
+    }
+
+    fn script(&self) -> Option<PathBuf> {
+        self.root.read().unwrap().script.clone()
+    }
+
+    fn audio(&self) -> Option<PathBuf> {
+        self.root.read().unwrap().audio.clone()
+    }
+}
+
 type AppState = Arc<Shared>;
+
+/// Watch the served folder: an edited source wakes the re-analysis task. Replaces the watch
+/// on the folder served before.
+fn watch_root(shared: &AppState) {
+    let tx = shared.changes.clone();
+    let made = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if let Ok(ev) = res {
+            // reading the sources (our own re-analysis included) emits access events: ignore them
+            if ev.kind.is_access() {
+                return;
+            }
+            if ev.paths.iter().any(|p| p.extension().map(|e| e == "rs").unwrap_or(false) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
+                let _ = tx.send(());
+            }
+        }
+    });
+    let mut slot = shared.watcher.lock().unwrap();
+    // the old watch goes first: its folders do not count against the new one's
+    *slot = None;
+    match made {
+        Ok(mut w) => {
+            watch_sources(&mut w, &crate::codecast::project_dir(&shared.path()));
+            *slot = Some(w);
+        }
+        Err(e) => eprintln!("no file watch ({e}); edits need a restart"),
+    }
+}
 
 /// Watch the project for edits. The whole tree first; when the OS runs out of watches (a big
 /// workspace: every `target/` folder counts), only the folders that can hold sources, each on
@@ -135,7 +192,7 @@ async fn reanalyze(shared: &AppState, first: bool) -> Result<()> {
         st.0.progress = Default::default();
         st.1 = Some(Instant::now());
     }
-    let path = shared.path.clone();
+    let path = shared.path();
     let for_report = shared.clone();
     let result = tokio::task::spawn_blocking(move || {
         analyze_with(&path, &mut |p| {
@@ -146,7 +203,7 @@ async fn reanalyze(shared: &AppState, first: bool) -> Result<()> {
     .await;
     let outcome = match result {
         Ok(Ok(p)) => {
-            if let Err(e) = check_script(&p, shared.script.as_deref()) {
+            if let Err(e) = check_script(&p, shared.script().as_deref()) {
                 if first {
                     return Err(e);
                 }
@@ -154,7 +211,10 @@ async fn reanalyze(shared: &AppState, first: bool) -> Result<()> {
             }
             let name = p.name.clone();
             *shared.project.write().unwrap() = Arc::new(p);
-            *shared.version.write().unwrap() += 1;
+            {
+                let mut v = shared.version.write().unwrap();
+                *v = (*v).max(shared.past_version.load(Ordering::Relaxed)) + 1;
+            }
             let mut st = shared.status.lock().unwrap();
             st.0.name = name;
             st.0.ready = true;
@@ -178,25 +238,13 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
     let script = script.or_else(|| crate::codecast::locate(&path));
     let name = path.canonicalize().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
     let status = iwr_core::progress::Status { name, path: path.display().to_string(), ..Default::default() };
-    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(Project::default())), version: RwLock::new(0), status: Mutex::new((status, None)), path: path.clone(), script, audio, voice_job: Default::default(), voice_cancel: AtomicBool::new(false) });
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let root = Root { path: path.clone(), script, audio };
+    let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(Project::default())), version: RwLock::new(0), past_version: Default::default(), status: Mutex::new((status, None)), root: RwLock::new(root.clone()), first_root: root, changes: tx, watcher: Mutex::new(None), voice_job: Default::default(), voice_cancel: AtomicBool::new(false) });
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         // file watcher → re-analyze (debounced)
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let watch_root = shared.path.canonicalize().unwrap_or(shared.path.clone());
-        let watch_root = if watch_root.is_file() { watch_root.parent().unwrap().to_path_buf() } else { watch_root };
-        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res {
-                // reading the sources (our own re-analysis included) emits access events: ignore them
-                if ev.kind.is_access() {
-                    return;
-                }
-                if ev.paths.iter().any(|p| p.extension().map(|e| e == "rs").unwrap_or(false) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
-                    let _ = tx.send(());
-                }
-            }
-        })?;
-        watch_sources(&mut watcher, &watch_root);
+        watch_root(&shared);
         {
             let shared = shared.clone();
             tokio::spawn(async move {
@@ -218,6 +266,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/project", get(api_project))
             .route("/api/version", get(api_version))
             .route("/api/status", get(api_status))
+            .route("/api/casts", get(api_casts))
+            .route("/api/root", post(api_set_root))
             .route("/api/script", get(api_script))
             .route("/api/glossary", get(api_glossary))
             .route("/api/audio", get(api_audio))
@@ -291,10 +341,74 @@ async fn api_status(State(s): State<AppState>) -> Json<iwr_core::progress::Statu
     Json(status)
 }
 
+/// The codecasts around the served project, as a folder tree: what the cast map draws.
+async fn api_casts(State(s): State<AppState>) -> Response {
+    let path = s.path();
+    match tokio::task::spawn_blocking(move || crate::codecast::discover(&path)).await {
+        Ok(map) => Json(map).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// What `POST /api/root` takes: a folder of the cast map, as its path from the map's top.
+#[derive(serde::Deserialize)]
+struct RootRequest {
+    path: String,
+}
+
+/// Serve the codecast of another folder of the cast map: the folder becomes the project, it is
+/// analyzed from scratch (`version` back to `0`, the loading page follows) and its own codecast
+/// is the script. Only folders the scan found a codecast in; refused while a recording or an
+/// analysis runs.
+async fn api_set_root(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<RootRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if s.voice_job.lock().unwrap().0.running {
+        return (StatusCode::CONFLICT, "recording").into_response();
+    }
+    let path = s.path();
+    let Ok(map) = tokio::task::spawn_blocking(move || crate::codecast::discover(&path)).await else { return StatusCode::INTERNAL_SERVER_ERROR.into_response() };
+    // the path is looked up in the scan, never joined as given: no way out of the tree
+    let Some(node) = map.nodes.iter().find(|n| n.path == req.path && n.cast.is_some()) else { return (StatusCode::NOT_FOUND, "no codecast in that folder").into_response() };
+    if node.current {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    let dir = node.path.split('/').filter(|p| !p.is_empty()).fold(PathBuf::from(&map.top), |d, p| d.join(p));
+    let root = if dir == crate::codecast::project_dir(&s.first_root.path) {
+        s.first_root.clone()
+    } else {
+        Root { script: crate::codecast::locate(&dir), path: dir.clone(), audio: None }
+    };
+    {
+        let mut st = s.status.lock().unwrap();
+        if st.0.busy {
+            return (StatusCode::CONFLICT, "analyzing").into_response();
+        }
+        // taken here, not in `reanalyze`, so nothing else starts in between
+        st.0 = iwr_core::progress::Status { name: node.name.clone(), path: dir.display().to_string(), busy: true, ..Default::default() };
+        st.1 = Some(Instant::now());
+        *s.root.write().unwrap() = root;
+        let mut v = s.version.write().unwrap();
+        s.past_version.fetch_max(*v, Ordering::Relaxed);
+        *v = 0;
+        drop(v);
+        *s.project.write().unwrap() = Arc::new(Project::default());
+    }
+    eprintln!("now serving {}", dir.display());
+    watch_root(&s);
+    tokio::spawn(async move {
+        if let Err(e) = reanalyze(&s, false).await {
+            eprintln!("analysis failed: {e:#}");
+        }
+    });
+    StatusCode::ACCEPTED.into_response()
+}
+
 /// The codecast script as text (re-read on every request so edits show up on reload).
 /// A `codecast/` directory is assembled into one text.
 async fn api_script(State(s): State<AppState>) -> Response {
-    match &s.script {
+    match &s.script() {
         Some(p) => match crate::codecast::load(p) {
             Ok(l) => ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], l.text).into_response(),
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -305,8 +419,8 @@ async fn api_script(State(s): State<AppState>) -> Response {
 
 /// The project's own glossary (`glossary.md` next to the script), re-read on every request.
 async fn api_glossary(State(s): State<AppState>) -> Response {
-    let Some(p) = &s.script else { return StatusCode::NOT_FOUND.into_response() };
-    match std::fs::read_to_string(crate::codecast::glossary_path(p)) {
+    let Some(p) = s.script() else { return StatusCode::NOT_FOUND.into_response() };
+    match std::fs::read_to_string(crate::codecast::glossary_path(&p)) {
         Ok(t) => ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], t).into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -314,8 +428,8 @@ async fn api_glossary(State(s): State<AppState>) -> Response {
 
 /// The codecast's `codecast.toml` as JSON, re-read on every request.
 async fn api_config(State(s): State<AppState>) -> Response {
-    let Some(p) = &s.script else { return StatusCode::NOT_FOUND.into_response() };
-    match crate::codecast::read_config(p) {
+    let Some(p) = s.script() else { return StatusCode::NOT_FOUND.into_response() };
+    match crate::codecast::read_config(&p) {
         Ok(Some(c)) => Json(c).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
@@ -348,12 +462,12 @@ async fn api_save_config(State(s): State<AppState>, headers: HeaderMap, Json(c):
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(p) = &s.script else { return (StatusCode::CONFLICT, "no codecast next to the project: create codecast.md or codecast/ first").into_response() };
+    let Some(p) = s.script() else { return (StatusCode::CONFLICT, "no codecast next to the project: create codecast.md or codecast/ first").into_response() };
     let bad = c.problems();
     if !bad.is_empty() {
         return (StatusCode::BAD_REQUEST, bad.join("\n")).into_response();
     }
-    let path = crate::codecast::script_dir(p).join(iwr_core::config::FILE);
+    let path = crate::codecast::script_dir(&p).join(iwr_core::config::FILE);
     match std::fs::write(&path, c.to_toml()) {
         Ok(()) => {
             eprintln!("saved {}", path.display());
@@ -368,12 +482,12 @@ async fn api_save_font(State(s): State<AppState>, headers: HeaderMap, AxPath(nam
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(p) = &s.script else { return (StatusCode::CONFLICT, "no codecast next to the project").into_response() };
+    let Some(p) = s.script() else { return (StatusCode::CONFLICT, "no codecast next to the project").into_response() };
     let rel = format!("fonts/{name}");
     if name.contains('/') || !crate::codecast::is_safe_asset_name(&rel) || !iwr_core::config::is_font_file(&name) {
         return (StatusCode::BAD_REQUEST, "not a font file name (ttf, otf, woff, woff2)").into_response();
     }
-    let dir = crate::codecast::script_dir(p).join("fonts");
+    let dir = crate::codecast::script_dir(&p).join("fonts");
     let res = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&name), &body));
     match res {
         Ok(()) => rel.into_response(),
@@ -383,11 +497,11 @@ async fn api_save_font(State(s): State<AppState>, headers: HeaderMap, AxPath(nam
 
 /// An audio file named by an `audio:` line, or a font of `codecast.toml`, relative to the script's directory.
 async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<String>) -> Response {
-    let Some(script) = &s.script else { return StatusCode::NOT_FOUND.into_response() };
+    let Some(script) = s.script() else { return StatusCode::NOT_FOUND.into_response() };
     if !crate::codecast::is_safe_asset_name(&name) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    match std::fs::read(crate::codecast::script_dir(script).join(&name)) {
+    match std::fs::read(crate::codecast::script_dir(&script).join(&name)) {
         Ok(b) => {
             let mime = mime_guess::from_path(&name).first_or_octet_stream();
             ([(header::CONTENT_TYPE, mime.as_ref().to_string())], b).into_response()
@@ -399,7 +513,7 @@ async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<Strin
 /// Translate the texts the player sends (English, code in backticks): the author's own
 /// translations next to the codecast, else the offline model; the first request for a language sets the model up, which takes a while.
 async fn api_translate(State(s): State<AppState>, AxPath(lang): AxPath<String>, Json(texts): Json<Vec<String>>) -> Response {
-    let dir = s.script.as_deref().map(crate::codecast::script_dir);
+    let dir = s.script().as_deref().map(crate::codecast::script_dir);
     match tokio::task::spawn_blocking(move || crate::translate::translate(&lang, &texts, false, dir.as_deref())).await {
         Ok(Ok(done)) => Json(done).into_response(),
         Ok(Err(e)) => {
@@ -413,7 +527,7 @@ async fn api_translate(State(s): State<AppState>, AxPath(lang): AxPath<String>, 
 /// The translations of the texts the player sends that already exist (the codecast's
 /// `translations/<lang>.json`, then the cache), `null` for the others; never runs the model.
 async fn api_subtitles(State(s): State<AppState>, AxPath(lang): AxPath<String>, Json(texts): Json<Vec<String>>) -> Response {
-    let dir = s.script.as_deref().map(crate::codecast::script_dir);
+    let dir = s.script().as_deref().map(crate::codecast::script_dir);
     match tokio::task::spawn_blocking(move || crate::translate::known(&lang, &texts, dir.as_deref())).await {
         Ok(Ok(done)) => Json(done).into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, format!("{e:#}")).into_response(),
@@ -423,7 +537,7 @@ async fn api_subtitles(State(s): State<AppState>, AxPath(lang): AxPath<String>, 
 
 /// Every part of the codecast and its recordings (`codecast voice`), for the Generate page.
 async fn api_voice_status(State(s): State<AppState>) -> Response {
-    let script = s.script.clone();
+    let script = s.script();
     match tokio::task::spawn_blocking(move || crate::voice::status(script.as_deref())).await {
         Ok(st) => Json(st).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -435,11 +549,11 @@ async fn api_voice_start(State(s): State<AppState>, headers: HeaderMap, Json(req
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let Some(dir) = s.script().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
     if iwr_core::voice::voice_lang(&req.lang).is_none() || !iwr_core::voice::VOICES.contains(&req.voice.as_str()) {
         return (StatusCode::BAD_REQUEST, "unknown voice or language").into_response();
     }
-    let opts = crate::voice::Opts { voice: req.voice.clone(), voice2: req.voice2.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path.clone()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh, written: false };
+    let opts = crate::voice::Opts { voice: req.voice.clone(), voice2: req.voice2.clone(), speed: req.speed.clamp(0.5, 2.0), lang: req.lang.clone(), path: Some(s.path()), gap: req.gap.clamp(0.0, 3.0), level: req.level.clamp(0.0, 1.0), force: req.force, only: req.parts.clone(), retranslate: req.retranslate, fresh: req.fresh, written: false };
     spawn_voice_job(s, dir, vec![opts], vec![], Some(req))
 }
 
@@ -449,13 +563,13 @@ async fn api_voice_refresh(State(s): State<AppState>, headers: HeaderMap, Json(r
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let Some(dir) = s.script().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
     let st = crate::voice::status(Some(&dir));
     let opts = st
         .stale
         .iter()
         .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
-        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false, written: false })
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path()), gap: g.gap, level: g.level, force: false, only: g.parts.clone(), retranslate: false, fresh: false, written: false })
         .collect();
     spawn_voice_job(s, dir, opts, st.orphans, None)
 }
@@ -466,7 +580,7 @@ async fn api_voice_clean(State(s): State<AppState>, headers: HeaderMap, Json(req
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let Some(dir) = s.script().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
     if s.voice_job.lock().unwrap().0.running {
         return (StatusCode::CONFLICT, "a recording is running").into_response();
     }
@@ -488,14 +602,14 @@ async fn api_voice_complete(State(s): State<AppState>, headers: HeaderMap, Json(
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let Some(dir) = s.script().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
     let st = crate::voice::status(Some(&dir));
     let opts: Vec<_> = st
         .sets
         .iter()
         .filter(|g| req.groups.is_empty() || req.groups.contains(&g.key()))
         .filter(|g| !g.todo().is_empty())
-        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path.clone()), gap: g.gap, level: g.level, force: false, only: g.todo(), retranslate: false, fresh: false, written: false })
+        .map(|g| crate::voice::Opts { voice: g.voice.clone(), voice2: None, speed: g.speed, lang: g.arg.clone(), path: Some(s.path()), gap: g.gap, level: g.level, force: false, only: g.todo(), retranslate: false, fresh: false, written: false })
         .collect();
     if opts.is_empty() {
         return (StatusCode::CONFLICT, "nothing to record: those voices are complete").into_response();
@@ -508,7 +622,7 @@ async fn api_voice_drop(State(s): State<AppState>, headers: HeaderMap, Json(req)
     if !same_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    let Some(dir) = s.script.clone().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
+    let Some(dir) = s.script().filter(|d| d.is_dir()) else { return (StatusCode::CONFLICT, "recordings are made for a codecast/ directory").into_response() };
     if req.groups.is_empty() {
         return (StatusCode::BAD_REQUEST, "name the voices to delete").into_response();
     }
@@ -630,7 +744,7 @@ async fn api_voice_preview(headers: HeaderMap, Json(req): Json<iwr_core::voice::
 }
 
 async fn api_audio(State(s): State<AppState>) -> Response {
-    match &s.audio {
+    match &s.audio() {
         Some(p) => match std::fs::read(p) {
             Ok(b) => {
                 let mime = mime_guess::from_path(p).first_or_octet_stream();
