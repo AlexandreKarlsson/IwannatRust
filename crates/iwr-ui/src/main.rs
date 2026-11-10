@@ -765,6 +765,10 @@ fn App() -> Element {
     let generate_open = *state.generate_open.read();
     let has_side = state.side.read().is_some();
     let focus = *state.focus.read();
+    // during a codecast an empty details panel (nothing selected, no source line, not enlarged by
+    // `+ source`) stays closed: the view takes its width
+    let details_empty = has_guide && state.selected.read().is_none() && state.selected_span.read().is_none()
+        && focus != Some(iwr_core::script::Panel::Source);
     let focus_cls = focus.map(|f| format!(" focus-{}", f.name())).unwrap_or_default();
     // a cue that enlarges the sidebar shows it even when the viewer closed it
     let spot = *state.spot.read();
@@ -823,11 +827,12 @@ fn App() -> Element {
                 } else {
                     canvas::Canvas {}
                     // the side panel takes the details' place; a codecast's own diagram has no
-                    // item to detail, so without a side panel it gets the whole width (like a chart)
-                    if has_side || !is_diagram {
+                    // item to detail, so without a side panel it gets the whole width (like a chart);
+                    // same for an empty details panel during a codecast
+                    if has_side || (!is_diagram && !details_empty) {
                         div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     }
-                    if has_side { side::SidePanel {} } else if !is_diagram { panels::Details {} }
+                    if has_side { side::SidePanel {} } else if !is_diagram && !details_empty { panels::Details {} }
                 }
                 if has_side && (is_code || is_plan || chart.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
