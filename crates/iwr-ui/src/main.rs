@@ -614,6 +614,10 @@ fn App() -> Element {
                             break;
                         }
                         let root = views::default_root(&p);
+                        // the file tree opens with every folder closed
+                        if first {
+                            state.closed_dirs.set(p.files.iter().flat_map(|f| f.path.match_indices('/').map(|(i, _)| f.path[..i].to_string()).collect::<Vec<_>>()).collect());
+                        }
                         state.project.set(Some(Rc::new(p)));
                         state.version.set(v);
                         if first || state.root.read().is_none() {
