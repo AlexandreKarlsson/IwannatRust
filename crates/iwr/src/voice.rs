@@ -99,7 +99,7 @@ pub fn record(dir: &Path, o: &Opts, cancel: &AtomicBool, report: &mut dyn FnMut(
     if !dir.is_dir() {
         bail!("codecast voice records a codecast/ directory (one audio file per part file); {} is not one", dir.display());
     }
-    let project = o.path.clone().or_else(|| dir.canonicalize().ok()?.parent().map(Path::to_path_buf)).unwrap_or_else(|| PathBuf::from("."));
+    let project = o.path.clone().unwrap_or_else(|| crate::codecast::default_project(dir));
     // a codecast language: translate each part, record it with a voice of that language
     let target: Option<&str> = iwr_core::i18n::lang(&o.lang).map(|l| l.code).filter(|c| *c != "en");
     let loaded = codecast::load(dir)?;

@@ -2,7 +2,8 @@
 //!
 //! `codecast serve` scans the folders around the served project (`GET /api/casts`,
 //! `iwr_core::casts::CastMap`); this page draws them as a tree read left to right, a lit box per
-//! codecast, the folders in between dimmed. A click asks the server to serve that folder
+//! codecast, the folders in between dimmed; the topics of a codecast (`topics.rs`) are boxes
+//! under its folder. A click asks the server to serve that folder, or that topic of it
 //! (`POST /api/root`), then reloads the page: the loading page shows the new analysis, the
 //! codecast opens on its plan. `codecast serve` only: a static export has one codecast.
 
@@ -45,10 +46,10 @@ impl State {
     }
 }
 
-/// Ask the server to serve the folder at `path` of the map; `Err` is the server's reason
-/// (`recording`, `analyzing`, or a message).
-async fn jump(path: &str) -> Result<(), String> {
-    let r = gloo_net::http::Request::post("/api/root").json(&serde_json::json!({ "path": path })).map_err(|e| e.to_string())?.send().await.map_err(|e| e.to_string())?;
+/// Ask the server to serve the folder at `path` of the map, and `topic` of its codecast
+/// (`None`: the general one); `Err` is the server's reason (`recording`, `analyzing`, or a message).
+async fn jump(path: &str, topic: Option<&str>) -> Result<(), String> {
+    let r = gloo_net::http::Request::post("/api/root").json(&serde_json::json!({ "path": path, "topic": topic })).map_err(|e| e.to_string())?.send().await.map_err(|e| e.to_string())?;
     if r.ok() {
         Ok(())
     } else {
@@ -59,13 +60,7 @@ async fn jump(path: &str) -> Result<(), String> {
 
 /// What a codecast's box says under its title: parts, guessed length, recorded languages.
 fn meta(n: &CastNode) -> String {
-    let Some(c) = &n.cast else { return String::new() };
-    let mut out = format!("{} · ≈ {}", t::castmap::parts(c.parts), crate::generate::clock(c.secs));
-    if !c.langs.is_empty() {
-        out.push_str(" · ");
-        out.push_str(&c.langs.join(" "));
-    }
-    out
+    n.cast.as_ref().map(crate::topics::meta).unwrap_or_default()
 }
 
 /// Full-window overlay drawn over whatever is shown (the loading page included).
@@ -84,6 +79,8 @@ pub fn CastMapPage() -> Element {
             let (w, h) = (cols * COL - (COL - BOX_W), rows * ROW - (ROW - BOX_H));
             let at = |i: usize| (places[i].col as f64 * COL, places[i].row * ROW);
             let busy = going.read().is_some();
+            // while a topic plays, its folder's own box is a place to go, not where we are
+            let topic_plays = m.topic_plays();
             rsx! {
                 div { class: "cm-tree", style: "width:{w}px; height:{h}px",
                     svg { width: "{w}", height: "{h}", view_box: "0 0 {w} {h}",
@@ -104,26 +101,31 @@ pub fn CastMapPage() -> Element {
                         {
                             let (x, y) = at(i);
                             let pos = format!("left:{x:.0}px; top:{y:.0}px; animation-delay:{:.2}s", i as f64 * 0.04);
-                            let folder = if n.path.is_empty() { n.name.clone() } else { format!("{}/", n.name) };
+                            let folder = if n.topic.is_some() { t::castmap::topic().to_string() } else if n.path.is_empty() { n.name.clone() } else { format!("{}/", n.name) };
                             let path = n.path.clone();
-                            let is_going = going.read().as_deref() == Some(n.path.as_str());
+                            let topic = n.topic.clone();
+                            // a folder and its topics share the path: the topic tells them apart
+                            let id = format!("{}#{}", n.path, n.topic.as_deref().unwrap_or_default());
+                            let is_going = going.read().as_deref() == Some(id.as_str());
+                            let here = n.current && (n.topic.is_some() || !topic_plays);
+                            let cast_cls = if n.topic.is_some() { "cm-node cast topic" } else { "cm-node cast" };
                             match &n.cast {
-                                Some(c) if n.current => rsx! {
-                                    div { class: "cm-node cast current", style: "{pos}", title: "{n.path}",
+                                Some(c) if here => rsx! {
+                                    div { class: "{cast_cls} current", style: "{pos}", title: "{n.path}",
                                         span { class: "cm-here", {t::castmap::here()} }
                                         span { class: "cm-folder", "{folder}" }
-                                        span { class: "cm-title", "{c.title}" }
+                                        span { class: "cm-title", {if n.topic.is_some() { n.name.clone() } else { c.title.clone() }} }
                                         span { class: "cm-meta", "{meta(n)}" }
                                     }
                                 },
                                 Some(c) => rsx! {
-                                    button { class: if is_going { "cm-node cast going" } else { "cm-node cast" }, style: "{pos}", title: t::castmap::open_tip(&c.title), disabled: busy,
+                                    button { class: if is_going { format!("{cast_cls} going") } else { cast_cls.to_string() }, style: "{pos}", title: t::castmap::open_tip(if n.topic.is_some() { &n.name } else { &c.title }), disabled: busy,
                                         onclick: move |_| {
-                                            let path = path.clone();
-                                            going.set(Some(path.clone()));
+                                            let (path, topic) = (path.clone(), topic.clone());
+                                            going.set(Some(id.clone()));
                                             problem.set(None);
                                             spawn(async move {
-                                                match jump(&path).await {
+                                                match jump(&path, topic.as_deref()).await {
                                                     // a fresh page: the loading page follows the analysis, then the plan
                                                     Ok(()) => { document::eval("const q = new URLSearchParams(location.search); q.delete('render'); q.set('page', 'plan'); location.search = q.toString();"); }
                                                     Err(e) => {
@@ -138,15 +140,15 @@ pub fn CastMapPage() -> Element {
                                             });
                                         },
                                         span { class: "cm-folder", "{folder}" }
-                                        span { class: "cm-title", "{c.title}" }
+                                        span { class: "cm-title", {if n.topic.is_some() { n.name.clone() } else { c.title.clone() }} }
                                         span { class: "cm-meta", "{meta(n)}" }
                                     }
                                 },
                                 None => rsx! {
-                                    div { class: if n.current { "cm-node way current" } else { "cm-node way" }, style: "{pos}", title: "{n.path}",
-                                        if n.current { span { class: "cm-here", {t::castmap::here()} } }
+                                    div { class: if here { "cm-node way current" } else { "cm-node way" }, style: "{pos}", title: "{n.path}",
+                                        if here { span { class: "cm-here", {t::castmap::here()} } }
                                         span { class: "cm-folder", "{folder}" }
-                                        if n.current { span { class: "cm-meta", {t::castmap::no_cast()} } }
+                                        if here { span { class: "cm-meta", {t::castmap::no_cast()} } }
                                     }
                                 },
                             }
@@ -201,6 +203,7 @@ pub const CSS: &str = r#"
 .cm-node span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cm-node.way { background:transparent; border:1px dashed var(--border); color:var(--muted); }
 .cm-node.cast { background:color-mix(in srgb, var(--accent) 12%, var(--panel)); border:1px solid color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 0 18px -8px var(--accent); }
+.cm-node.cast.topic { border-radius:20px; background:color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 button.cm-node.cast { cursor:pointer; transition: transform .12s, box-shadow .12s, background .12s; }
 button.cm-node.cast:hover:not(:disabled) { transform: translateY(-2px); background:color-mix(in srgb, var(--accent) 22%, var(--panel)); box-shadow: 0 6px 24px -8px var(--accent); }
 button.cm-node.cast:disabled { cursor:default; opacity:.55; }

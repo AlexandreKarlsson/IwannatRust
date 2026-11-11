@@ -22,6 +22,7 @@ mod side;
 mod source;
 mod subtitles;
 mod theme;
+mod topics;
 mod tutorial;
 
 use crate::i18n::t;
@@ -190,6 +191,10 @@ pub struct State {
     pub map_open: Signal<bool>,
     /// the codecasts around the served project, from `/api/casts` (`codecast serve` only)
     pub casts: Signal<Option<Rc<iwr_core::casts::CastMap>>>,
+    /// the topics of the codecast and the one that plays (`topics.rs`)
+    pub topics: Signal<Option<Rc<iwr_core::casts::Topics>>>,
+    /// the codecast played to its end: the card that proposes the topics is shown
+    pub ended: Signal<bool>,
     /// the Generate page (record the codecast's voice with Kokoro)
     pub generate_open: Signal<bool>,
     /// every part and its recordings, from `/api/voice` (`codecast serve` only)
@@ -493,6 +498,8 @@ fn App() -> Element {
         settings_open: Signal::new(false),
         map_open: Signal::new(false),
         casts: Signal::new(None),
+        topics: Signal::new(None),
+        ended: Signal::new(false),
         generate_open: Signal::new(false),
         voice_status: Signal::new(None),
         voice_job: Signal::new(None),
@@ -606,6 +613,11 @@ fn App() -> Element {
                 continue;
             }
             if first || v != *state.version.read() {
+                // another tab made the server play another topic: follow it on a fresh page
+                if live && !first && state.topic_changed().await {
+                    document::eval("location.reload();");
+                    break;
+                }
                 match fetch_project(if live { "/api/project" } else { "project.json" }).await {
                     Ok(p) => {
                         // another folder's project (the jump was missed between two polls)
@@ -629,7 +641,13 @@ fn App() -> Element {
                             state.fit_request += 1;
                         }
                         if first {
-                            if let Some((text, audio, base, glossary)) = player::fetch_script(live).await {
+                            state.load_topics(live).await;
+                            // a `codecast/` with topics only has no script of its own to play
+                            let fetched = player::fetch_script(live).await.filter(|f| iwr_core::script::parse(&f.0).cue_count() > 0);
+                            if fetched.is_none() && state.has_topics() {
+                                state.set_mode(Mode::Plan);
+                            }
+                            if let Some((text, audio, base, glossary)) = fetched {
                                 state.audio_url.set(audio);
                                 state.audio_base.set(base);
                                 if let Some(g) = glossary {
@@ -783,6 +801,7 @@ fn App() -> Element {
         style { {theme::CSS} }
         style { {chart::CSS} }
         style { {castmap::CSS} }
+        style { {topics::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }, if render && sub_lang_empty { " nocaption" } else { "" }),
@@ -839,6 +858,10 @@ fn App() -> Element {
                     side::SidePanel {}
                 }
             }
+            }
+            // sits right above the player bar, whatever its height
+            if has_guide && loaded && !render && *state.ended.read() && state.has_topics() && state.plays_own() {
+                topics::EndCard {}
             }
             if has_guide {
                 player::PlayerBar {}

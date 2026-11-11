@@ -144,9 +144,10 @@ impl State {
 
     async fn load_config_inner(&mut self) {
         let (mut c, base) = match fetch_config("/api/config").await {
-            Some(c) => (c, "/api/codecast/"),
-            None => match fetch_config("codecast.json").await {
-                Some(c) => (c, "codecast/"),
+            Some(c) => (c, "/api/codecast/".to_string()),
+            // an export: the files of the topic that plays are in its own folder
+            None => match fetch_config(&format!("{}codecast.json", crate::topics::static_base())).await {
+                Some(c) => (c, format!("{}codecast/", crate::topics::static_base())),
                 None => return,
             },
         };

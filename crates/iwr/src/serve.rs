@@ -51,6 +51,9 @@ struct Root {
     path: PathBuf,
     script: Option<PathBuf>,
     audio: Option<PathBuf>,
+    /// The topic that plays (a sub-folder of the `codecast/` directory); `None`: the general
+    /// codecast
+    topic: Option<String>,
 }
 
 impl Shared {
@@ -58,12 +61,29 @@ impl Shared {
         self.root.read().unwrap().path.clone()
     }
 
+    /// The codecast that plays: the topic's directory when a topic is picked.
     fn script(&self) -> Option<PathBuf> {
+        let root = self.root.read().unwrap();
+        match &root.topic {
+            Some(t) => root.script.as_ref().map(|s| s.join(t)),
+            None => root.script.clone(),
+        }
+    }
+
+    /// The project's codecast, whatever topic plays.
+    fn cast(&self) -> Option<PathBuf> {
         self.root.read().unwrap().script.clone()
     }
 
+    /// The topic that plays; empty for the general codecast.
+    fn topic(&self) -> String {
+        self.root.read().unwrap().topic.clone().unwrap_or_default()
+    }
+
+    /// The `--audio` recording: it is the general codecast's.
     fn audio(&self) -> Option<PathBuf> {
-        self.root.read().unwrap().audio.clone()
+        let root = self.root.read().unwrap();
+        if root.topic.is_some() { None } else { root.audio.clone() }
     }
 }
 
@@ -239,7 +259,7 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
     let name = path.canonicalize().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())).unwrap_or_default();
     let status = iwr_core::progress::Status { name, path: path.display().to_string(), ..Default::default() };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let root = Root { path: path.clone(), script, audio };
+    let root = Root { path: path.clone(), script, audio, topic: None };
     let shared: AppState = Arc::new(Shared { project: RwLock::new(Arc::new(Project::default())), version: RwLock::new(0), past_version: Default::default(), status: Mutex::new((status, None)), root: RwLock::new(root.clone()), first_root: root, changes: tx, watcher: Mutex::new(None), voice_job: Default::default(), voice_cancel: AtomicBool::new(false) });
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
@@ -268,6 +288,8 @@ pub fn serve(path: PathBuf, port: u16, open_browser: bool, script: Option<PathBu
             .route("/api/status", get(api_status))
             .route("/api/casts", get(api_casts))
             .route("/api/root", post(api_set_root))
+            .route("/api/topics", get(api_topics))
+            .route("/api/topic", post(api_set_topic))
             .route("/api/script", get(api_script))
             .route("/api/glossary", get(api_glossary))
             .route("/api/audio", get(api_audio))
@@ -343,8 +365,8 @@ async fn api_status(State(s): State<AppState>) -> Json<iwr_core::progress::Statu
 
 /// The codecasts around the served project, as a folder tree: what the cast map draws.
 async fn api_casts(State(s): State<AppState>) -> Response {
-    let path = s.path();
-    match tokio::task::spawn_blocking(move || crate::codecast::discover(&path)).await {
+    let (path, topic) = (s.path(), s.topic());
+    match tokio::task::spawn_blocking(move || crate::codecast::discover(&path, &topic)).await {
         Ok(map) => Json(map).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -354,6 +376,68 @@ async fn api_casts(State(s): State<AppState>) -> Response {
 #[derive(serde::Deserialize)]
 struct RootRequest {
     path: String,
+    /// A topic of that folder's codecast to play, instead of its general codecast
+    #[serde(default)]
+    topic: Option<String>,
+}
+
+/// The topics of the served codecast and the one that plays: what the plan page offers.
+async fn api_topics(State(s): State<AppState>) -> Response {
+    let (cast, topic) = (s.cast(), s.topic());
+    let list = match cast {
+        Some(c) => tokio::task::spawn_blocking(move || crate::codecast::topic_list(&c, &topic)).await.unwrap_or_default(),
+        None => Default::default(),
+    };
+    Json(list).into_response()
+}
+
+/// What `POST /api/topic` takes: a topic's folder name, or `""` for the general codecast.
+#[derive(serde::Deserialize)]
+struct TopicRequest {
+    dir: String,
+}
+
+/// Play another topic of the served codecast (same project: nothing is analyzed again). The
+/// version goes up, so the other open tabs see the change and follow.
+async fn api_set_topic(State(s): State<AppState>, headers: HeaderMap, Json(req): Json<TopicRequest>) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match set_topic(&s, &req.dir) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(r) => r.into_response(),
+    }
+}
+
+/// Make `dir` the topic that plays (`""`: the general codecast). Only a topic the codecast
+/// has, looked up by name (never joined as given); refused while a recording runs.
+fn set_topic(s: &AppState, dir: &str) -> Result<(), (StatusCode, &'static str)> {
+    if s.voice_job.lock().unwrap().0.running {
+        return Err((StatusCode::CONFLICT, "recording"));
+    }
+    let topic = if dir.is_empty() {
+        None
+    } else {
+        let known = s.cast().map(|c| crate::codecast::topics(&c)).unwrap_or_default();
+        match known.into_iter().find(|t| t.dir == dir) {
+            Some(t) => Some(t.dir),
+            None => return Err((StatusCode::NOT_FOUND, "no such topic")),
+        }
+    };
+    if s.root.read().unwrap().topic == topic {
+        return Ok(());
+    }
+    s.root.write().unwrap().topic = topic;
+    eprintln!("now playing {}", s.script().map(|p| p.display().to_string()).unwrap_or_default());
+    let mut v = s.version.write().unwrap();
+    if *v != 0 {
+        *v += 1;
+        drop(v);
+        if let Err(e) = check_script(&s.project.read().unwrap().clone(), s.script().as_deref()) {
+            eprintln!("script: {e:#}");
+        }
+    }
+    Ok(())
 }
 
 /// Serve the codecast of another folder of the cast map: the folder becomes the project, it is
@@ -367,19 +451,24 @@ async fn api_set_root(State(s): State<AppState>, headers: HeaderMap, Json(req): 
     if s.voice_job.lock().unwrap().0.running {
         return (StatusCode::CONFLICT, "recording").into_response();
     }
-    let path = s.path();
-    let Ok(map) = tokio::task::spawn_blocking(move || crate::codecast::discover(&path)).await else { return StatusCode::INTERNAL_SERVER_ERROR.into_response() };
+    let (path, topic) = (s.path(), s.topic());
+    let Ok(map) = tokio::task::spawn_blocking(move || crate::codecast::discover(&path, &topic)).await else { return StatusCode::INTERNAL_SERVER_ERROR.into_response() };
     // the path is looked up in the scan, never joined as given: no way out of the tree
-    let Some(node) = map.nodes.iter().find(|n| n.path == req.path && n.cast.is_some()) else { return (StatusCode::NOT_FOUND, "no codecast in that folder").into_response() };
-    if node.current {
-        return StatusCode::NO_CONTENT.into_response();
+    let Some(node) = map.nodes.iter().find(|n| n.path == req.path && n.topic == req.topic && n.cast.is_some()) else { return (StatusCode::NOT_FOUND, "no codecast in that folder").into_response() };
+    // the served folder: only the topic changes, nothing to analyze
+    if map.nodes.iter().any(|n| n.path == req.path && n.topic.is_none() && n.current) {
+        return match set_topic(&s, req.topic.as_deref().unwrap_or_default()) {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(r) => r.into_response(),
+        };
     }
     let dir = node.path.split('/').filter(|p| !p.is_empty()).fold(PathBuf::from(&map.top), |d, p| d.join(p));
-    let root = if dir == crate::codecast::project_dir(&s.first_root.path) {
+    let mut root = if dir == crate::codecast::project_dir(&s.first_root.path) {
         s.first_root.clone()
     } else {
-        Root { script: crate::codecast::locate(&dir), path: dir.clone(), audio: None }
+        Root { script: crate::codecast::locate(&dir), path: dir.clone(), audio: None, topic: None }
     };
+    root.topic = node.topic.clone();
     {
         let mut st = s.status.lock().unwrap();
         if st.0.busy {
@@ -467,7 +556,7 @@ async fn api_save_config(State(s): State<AppState>, headers: HeaderMap, Json(c):
     if !bad.is_empty() {
         return (StatusCode::BAD_REQUEST, bad.join("\n")).into_response();
     }
-    let path = crate::codecast::script_dir(&p).join(iwr_core::config::FILE);
+    let path = crate::codecast::config_dir(&p).join(iwr_core::config::FILE);
     match std::fs::write(&path, c.to_toml()) {
         Ok(()) => {
             eprintln!("saved {}", path.display());
@@ -487,7 +576,7 @@ async fn api_save_font(State(s): State<AppState>, headers: HeaderMap, AxPath(nam
     if name.contains('/') || !crate::codecast::is_safe_asset_name(&rel) || !iwr_core::config::is_font_file(&name) {
         return (StatusCode::BAD_REQUEST, "not a font file name (ttf, otf, woff, woff2)").into_response();
     }
-    let dir = crate::codecast::script_dir(&p).join("fonts");
+    let dir = crate::codecast::config_dir(&p).join("fonts");
     let res = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&name), &body));
     match res {
         Ok(()) => rel.into_response(),
@@ -501,7 +590,7 @@ async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<Strin
     if !crate::codecast::is_safe_asset_name(&name) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    match std::fs::read(crate::codecast::script_dir(&script).join(&name)) {
+    match std::fs::read(crate::codecast::asset_path(&script, &name)) {
         Ok(b) => {
             let mime = mime_guess::from_path(&name).first_or_octet_stream();
             ([(header::CONTENT_TYPE, mime.as_ref().to_string())], b).into_response()
@@ -807,46 +896,17 @@ pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Optio
     }
     std::fs::write(out.join("project.json"), serde_json::to_vec(&project)?)?;
     if let Some(s) = &script {
-        let loaded = crate::codecast::load(s)?;
-        let sc = iwr_core::script::parse(&loaded.text);
-        for b in iwr_core::script::check(&project, &sc) {
-            eprintln!("script: {}", b);
+        if crate::codecast::has_general(s) {
+            export_cast(s, &out, &project, langs)?;
         }
-        std::fs::write(out.join("codecast.md"), &loaded.text)?;
-        if let Some(g) = &loaded.glossary {
-            std::fs::write(out.join("glossary.md"), g)?;
-        }
-        // recordings named by `audio:` lines go to out/codecast/
-        for a in crate::codecast::audio_files(&sc) {
-            let src = loaded.dir.join(&a);
-            if src.is_file() && crate::codecast::is_safe_audio_name(&a) {
-                std::fs::create_dir_all(out.join("codecast"))?;
-                std::fs::copy(&src, out.join("codecast").join(&a))?;
-            } else {
-                eprintln!("script: audio file not found or not allowed: {}", src.display());
+        // each topic is a codecast of its own under out/topics/<dir>/, listed in out/topics.json
+        let topics = crate::codecast::topic_list(s, "");
+        if !topics.topics.is_empty() {
+            for t in &topics.topics {
+                export_cast(&s.join(&t.dir), &out.join("topics").join(&t.dir), &project, langs)?;
             }
-        }
-        // the look and defaults: out/codecast.json, fonts beside the recordings in out/codecast/
-        for b in crate::codecast::check_config(s) {
-            eprintln!("script: {}", b);
-        }
-        if let Some(c) = crate::codecast::read_config(s)? {
-            std::fs::write(out.join("codecast.json"), serde_json::to_vec(&c)?)?;
-            for f in c.font_files() {
-                let src = loaded.dir.join(&f);
-                if src.is_file() {
-                    let dest = out.join("codecast").join(&f);
-                    std::fs::create_dir_all(dest.parent().unwrap())?;
-                    std::fs::copy(&src, dest)?;
-                }
-            }
-        }
-        // translations the player looks up when another language is picked: out/translations/<lang>.json
-        for lang in langs {
-            let map = crate::translate::codecast_map(s, &project, lang)?;
-            std::fs::create_dir_all(out.join("translations"))?;
-            std::fs::write(out.join("translations").join(format!("{}.json", lang)), serde_json::to_vec(&map)?)?;
-            eprintln!("translated the codecast to {} ({} pieces)", lang, map.len());
+            std::fs::write(out.join("topics.json"), serde_json::to_vec(&topics)?)?;
+            eprintln!("exported {} topic(s)", topics.topics.len());
         }
     }
     if let Some(a) = &audio {
@@ -855,5 +915,53 @@ pub fn export(path: PathBuf, out: PathBuf, script: Option<PathBuf>, audio: Optio
         std::fs::write(out.join("audio.txt"), format!("audio.{}", ext))?;
     }
     eprintln!("exported {} to {}", project.name, out.display());
+    Ok(())
+}
+
+/// Write one codecast (the general one, or a topic) into `out`: `codecast.md`, `glossary.md`,
+/// `codecast.json`, recordings and fonts in `codecast/`, translations in `translations/`.
+fn export_cast(s: &Path, out: &Path, project: &Project, langs: &[String]) -> Result<()> {
+    std::fs::create_dir_all(out)?;
+    let loaded = crate::codecast::load(s)?;
+    let sc = iwr_core::script::parse(&loaded.text);
+    for b in iwr_core::script::check(project, &sc) {
+        eprintln!("script: {}", b);
+    }
+    std::fs::write(out.join("codecast.md"), &loaded.text)?;
+    if let Some(g) = &loaded.glossary {
+        std::fs::write(out.join("glossary.md"), g)?;
+    }
+    // recordings named by `audio:` lines go to out/codecast/
+    for a in crate::codecast::audio_files(&sc) {
+        let src = loaded.dir.join(&a);
+        if src.is_file() && crate::codecast::is_safe_audio_name(&a) {
+            std::fs::create_dir_all(out.join("codecast"))?;
+            std::fs::copy(&src, out.join("codecast").join(&a))?;
+        } else {
+            eprintln!("script: audio file not found or not allowed: {}", src.display());
+        }
+    }
+    // the look and defaults: out/codecast.json, fonts beside the recordings in out/codecast/
+    for b in crate::codecast::check_config(s) {
+        eprintln!("script: {}", b);
+    }
+    if let Some(c) = crate::codecast::read_config(s)? {
+        std::fs::write(out.join("codecast.json"), serde_json::to_vec(&c)?)?;
+        for f in c.font_files() {
+            let src = crate::codecast::config_dir(s).join(&f);
+            if src.is_file() {
+                let dest = out.join("codecast").join(&f);
+                std::fs::create_dir_all(dest.parent().unwrap())?;
+                std::fs::copy(&src, dest)?;
+            }
+        }
+    }
+    // translations the player looks up when another language is picked: out/translations/<lang>.json
+    for lang in langs {
+        let map = crate::translate::codecast_map(s, project, lang)?;
+        std::fs::create_dir_all(out.join("translations"))?;
+        std::fs::write(out.join("translations").join(format!("{}.json", lang)), serde_json::to_vec(&map)?)?;
+        eprintln!("translated the codecast to {} ({} pieces)", lang, map.len());
+    }
     Ok(())
 }

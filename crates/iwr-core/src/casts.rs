@@ -32,8 +32,46 @@ pub struct CastNode {
     pub parent: Option<usize>,
     /// The folder's codecast; `None` for a folder that only connects others.
     pub cast: Option<CastInfo>,
-    /// The folder `codecast serve` is showing now.
+    /// The folder `codecast serve` is showing now; for a topic, the one that plays.
     pub current: bool,
+    /// Set on a topic of the folder's codecast (its directory inside `codecast/`): `path` is
+    /// then the folder's, and `cast` what the topic holds.
+    #[serde(default)]
+    pub topic: Option<String>,
+}
+
+/// A topic: a codecast of its own about the same code, kept in a sub-folder of the `codecast/`
+/// directory (`codecast/error_handling/`, same files inside as in `codecast/`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Topic {
+    /// The sub-folder's name: what `POST /api/topic` takes.
+    pub dir: String,
+    /// What the viewer reads: the `# Title` of the topic's `index.md`, else [`topic_label`].
+    pub label: String,
+    pub info: CastInfo,
+}
+
+/// The topics of the served codecast, and which one plays (`GET /api/topics`, `topics.json` in
+/// an export).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Topics {
+    /// Is there a general codecast (parts right in `codecast/`, or a single-file script)?
+    pub general: bool,
+    /// Title of the general codecast, when it has one.
+    pub title: String,
+    /// The topic that plays, by its `dir`; empty for the general codecast.
+    pub current: String,
+    pub topics: Vec<Topic>,
+}
+
+/// A topic's label from its folder name: an ordering prefix (`02-`) dropped, `_` read as a
+/// space (`02-error_handling` → `error handling`).
+pub fn topic_label(dir: &str) -> String {
+    let rest = match dir.split_once('-') {
+        Some((n, rest)) if !n.is_empty() && !rest.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => rest,
+        _ => dir,
+    };
+    rest.replace('_', " ").trim().to_string()
 }
 
 /// The folders with a codecast under the top folder (the git root, else the served folder).
@@ -61,9 +99,22 @@ impl CastMap {
     /// them (`crates/` › `core/` › `tests/`) as one node; `current` is always on the map, even
     /// without a codecast.
     pub fn build(top: &str, top_name: &str, folders: Vec<(String, Option<CastInfo>)>, current: &str) -> CastMap {
+        Self::build_with_topics(top, top_name, folders, vec![], current, "")
+    }
+
+    /// [`CastMap::build`], with the topics of the folders that have some (folder path, its
+    /// topics): each topic is a node under its folder, before the sub-folders. `current_topic`
+    /// is the topic that plays in the `current` folder (empty: its general codecast).
+    pub fn build_with_topics(top: &str, top_name: &str, folders: Vec<(String, Option<CastInfo>)>, topics: Vec<(String, Vec<Topic>)>, current: &str, current_topic: &str) -> CastMap {
         let mut paths: Vec<(String, Option<CastInfo>)> = folders;
         if !paths.iter().any(|(p, _)| p == current) {
             paths.push((current.to_string(), None));
+        }
+        // a folder with topics only (no general codecast) is on the map too
+        for (p, _) in &topics {
+            if !paths.iter().any(|(q, _)| q == p) {
+                paths.push((p.clone(), None));
+            }
         }
         // every ancestor of a listed folder is a node too, the top included
         let mut all: std::collections::BTreeMap<Vec<String>, Option<CastInfo>> = Default::default();
@@ -90,10 +141,34 @@ impl CastMap {
                     cast: info.clone(),
                     current: path == current,
                     path,
+                    topic: None,
                 }
             })
             .collect();
-        CastMap { top: top.to_string(), nodes: fold_ways(nodes), partial: false }
+        // topics go right after their folder: the subtree stays in one run
+        let at: Vec<usize> = nodes
+            .iter()
+            .scan(0, |next, n| {
+                let i = *next;
+                *next += 1 + topics.iter().filter(|(p, _)| *p == n.path).map(|(_, t)| t.len()).sum::<usize>();
+                Some(i)
+            })
+            .collect();
+        let mut all = Vec::new();
+        for (i, mut n) in nodes.into_iter().enumerate() {
+            n.parent = n.parent.map(|p| at[p]);
+            let (path, here) = (n.path.clone(), n.current);
+            all.push(n);
+            for t in topics.iter().filter(|(p, _)| *p == path).flat_map(|(_, t)| t) {
+                all.push(CastNode { path: path.clone(), name: t.label.clone(), parent: Some(at[i]), cast: Some(t.info.clone()), current: here && t.dir == current_topic, topic: Some(t.dir.clone()) });
+            }
+        }
+        CastMap { top: top.to_string(), nodes: fold_ways(all), partial: false }
+    }
+
+    /// Is a topic the thing that plays (then the served folder's own box is a place to go)?
+    pub fn topic_plays(&self) -> bool {
+        self.nodes.iter().any(|n| n.topic.is_some() && n.current)
     }
 
     /// How many codecasts the map has.
@@ -215,6 +290,28 @@ mod tests {
         assert_eq!(names, ["w", "a/b/c", "x", "y"]);
         assert_eq!(m.nodes[1].path, "a/b/c");
         assert_eq!(m.nodes.iter().map(|n| n.parent).collect::<Vec<_>>(), [None, Some(0), Some(1), Some(1)]);
+    }
+
+    #[test]
+    fn topics_are_nodes_under_their_folder() {
+        let topic = |dir: &str| Topic { dir: dir.into(), label: topic_label(dir), info: CastInfo::default() };
+        let m = CastMap::build_with_topics("/w", "w", vec![("".into(), cast("All")), ("a/b".into(), None), ("a/b/c".into(), cast("C"))], vec![("".into(), vec![topic("01-error_handling"), topic("io")]), ("a/b".into(), vec![topic("only")])], "", "io");
+        let names: Vec<&str> = m.nodes.iter().map(|n| n.name.as_str()).collect();
+        // `a` is folded into `b`; `b` has a topic, so it is not folded into `c`
+        assert_eq!(names, ["w", "error handling", "io", "a/b", "only", "c"]);
+        assert_eq!(m.nodes.iter().map(|n| n.parent).collect::<Vec<_>>(), [None, Some(0), Some(0), Some(0), Some(3), Some(3)]);
+        assert_eq!(m.nodes[2].topic.as_deref(), Some("io"));
+        assert!(m.nodes[0].current && m.nodes[2].current && !m.nodes[1].current && !m.nodes[4].current);
+        assert!(m.topic_plays());
+        assert_eq!(m.nodes[4].path, "a/b");
+    }
+
+    #[test]
+    fn topic_labels_come_from_folder_names() {
+        assert_eq!(topic_label("error_handling"), "error handling");
+        assert_eq!(topic_label("02-the_parser"), "the parser");
+        assert_eq!(topic_label("x-ray"), "x-ray");
+        assert_eq!(topic_label("2024"), "2024");
     }
 
     #[test]

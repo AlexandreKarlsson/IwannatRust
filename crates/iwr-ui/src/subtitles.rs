@@ -49,7 +49,7 @@ async fn known(live: bool, lang: &str, texts: &[String]) -> Option<Vec<Option<St
         }
         r.json::<Vec<Option<String>>>().await.ok()
     } else {
-        let r = gloo_net::http::Request::get(&format!("translations/{lang}.json")).send().await.ok()?;
+        let r = gloo_net::http::Request::get(&format!("{}translations/{lang}.json", crate::topics::static_base())).send().await.ok()?;
         if !r.ok() {
             return None;
         }

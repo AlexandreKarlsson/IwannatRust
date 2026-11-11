@@ -84,6 +84,15 @@ settings).
 Scripts can also be written by an AI or by hand and loaded with `codecast serve --script`, or `load…` in
 the player bar. See [codecast.md](codecast.md) for the format, the brief and the player.
 
+## Topics: more codecasts about the same code
+
+A codecast can come with **topics**: shorter codecasts about one subject of the same project
+(sub-folders of its `codecast/` directory, see [codecast.md](codecast.md)). The plan page lists
+them under the parts, and when the codecast has played to its end a card proposes them. Click
+one: it opens on its own plan, at once (the project is not analyzed again). From a topic, the
+*General tour* card leads back. A project with topics only opens on their list. Topics are also
+boxes on the cast map, under their folder.
+
 ## Cast map: the codecasts of other folders
 
 A repository can hold several codecasts: one for the whole project, one inside a crate or a

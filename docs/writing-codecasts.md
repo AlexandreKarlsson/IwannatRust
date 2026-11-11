@@ -440,6 +440,9 @@ Then each task is copied into storage, because storage wants to own it and the l
 - A few `sp:` lines (one every three to six cues, never two in a row).
 - Directory form: `index.md` has `# Title` and a `- [Part](NN-file.md)` list in playing order; each
   part file starts with its `## Part name`.
+- A subject too long for the general tour goes in a topic: a sub-folder of `codecast/` with
+  the same files (`codecast/error_handling/index.md` + part files), named after the subject
+  (`_` for spaces). See *Topics* in `docs/codecast.md`.
 - First part welcomes and says what the project is for; last cue wraps up; each part hands over.
 - Every first cue sets the stage (rule 3); `codecast check` prints no "first cue" note. No part over
   twelve cues.
