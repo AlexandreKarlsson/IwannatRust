@@ -20,7 +20,7 @@ pub(crate) struct Index {
     /// method name → ids
     methods: HashMap<String, Vec<ItemId>>,
     /// full path → id
-    paths: HashMap<String, ItemId>,
+    pub(crate) paths: HashMap<String, ItemId>,
     /// module → its crate (the top module under a workspace's virtual root; 0 in a single crate)
     crate_of: Vec<ModuleId>,
     /// crate → the other crates its sources name (`torc_proto::call`, `use torc_proto`)
@@ -34,6 +34,10 @@ fn build_index(p: &Project) -> Index {
         .modules
         .iter()
         .map(|m| {
+            // crates are Rust's: the modules of the other languages all see each other
+            if m.file.is_some_and(|f| p.files[f].lang != Some(SourceLang::Rust)) {
+                return 0;
+            }
             let mut cur = m.id;
             while let Some(parent) = p.modules[cur].parent.filter(|pa| *pa != 0 || !workspace) {
                 cur = parent;
@@ -200,7 +204,7 @@ pub(crate) struct Stats {
 }
 
 pub fn finish(c: Collected, report: &mut dyn FnMut(&Progress)) -> Project {
-    let Collected { mut project, bodies, use_paths } = c;
+    let Collected { mut project, bodies, use_paths, rels } = c;
     let counts = |p: &Project, calls: usize| Progress { files: p.files.len(), items: p.items.len(), calls, ..Default::default() };
     report(&Progress { stage: Stage::Linking, ..counts(&project, 0) });
 
@@ -240,6 +244,15 @@ pub fn finish(c: Collected, report: &mut dyn FnMut(&Progress)) -> Project {
             project.type_rels.push(TypeRel { from: t, to: tr, kind: TypeRelKind::Implements, label: None });
         }
     }
+    // relations the front-ends read by name
+    for (from, name, kind) in rels {
+        let last = name.rsplit("::").next().unwrap_or(&name);
+        let last = last.split('<').next().unwrap_or(last);
+        if let Some(to) = resolve_type(&project, &ix, last, project.items[from].module).filter(|t| *t != from) {
+            project.type_rels.push(TypeRel { from, to, kind, label: None });
+        }
+    }
+    lang::link(&mut project);
     // supertraits
     for id in 0..n {
         let module = project.items[id].module;

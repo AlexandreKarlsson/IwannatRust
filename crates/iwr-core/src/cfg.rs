@@ -59,6 +59,8 @@ pub(crate) struct Facts {
     pub is_let: bool,
     /// Existing state changes (assignment, compound assignment, a mutating method).
     pub is_mutation: bool,
+    /// Input / output the driver knows about (the text test [`is_io`] is tried as well).
+    pub is_io: bool,
 }
 
 /// One arm of a `match` / `switch` given to [`Builder::match_node`].
@@ -173,6 +175,11 @@ impl<'a> Builder<'a> {
         self.pending_note = note_above(&self.lines, line);
     }
 
+    /// The note for the next node, read by the driver (a shell `#` comment).
+    pub(crate) fn set_note(&mut self, note: Option<String>) {
+        self.pending_note = note;
+    }
+
     pub(crate) fn clear_note(&mut self) {
         self.pending_note = None;
     }
@@ -248,7 +255,7 @@ impl<'a> Builder<'a> {
             CfgNodeKind::Call
         } else if f.has_await {
             CfgNodeKind::Await
-        } else if is_io(&detail) {
+        } else if f.is_io || is_io(&detail) {
             CfgNodeKind::Io
         } else if f.is_let {
             CfgNodeKind::Let
@@ -295,7 +302,7 @@ impl<'a> Builder<'a> {
     }
 
     /// The program stops: a print just before (same paragraph) joins the node, nothing follows.
-    fn halt(&mut self, code: &str, detail: String, span: Span) {
+    pub(crate) fn halt(&mut self, code: &str, detail: String, span: Span) {
         let prev = match self.open.as_slice() {
             [(prev, CfgEdgeKind::Next, _)] => Some(*prev),
             _ => None,
@@ -347,21 +354,27 @@ impl<'a> Builder<'a> {
 
     /// A branch: `cond` is the condition as written; `then` / `els` build the two sides.
     pub(crate) fn if_node(&mut self, cond: &str, cond_span: Span, then: impl FnOnce(&mut Self), els: Option<impl FnOnce(&mut Self)>) {
+        self.branch_node(&format!("if {}", cond), ("true", "false"), cond_span, then, els);
+    }
+
+    /// A two-way branch that is not written `if` (a `catch`, a shell `cmd || …`): `label` is
+    /// the node's text, `edges` the words on the way into `then` and past it.
+    pub(crate) fn branch_node(&mut self, label: &str, edges: (&str, &str), cond_span: Span, then: impl FnOnce(&mut Self), els: Option<impl FnOnce(&mut Self)>) {
         let pre = self.let_prefix.take().map(|p| format!("{} ", p)).unwrap_or_default();
-        let id = self.seq(CfgNodeKind::If, shorten(&format!("{}if {}", pre, cond), 40), format!("{}if {}", pre, cond), cond_span);
+        let id = self.seq(CfgNodeKind::If, shorten(&format!("{}{}", pre, label), 40), format!("{}{}", pre, label), cond_span);
         self.open.clear();
         self.depth += 1;
-        let what = self.cfg.nodes[id].note.clone().unwrap_or_else(|| format!("if {}", cond));
+        let what = self.cfg.nodes[id].note.clone().unwrap_or_else(|| label.to_string());
         let level = self.frames.len();
         // then
         self.conds.push((level, what.clone()));
-        self.open.push((id, CfgEdgeKind::True, Some("true".into())));
+        self.open.push((id, CfgEdgeKind::True, Some(edges.0.into())));
         then(self);
         let then_ends = std::mem::take(&mut self.open);
         self.conds.pop();
         // else
         self.conds.push((level, format!("not ({})", what)));
-        self.open.push((id, CfgEdgeKind::False, Some("false".into())));
+        self.open.push((id, CfgEdgeKind::False, Some(edges.1.into())));
         if let Some(e) = els {
             e(self);
         }
@@ -420,6 +433,33 @@ impl<'a> Builder<'a> {
         ends.extend(std::mem::take(&mut self.open));
         if !cases.iter().any(|c| c == "default") {
             // no default: the switch can be skipped
+            ends.push((id, CfgEdgeKind::Arm, Some("no match".into())));
+        }
+        self.open = ends;
+    }
+
+    /// A Go `switch` / `select`, a shell `case`: one node labelled `label`, one edge per case,
+    /// no fall-through; `break` leaves it; without a default it can be skipped.
+    pub(crate) fn cases_node(&mut self, label: &str, span: Span, cases: &[String], has_default: bool, mut body: impl FnMut(&mut Self, usize)) {
+        let id = self.seq(CfgNodeKind::Match, shorten(label, 40), label.to_string(), span);
+        self.open.clear();
+        self.depth += 1;
+        self.frames.push(Frame { head: id, breaks: vec![], is_switch: true });
+        let outer_conds = std::mem::take(&mut self.conds);
+        let mut ends = Vec::new();
+        for (i, case) in cases.iter().enumerate() {
+            self.open.push((id, CfgEdgeKind::Arm, Some(shorten(case, 24))));
+            let level = self.frames.len();
+            self.conds.push((level, case.clone()));
+            body(self, i);
+            self.conds.pop();
+            ends.extend(std::mem::take(&mut self.open));
+        }
+        self.conds = outer_conds;
+        self.depth -= 1;
+        let frame = self.frames.pop().unwrap();
+        ends.extend(frame.breaks);
+        if !has_default {
             ends.push((id, CfgEdgeKind::Arm, Some("no match".into())));
         }
         self.open = ends;

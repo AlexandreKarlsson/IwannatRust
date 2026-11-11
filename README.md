@@ -6,10 +6,13 @@
 
 **Understand any codebase in minutes, and give it a presentation that never goes out of date.**
 
-*Rust and C today; [more languages](#supported-languages) on request.*
+*Rust, C, C++, Go and shell scripts today; [more languages](#supported-languages) on request.*
 
 [![Rust](https://img.shields.io/badge/Rust-stable-f59e0b?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![C](https://img.shields.io/badge/C-supported-a8b9cc?logo=c&logoColor=white)](#supported-languages)
+[![C++](https://img.shields.io/badge/C%2B%2B-supported-00599c?logo=cplusplus&logoColor=white)](#supported-languages)
+[![Go](https://img.shields.io/badge/Go-supported-00add8?logo=go&logoColor=white)](#supported-languages)
+[![Bash](https://img.shields.io/badge/Bash-supported-4eaa25?logo=gnubash&logoColor=white)](#supported-languages)
 [![Dioxus](https://img.shields.io/badge/UI-Dioxus%200.7%20%E2%86%92%20WASM-60a5fa)](https://dioxuslabs.com)
 [![No JS deps](https://img.shields.io/badge/JavaScript%20deps-none-34d399)](#how-it-is-built)
 [![License: MIT](https://img.shields.io/badge/License-MIT-c084fc)](LICENSE)
@@ -93,10 +96,16 @@ Optional: on the same page, record a natural voice for it (Kokoro, offline), the
 |---|---|
 | Rust | ✅ Supported |
 | C | ✅ Supported (tree-sitter; no preprocessing, `.h` files join their `.c`) |
+| C++ | ✅ Supported (tree-sitter; classes with their methods, base classes, `try` / `catch` / `throw`; no templates instantiated, no overload resolution) |
+| Go | ✅ Supported (tree-sitter; a package is a module, methods under their receiver's type, interfaces with the types that implement them) |
+| Shell (sh, bash) | ✅ Supported (tree-sitter; a script is a module, its functions and its own commands; scripts without an extension are told by their `#!` line) |
 
 Point `codecast serve` at any directory of `.c` / `.h` files: every file is a module, functions get
-their flow graph, `struct`s and `typedef`s their types view, `#define`s are constants. A project may
-mix both (a Rust crate with C sources). More languages (Python, PHP, TypeScript, Go, ...) can be added.
+their flow graph, `struct`s and `typedef`s their types view, `#define`s are constants. The same goes
+for C++ (`.cpp`, `.cc`, `.hpp`; a `.h` next to C++ sources is read as C++), Go (`.go`, with `go.mod`
+telling which imports are the project's own) and shell scripts (a command is a call when it names a
+function or another script of the project). A project may mix them (a Rust crate with C sources and
+its scripts). More languages (Python, PHP, TypeScript, ...) can be added.
 If you want one, say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues): languages people ask for come first.
 
 ## Commands
@@ -125,7 +134,7 @@ Publish the videos elsewhere (a release, GitHub Pages) if you want to share them
 ## How it is built
 
 All Rust, in one binary with no JavaScript dependencies: the analyzers (`syn` for Rust,
-tree-sitter for C), the layout engine (written here), the tour generator and the Dioxus →
+tree-sitter for C, C++, Go and shell scripts), the layout engine (written here), the tour generator and the Dioxus →
 WebAssembly UI. The analysis is syntactic (no type checker, no C preprocessor), so it is fast on
 any project that parses and right most of the time.
 `crates/iwr-core` compiles to wasm and can be used on its own ([docs/embedding.md](docs/embedding.md)).

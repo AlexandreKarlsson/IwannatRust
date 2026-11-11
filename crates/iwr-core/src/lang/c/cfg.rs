@@ -1,5 +1,6 @@
 //! The flow graph of a C function: statements into the language-neutral [`Builder`].
 //! `switch` cases fall through unless they `break`; `goto` jumps to its label's node.
+//! C++: a `catch` is a branch after its `try` block, `throw` leaves the function.
 
 use super::text::*;
 use crate::cfg::{Builder, Facts};
@@ -20,7 +21,7 @@ struct Driver<'s> {
 /// The edge label for a `return`, and whether it is an error path (`return -1`, `return NULL`).
 fn return_label(expr: Option<&str>) -> (String, bool) {
     let Some(t) = expr else { return ("return".into(), false) };
-    let is_err = t == "NULL" || t.starts_with('-') || t == "false" || t == "EXIT_FAILURE";
+    let is_err = t == "NULL" || t == "nullptr" || t.starts_with('-') || t == "false" || t == "EXIT_FAILURE";
     if t.len() <= 12 && !t.contains('(') {
         (format!("return {}", t), is_err)
     } else {
@@ -56,7 +57,7 @@ impl<'s> Driver<'s> {
     }
 
     fn facts(&self, n: Node) -> Facts {
-        Facts { has_panic: calls_one_of(n, self.src, &["assert"]), ..Default::default() }
+        Facts { has_panic: calls_one_of(n, self.src, &["assert"]) || has_kind(n, &["throw_statement"]), ..Default::default() }
     }
 
     fn stmt_inner(&self, b: &mut Builder, n: Node) {
@@ -132,7 +133,32 @@ impl<'s> Driver<'s> {
                 };
                 b.loop_node(&label, head, is_forever(cond.as_deref()), |b| if let Some(s) = body { self.stmt(b, s) });
             }
-            "return_statement" => {
+            "for_range_loop" => {
+                let body = field(n, "body");
+                let head = match body {
+                    Some(bd) => Span { line_end: bd.start_position().row + 1, col_end: span(bd, file, self.src).col_start, ..sp },
+                    None => sp,
+                };
+                let label = match body {
+                    Some(bd) => clean(&self.src[n.start_byte()..bd.start_byte()]),
+                    None => self.text(n),
+                };
+                b.loop_node(&label, head, false, |b| if let Some(s) = body { self.stmt(b, s) });
+            }
+            "try_statement" => {
+                if let Some(body) = field(n, "body") {
+                    self.stmt(b, body);
+                }
+                // what a `catch` does is a branch taken after the block: where it threw is not known
+                for c in named(n).into_iter().filter(|c| c.kind() == "catch_clause") {
+                    let params = field(c, "parameters");
+                    let cond = format!("catch {}", params.map(|p| self.text(p)).unwrap_or_default());
+                    let body = field(c, "body");
+                    b.branch_node(&cond, ("caught", "not thrown"), params.map(|p| span(p, file, self.src)).unwrap_or(span(c, file, self.src)), |b| if let Some(s) = body { self.stmt(b, s) }, None::<fn(&mut Builder)>);
+                }
+            }
+            "throw_statement" => b.panic_node(self.stmt_text(n), sp, "throw", true),
+            "return_statement" | "co_return_statement" => {
                 let expr = named(n).into_iter().next().map(|e| self.text(e));
                 let (what, is_err) = return_label(expr.as_deref());
                 b.return_node(is_err, self.stmt_text(n), sp, &what);

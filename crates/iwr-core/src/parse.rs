@@ -16,6 +16,8 @@ pub struct Collected {
     pub bodies: Vec<FnBody>,
     /// Raw `use` paths per module, for external crate detection.
     pub use_paths: Vec<(ModuleId, Vec<String>)>,
+    /// Relations a front-end read by name (a class and its base): linked once every type is known.
+    pub rels: Vec<(ItemId, String, TypeRelKind)>,
 }
 
 pub struct FnBody {
@@ -29,7 +31,10 @@ pub(crate) struct Ctx<'a> {
     pub(crate) project: &'a mut Project,
     pub(crate) bodies: Vec<FnBody>,
     pub(crate) use_paths: Vec<(ModuleId, Vec<String>)>,
+    pub(crate) rels: Vec<(ItemId, String, TypeRelKind)>,
     module_index: HashMap<String, ModuleId>,
+    /// (module, file, type name) → the item grouping that type's methods there.
+    groups: HashMap<(ModuleId, FileId, String), ItemId>,
     report: &'a mut dyn FnMut(&Progress),
     /// Source files parsed so far, of `total`.
     parsed: usize,
@@ -76,6 +81,50 @@ impl<'a> Ctx<'a> {
         id
     }
 
+    /// Put `method` in the group of the methods of `target` written in the method's file (an
+    /// `Impl` item named `name`, made on first use): the views list a type's methods through it.
+    /// For languages whose methods are not written inside an `impl` block (C++, Go).
+    pub(crate) fn group_method(&mut self, method: ItemId, target: &str, name: &str) {
+        let (mid, span) = (self.project.items[method].module, self.project.items[method].span);
+        let key = (mid, span.file, target.to_string());
+        let group = match self.groups.get(&key) {
+            Some(g) => *g,
+            None => {
+                let mpath = self.project.modules[mid].path.clone();
+                let g = self.push_item(Item {
+                    id: 0,
+                    kind: ItemKind::Impl,
+                    name: name.to_string(),
+                    path: format!("{}::<{}>", mpath, name),
+                    module: mid,
+                    vis: Visibility::Private,
+                    span,
+                    signature: name.to_string(),
+                    doc: None,
+                    attrs: vec![],
+                    extra: ItemExtra::Impl(ImplInfo { target: target.to_string(), target_id: None, trait_name: None, trait_id: None, methods: vec![] }),
+                });
+                self.groups.insert(key, g);
+                g
+            }
+        };
+        // the group spans from its first method to its last
+        let gs = &mut self.project.items[group].span;
+        if (span.line_start, span.col_start) < (gs.line_start, gs.col_start) {
+            (gs.line_start, gs.col_start) = (span.line_start, span.col_start);
+        }
+        if (span.line_end, span.col_end) > (gs.line_end, gs.col_end) {
+            (gs.line_end, gs.col_end) = (span.line_end, span.col_end);
+        }
+        if let ItemExtra::Impl(i) = &mut self.project.items[group].extra {
+            i.methods.push(method);
+        }
+        if let Some(f) = self.project.items[method].fn_info_mut() {
+            f.impl_id = Some(group);
+            f.owner_type_name = Some(target.to_string());
+        }
+    }
+
     pub(crate) fn push_item(&mut self, mut item: Item) -> ItemId {
         let id = self.project.items.len();
         item.id = id;
@@ -92,15 +141,21 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>, report: &mu
     let mut sources: Vec<(SourceLang, Source)> = Vec::new();
     for (path, content) in files {
         let file = project.files.len();
-        let lang = SourceLang::of_path(&path);
+        let lang = SourceLang::of_file(&path, &content);
         let text = !content.is_empty() || lang.is_some();
         if let Some(l) = lang {
             sources.push((l, Source { file, path: path.clone(), content: content.clone() }));
         }
         project.files.push(SourceFile { id: file, path, content, lang, text });
     }
+    // what a file is read as can depend on its neighbours (a `.h` next to C++ sources)
+    let present: Vec<SourceLang> = sources.iter().map(|(l, _)| *l).collect();
+    for (l, s) in &mut sources {
+        *l = l.among(&s.path, |x| present.contains(&x));
+        project.files[s.file].lang = Some(*l);
+    }
     let total = sources.len();
-    let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], module_index: HashMap::new(), report, parsed: 0, total };
+    let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], rels: vec![], module_index: HashMap::new(), groups: HashMap::new(), report, parsed: 0, total };
     ctx.module_for("crate");
 
     // one front-end after the other, in the order of `SourceLang::ALL`: in a mixed project the
@@ -117,6 +172,6 @@ pub fn collect(name: &str, root: &str, files: Vec<(String, String)>, report: &mu
     for m in &mut ctx.project.modules {
         m.children.sort();
     }
-    let Ctx { bodies, use_paths, .. } = ctx;
-    Collected { project, bodies, use_paths }
+    let Ctx { bodies, use_paths, rels, .. } = ctx;
+    Collected { project, bodies, use_paths, rels }
 }

@@ -56,6 +56,8 @@ pub type Line = Vec<(Tok, String)>;
 pub enum Lang {
     Rust,
     C,
+    Cpp,
+    Go,
     Shell,
     /// Terraform and other HCL files.
     Hcl,
@@ -72,6 +74,9 @@ impl Lang {
         match crate::model::SourceLang::of_path(path) {
             Some(crate::model::SourceLang::Rust) => return Lang::Rust,
             Some(crate::model::SourceLang::C) => return Lang::C,
+            Some(crate::model::SourceLang::Cpp) => return Lang::Cpp,
+            Some(crate::model::SourceLang::Go) => return Lang::Go,
+            Some(crate::model::SourceLang::Bash) => return Lang::Shell,
             None => {}
         }
         match ext.as_str() {
@@ -80,11 +85,7 @@ impl Lang {
             "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" => Lang::Conf,
             _ => {
                 // `#!/bin/bash`, `#!/usr/bin/env -S bash -e`
-                let mut words = src.lines().next().and_then(|l| l.strip_prefix("#!")).unwrap_or("").split_whitespace();
-                let mut prog = words.next().map(|w| w.rsplit('/').next().unwrap_or(w));
-                if prog == Some("env") {
-                    prog = words.find(|w| !w.starts_with('-'));
-                }
+                let prog = crate::model::shebang_program(src);
                 if prog.is_some_and(|p| matches!(p, "sh" | "bash" | "zsh" | "ksh" | "dash")) { Lang::Shell } else { Lang::Plain }
             }
         }
@@ -96,6 +97,8 @@ pub fn file(path: &str, src: &str) -> Vec<Line> {
     match Lang::detect(path, src) {
         Lang::Rust => rust(src),
         Lang::C => c(src),
+        Lang::Cpp => cpp(src),
+        Lang::Go => go(src),
         Lang::Shell => shell(src),
         Lang::Hcl => hcl(src),
         Lang::Conf => conf(src),
@@ -225,9 +228,50 @@ const C_KEYWORDS: &[&str] = &[
 const C_TYPES: &[&str] = &["void", "char", "short", "int", "long", "float", "double", "signed", "unsigned", "_Bool", "_Complex", "size_t", "ssize_t", "bool", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uintptr_t", "intptr_t", "FILE"];
 const C_BUILTINS: &[&str] = &["NULL", "true", "false", "EOF", "stdin", "stdout", "stderr"];
 
+const CPP_KEYWORDS: &[&str] = &[
+    "alignas", "alignof", "auto", "break", "case", "catch", "class", "co_await", "co_return", "co_yield", "concept", "const", "const_cast", "consteval", "constexpr", "constinit", "continue", "decltype", "default", "delete", "do", "dynamic_cast", "else", "enum", "explicit", "export", "extern", "final", "for", "friend", "goto", "if", "inline", "mutable", "namespace", "new", "noexcept", "operator", "override", "private", "protected", "public", "register", "reinterpret_cast", "requires", "return", "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw", "try", "typedef", "typeid", "typename", "union", "using", "virtual", "volatile", "while",
+];
+const CPP_TYPES: &[&str] = &["void", "char", "char8_t", "char16_t", "char32_t", "wchar_t", "short", "int", "long", "float", "double", "signed", "unsigned", "bool", "size_t", "ssize_t", "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uintptr_t", "intptr_t", "string", "vector", "map", "set", "unordered_map", "unordered_set", "unique_ptr", "shared_ptr", "optional", "array", "pair", "tuple", "FILE"];
+const CPP_BUILTINS: &[&str] = &["NULL", "nullptr", "true", "false", "EOF", "stdin", "stdout", "stderr", "std", "cout", "cerr", "endl"];
+
+const GO_KEYWORDS: &[&str] = &["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"];
+const GO_TYPES: &[&str] = &["bool", "byte", "complex64", "complex128", "error", "float32", "float64", "int", "int8", "int16", "int32", "int64", "rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "any"];
+const GO_BUILTINS: &[&str] = &["nil", "true", "false", "iota", "append", "cap", "clear", "close", "complex", "copy", "delete", "imag", "len", "make", "max", "min", "new", "panic", "print", "println", "real", "recover"];
+
+/// What tells one C-like language from another for the lexer.
+struct CLike {
+    keywords: &'static [&'static str],
+    types: &'static [&'static str],
+    builtins: &'static [&'static str],
+    /// The word after one of these names a type (`struct task`, Go's `type Task`).
+    tags: &'static [&'static str],
+    /// `#include`, `#define`: a line starting with `#` is the preprocessor's.
+    preproc: bool,
+    /// Names ending in `_t` are types.
+    t_suffix: bool,
+    /// Raw strings between backticks, over several lines (Go).
+    backtick: bool,
+    /// A capitalized word is a type (C++ classes, Go's exported types).
+    capital_types: bool,
+}
+
 /// Highlight a C file: preprocessor lines as attributes, `/** */` and `///` as docs, types by
 /// name (`int`, `size_t`, `*_t`, after `struct`), functions by the `(` that follows.
 pub fn c(src: &str) -> Vec<Line> {
+    c_like(src, &CLike { keywords: C_KEYWORDS, types: C_TYPES, builtins: C_BUILTINS, tags: &["struct", "union", "enum"], preproc: true, t_suffix: true, backtick: false, capital_types: false })
+}
+
+/// Highlight a C++ file: as C, with the C++ keywords; capitalized names are types.
+pub fn cpp(src: &str) -> Vec<Line> {
+    c_like(src, &CLike { keywords: CPP_KEYWORDS, types: CPP_TYPES, builtins: CPP_BUILTINS, tags: &["struct", "union", "enum", "class", "typename"], preproc: true, t_suffix: true, backtick: false, capital_types: true })
+}
+
+/// Highlight a Go file: keywords, predeclared types and functions, raw strings between backticks.
+pub fn go(src: &str) -> Vec<Line> {
+    c_like(src, &CLike { keywords: GO_KEYWORDS, types: GO_TYPES, builtins: GO_BUILTINS, tags: &["type"], preproc: false, t_suffix: false, backtick: true, capital_types: false })
+}
+
+fn c_like(src: &str, l: &CLike) -> Vec<Line> {
     let c: Vec<char> = src.chars().collect();
     let mut out = Out { lines: vec![Vec::new()] };
     let mut i = 0;
@@ -247,7 +291,7 @@ pub fn c(src: &str) -> Vec<Line> {
             }
             i = (i + 2).min(c.len());
             if doc { Tok::Doc } else { Tok::Comment }
-        } else if ch == '#' && line_start(&c, i) {
+        } else if l.preproc && ch == '#' && line_start(&c, i) {
             // a preprocessor line, continued by a trailing `\`
             loop {
                 i = line_end(&c, i);
@@ -264,6 +308,13 @@ pub fn c(src: &str) -> Vec<Line> {
         } else if ch == '\'' {
             i = quote_end(&c, i, '\'', true);
             Tok::Str
+        } else if l.backtick && ch == '`' {
+            i += 1;
+            while i < c.len() && c[i] != '`' {
+                i += 1;
+            }
+            i = (i + 1).min(c.len());
+            Tok::Str
         } else if ch.is_ascii_digit() || (ch == '.' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
             i += 1;
             while i < c.len() && (is_ident(c[i]) || c[i] == '.' || (matches!(c[i], '+' | '-') && matches!(c[i - 1], 'e' | 'E' | 'p' | 'P'))) {
@@ -275,14 +326,16 @@ pub fn c(src: &str) -> Vec<Line> {
                 i += 1;
             }
             let w: String = c[start..i].iter().collect();
-            let after_tag = matches!(prev_word.as_str(), "struct" | "union" | "enum");
-            let tok = if C_KEYWORDS.contains(&w.as_str()) {
+            let after_tag = l.tags.contains(&prev_word.as_str());
+            let called = next_non_space(&c, i) == Some('(');
+            let capital = l.capital_types && !called && w.starts_with(|x: char| x.is_ascii_uppercase()) && w.chars().any(|x| x.is_ascii_lowercase());
+            let tok = if l.keywords.contains(&w.as_str()) {
                 Tok::Keyword
-            } else if C_BUILTINS.contains(&w.as_str()) {
+            } else if l.builtins.contains(&w.as_str()) {
                 Tok::Builtin
-            } else if C_TYPES.contains(&w.as_str()) || after_tag || w.ends_with("_t") {
+            } else if l.types.contains(&w.as_str()) || after_tag || (l.t_suffix && w.ends_with("_t")) || capital {
                 Tok::Type
-            } else if next_non_space(&c, i) == Some('(') {
+            } else if called {
                 Tok::Fn
             } else if w.len() > 1 && w.chars().all(|x| x.is_ascii_uppercase() || x.is_ascii_digit() || x == '_') {
                 // a macro constant

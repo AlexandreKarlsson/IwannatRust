@@ -210,6 +210,11 @@ pub(crate) fn file_doc(lines: &[&str]) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// Line breaks and runs of spaces collapsed: a node's text on one line, as written.
+pub(crate) fn one_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The first error or missing node of a tree, if any.
 pub(crate) fn first_error(n: Node) -> Option<Node> {
     if !n.has_error() {

@@ -1,14 +1,14 @@
 [package]
 name = "iwr-core"
-description = "Rust and C source analysis + graph model for IwannatRust visualizations"
+description = "Rust, C, C++, Go and shell source analysis + graph model for IwannatRust visualizations"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [features]
 default = ["parse", "fs"]
-# syn-based parsing of Rust source text, tree-sitter parsing of C
-parse = ["dep:syn", "dep:proc-macro2", "dep:quote", "dep:tree-sitter", "dep:tree-sitter-c"]
+# syn-based parsing of Rust source text, tree-sitter parsing of the other languages
+parse = ["dep:syn", "dep:proc-macro2", "dep:quote", "dep:tree-sitter", "dep:tree-sitter-c", "dep:tree-sitter-cpp", "dep:tree-sitter-go", "dep:tree-sitter-bash"]
 # walk a cargo project on disk (not for wasm)
 fs = ["parse", "dep:walkdir", "dep:toml"]
 
@@ -20,6 +20,9 @@ proc-macro2 = { version = "1", default-features = false, features = ["span-locat
 quote = { version = "1", optional = true }
 tree-sitter = { version = "0.25", optional = true }
 tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
 walkdir = { version = "2", optional = true }
 toml = { version = "0.8", optional = true }
 

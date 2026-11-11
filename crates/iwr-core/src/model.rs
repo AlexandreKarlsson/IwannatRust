@@ -38,6 +38,9 @@ impl SourceFile {
 pub enum SourceLang {
     Rust,
     C,
+    Cpp,
+    Go,
+    Bash,
 }
 
 /// Everything the rest of the code needs to know about a language is asked here (and the
@@ -46,13 +49,16 @@ pub enum SourceLang {
 impl SourceLang {
     /// Every language, in the order their front-ends run: in a mixed project the first one with
     /// an entry point gets the root module.
-    pub const ALL: [SourceLang; 2] = [SourceLang::Rust, SourceLang::C];
+    pub const ALL: [SourceLang; 5] = [SourceLang::Rust, SourceLang::C, SourceLang::Cpp, SourceLang::Go, SourceLang::Bash];
 
     /// The language's name, as written everywhere.
     pub fn name(self) -> &'static str {
         match self {
             SourceLang::Rust => "Rust",
             SourceLang::C => "C",
+            SourceLang::Cpp => "C++",
+            SourceLang::Go => "Go",
+            SourceLang::Bash => "Bash",
         }
     }
 
@@ -61,6 +67,9 @@ impl SourceLang {
         match self {
             SourceLang::Rust => &["rs"],
             SourceLang::C => &["c", "h"],
+            SourceLang::Cpp => &["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
+            SourceLang::Go => &["go"],
+            SourceLang::Bash => &["sh", "bash", "zsh", "ksh"],
         }
     }
 
@@ -68,6 +77,15 @@ impl SourceLang {
     pub fn of_path(path: &str) -> Option<SourceLang> {
         let ext = path.rsplit(['/', '\\']).next().unwrap_or(path).rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase())?;
         SourceLang::ALL.into_iter().find(|l| l.extensions().contains(&ext.as_str()))
+    }
+
+    /// The language of a file: from its extension, else from its `#!` line (a shell script
+    /// without an extension).
+    pub fn of_file(path: &str, content: &str) -> Option<SourceLang> {
+        SourceLang::of_path(path).or_else(|| match shebang_program(content)? {
+            "sh" | "bash" | "dash" | "ash" | "ksh" | "zsh" => Some(SourceLang::Bash),
+            _ => None,
+        })
     }
 
     /// A source path without its extension (`src/net/sock.c` → `src/net/sock`); other paths as they are.
@@ -78,11 +96,29 @@ impl SourceLang {
         }
     }
 
+    /// Is this a C or C++ header? It joins the module of the source file with the same name.
+    pub fn is_header(path: &str) -> bool {
+        path.rsplit_once('.').is_some_and(|(_, e)| matches!(e.to_ascii_lowercase().as_str(), "h" | "hpp" | "hh" | "hxx"))
+    }
+
+    /// The language a file is read in, given the others of its project: a `.h` is C++ next to
+    /// C++ sources.
+    pub fn among(self, path: &str, has: impl Fn(SourceLang) -> bool) -> SourceLang {
+        if self == SourceLang::C && SourceLang::is_header(path) && has(SourceLang::Cpp) {
+            SourceLang::Cpp
+        } else {
+            self
+        }
+    }
+
     /// The file's icon in the file tree.
     pub fn icon(self) -> &'static str {
         match self {
             SourceLang::Rust => "🦀",
             SourceLang::C => "🅒",
+            SourceLang::Cpp => "➕",
+            SourceLang::Go => "🐹",
+            SourceLang::Bash => "🐚",
         }
     }
 
@@ -90,7 +126,7 @@ impl SourceLang {
     pub fn root_word(self) -> Option<&'static str> {
         match self {
             SourceLang::Rust => Some("crate"),
-            SourceLang::C => None,
+            SourceLang::C | SourceLang::Cpp | SourceLang::Go | SourceLang::Bash => None,
         }
     }
 
@@ -102,9 +138,19 @@ impl SourceLang {
             Some(SourceLang::Rust) if path.ends_with("src/lib.rs") => 1,
             Some(SourceLang::Rust) if path.ends_with("mod.rs") => 2,
             Some(SourceLang::C) if path.ends_with("main.c") => 0,
-            Some(SourceLang::Rust) | Some(SourceLang::C) | None => 3,
+            Some(SourceLang::Cpp) if SourceLang::stem(path).ends_with("main") && !SourceLang::is_header(path) => 0,
+            Some(SourceLang::Go) if path.ends_with("main.go") => 0,
+            Some(SourceLang::Go) if path.ends_with("doc.go") => 1,
+            Some(SourceLang::Rust) | Some(SourceLang::C) | Some(SourceLang::Cpp) | Some(SourceLang::Go) | Some(SourceLang::Bash) | None => 3,
         }
     }
+}
+
+/// The program a `#!` first line runs: `bash` for `#!/bin/bash` and `#!/usr/bin/env -S bash -e`.
+pub fn shebang_program(content: &str) -> Option<&str> {
+    let mut words = content.lines().next()?.strip_prefix("#!")?.split_whitespace();
+    let prog = words.next().map(|w| w.rsplit('/').next().unwrap_or(w))?;
+    if prog == "env" { words.find(|w| !w.starts_with('-')) } else { Some(prog) }
 }
 
 fn default_true() -> bool {
@@ -449,6 +495,8 @@ pub enum TypeRelKind {
     Implements,
     /// trait requires supertrait
     Supertrait,
+    /// class derives from a base class (C++)
+    Extends,
     /// function signature mentions type
     UsesInSignature,
     /// alias points to target

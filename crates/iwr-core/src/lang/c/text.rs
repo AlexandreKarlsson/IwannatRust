@@ -8,6 +8,9 @@ use tree_sitter::Node;
 pub(crate) fn declarator_name(n: Node, src: &str) -> Option<String> {
     match n.kind() {
         "identifier" | "field_identifier" | "type_identifier" | "statement_identifier" => Some(raw(n, src).to_string()),
+        "qualified_identifier" => field(n, "name").and_then(|x| declarator_name(x, src)),
+        "destructor_name" | "operator_name" => Some(raw(n, src).split_whitespace().collect::<String>()),
+        "template_function" | "template_method" | "template_type" => field(n, "name").and_then(|x| declarator_name(x, src)),
         "pointer_declarator" | "function_declarator" | "array_declarator" | "init_declarator" | "attributed_declarator" | "pointer_type_declarator" | "function_type_declarator" | "array_type_declarator" | "pointer_field_declarator" | "function_field_declarator" | "array_field_declarator" => {
             declarator_name(field(n, "declarator").or_else(|| named(n).into_iter().next())?, src)
         }
@@ -21,9 +24,9 @@ pub(crate) fn is_function_declarator(n: Node) -> bool {
     match n.kind() {
         "function_declarator" | "function_type_declarator" | "function_field_declarator" => {
             let inner = field(n, "declarator").or_else(|| named(n).into_iter().next());
-            matches!(inner.map(|d| d.kind()), Some("identifier") | Some("field_identifier") | Some("type_identifier") | Some("attributed_declarator"))
+            matches!(inner.map(|d| d.kind()), Some("identifier") | Some("field_identifier") | Some("type_identifier") | Some("attributed_declarator") | Some("qualified_identifier") | Some("destructor_name") | Some("operator_name") | Some("template_function"))
         }
-        "pointer_declarator" | "array_declarator" | "attributed_declarator" | "pointer_type_declarator" | "init_declarator" => field(n, "declarator").or_else(|| named(n).into_iter().next()).is_some_and(is_function_declarator),
+        "pointer_declarator" | "array_declarator" | "attributed_declarator" | "pointer_type_declarator" | "init_declarator" | "reference_declarator" => field(n, "declarator").or_else(|| named(n).into_iter().next()).is_some_and(is_function_declarator),
         _ => false,
     }
 }
@@ -37,6 +40,7 @@ pub(crate) fn declarator_decoration(n: Node, src: &str) -> String {
             let size = field(n, "size").map(|s| text(s, src)).unwrap_or_default();
             format!("{}[{}]", inner, size)
         }
+        "reference_declarator" | "abstract_reference_declarator" => format!("{}{}", if raw(n, src).starts_with("&&") { "&&" } else { "&" }, named(n).into_iter().next().map(|d| declarator_decoration(d, src)).unwrap_or_default()),
         "init_declarator" | "attributed_declarator" => field(n, "declarator").or_else(|| named(n).into_iter().next()).map(|d| declarator_decoration(d, src)).unwrap_or_default(),
         _ => String::new(),
     }
@@ -46,17 +50,41 @@ pub(crate) fn declarator_decoration(n: Node, src: &str) -> String {
 pub(crate) fn parameter_list(n: Node) -> Option<Node> {
     match n.kind() {
         "function_declarator" | "function_type_declarator" | "function_field_declarator" => field(n, "parameters"),
-        "pointer_declarator" | "array_declarator" | "attributed_declarator" | "init_declarator" | "parenthesized_declarator" | "pointer_type_declarator" => {
+        "pointer_declarator" | "array_declarator" | "attributed_declarator" | "init_declarator" | "parenthesized_declarator" | "pointer_type_declarator" | "reference_declarator" => {
             field(n, "declarator").or_else(|| named(n).into_iter().next()).and_then(parameter_list)
         }
         _ => None,
     }
 }
 
+/// The function declarator inside a declarator (`*f(int)` → `f(int)`), if it declares a function.
+pub(crate) fn function_declarator(n: Node) -> Option<Node> {
+    match n.kind() {
+        "function_declarator" | "function_type_declarator" | "function_field_declarator" => Some(n),
+        "pointer_declarator" | "array_declarator" | "attributed_declarator" | "init_declarator" | "reference_declarator" => field(n, "declarator").or_else(|| named(n).into_iter().next()).and_then(function_declarator),
+        _ => None,
+    }
+}
+
+/// The type a function is defined on, when its name says so: `Shape` in `Shape::area`,
+/// `B` in `A::B::run` (C++).
+pub(crate) fn scope_of(decl: Node, src: &str) -> Option<String> {
+    let mut name = field(function_declarator(decl)?, "declarator")?;
+    let mut scope = None;
+    while name.kind() == "qualified_identifier" {
+        if let Some(s) = field(name, "scope") {
+            // `Stack<T>::push`: the type is `Stack`
+            scope = Some(field(s, "name").map(|x| raw(x, src)).unwrap_or(raw(s, src)).to_string());
+        }
+        name = field(name, "name")?;
+    }
+    scope
+}
+
 /// The text of a parenthesized condition without its parentheses: `(x > 0)` → `x > 0`.
 pub(crate) fn unparen(n: Node, src: &str) -> String {
     let t = text(n, src);
-    if n.kind() == "parenthesized_expression" {
+    if matches!(n.kind(), "parenthesized_expression" | "condition_clause") {
         t.strip_prefix('(').and_then(|s| s.strip_suffix(')')).map(|s| s.trim().to_string()).unwrap_or(t)
     } else {
         t

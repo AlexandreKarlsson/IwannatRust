@@ -101,7 +101,8 @@ impl<'a> Builder<'a> {
 fn add_notes(b: &mut Block, lines: &[&str]) {
     for c in &mut b.children {
         let starts_line = lines.get(c.span.line_start.wrapping_sub(1)).is_some_and(|l| l.chars().take(c.span.col_start.saturating_sub(1)).all(char::is_whitespace));
-        if starts_line {
+        // a driver whose comments are not `//` has read its notes itself
+        if starts_line && c.note.is_none() {
             c.note = crate::cfg::note_above(lines, c.span.line_start);
         }
         add_notes(c, lines);

@@ -1,6 +1,11 @@
-//! C sources, read with tree-sitter: one module per file (a header joins the `.c` of the same
-//! name), items for functions, structs, unions, enums, typedefs, globals and macros, then the
-//! calls, flow graph and block tree of every function body.
+//! C and C++ sources, read with tree-sitter: one module per file (a header joins the source of
+//! the same name), items for functions, structs, unions, enums, typedefs, globals and macros,
+//! then the calls, flow graph and block tree of every function body.
+//!
+//! C++ ([`Dialect::Cpp`]) is the same front-end on tree-sitter-cpp, whose grammar extends C's:
+//! classes are struct items, their methods (written in the class or as `Type::method` outside)
+//! are grouped per type, base classes are `Extends` relations, namespaces and templates are
+//! entered without a trace in the paths, `try` / `catch` / `throw` and range `for` join the flow.
 //!
 //! No preprocessing: `#include`s become the module's uses, `#define`s are items, the code
 //! inside `#if` blocks is read as it stands (every branch). Parsing is tolerant: a file with
@@ -17,10 +22,21 @@ use crate::model::*;
 use crate::parse::Ctx;
 use crate::resolve::Index;
 
-/// A parser for C.
-pub fn parser() -> tree_sitter::Parser {
+/// Which grammar reads a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    C,
+    Cpp,
+}
+
+/// A parser for C or C++.
+pub fn parser(dialect: Dialect) -> tree_sitter::Parser {
     let mut p = tree_sitter::Parser::new();
-    p.set_language(&tree_sitter_c::LANGUAGE.into()).expect("tree-sitter-c grammar");
+    let grammar: tree_sitter::Language = match dialect {
+        Dialect::C => tree_sitter_c::LANGUAGE.into(),
+        Dialect::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+    };
+    p.set_language(&grammar).expect("tree-sitter grammar");
     p
 }
 
@@ -45,9 +61,9 @@ pub fn module_path(rel_path: &str) -> String {
     segs.join("::")
 }
 
-/// First pass for the C files of a project: parse each, create its module, collect its items.
-pub(crate) fn collect(ctx: &mut Ctx, files: Vec<Source>) {
-    let mut parser = parser();
+/// First pass for the C (or C++) files of a project: parse each, create its module, collect its items.
+pub(crate) fn collect(ctx: &mut Ctx, files: Vec<Source>, dialect: Dialect) {
+    let mut parser = parser(dialect);
     for Source { file, path, content } in files {
         ctx.parsing(file);
         let Some(tree) = parser.parse(&content, None) else {
@@ -63,10 +79,10 @@ pub(crate) fn collect(ctx: &mut Ctx, files: Vec<Source>) {
             ctx.project.modules[mid].is_test = true;
         }
         let lines: Vec<&str> = content.lines().collect();
-        let header_so_far = ctx.project.modules[mid].file.is_some_and(|f| ctx.project.files[f].path.ends_with(".h"));
-        let takes_over = ctx.project.modules[mid].file.is_none() || path.ends_with(".c") && header_so_far;
+        let header_so_far = ctx.project.modules[mid].file.is_some_and(|f| SourceLang::is_header(&ctx.project.files[f].path));
+        let takes_over = ctx.project.modules[mid].file.is_none() || !SourceLang::is_header(&path) && header_so_far;
         if takes_over {
-            // the `.c` is the module's file and says what it is for; a header only until its `.c` shows up
+            // the source is the module's file and says what it is for; a header only until its `.c` shows up
             ctx.project.modules[mid].file = Some(file);
             if let Some(doc) = text::file_doc(&lines) {
                 ctx.project.modules[mid].doc = Some(doc);
@@ -74,7 +90,7 @@ pub(crate) fn collect(ctx: &mut Ctx, files: Vec<Source>) {
         } else if ctx.project.modules[mid].doc.is_none() {
             ctx.project.modules[mid].doc = text::file_doc(&lines);
         }
-        items::collect_file(ctx, &tree, file, &content, mid, &mpath);
+        items::collect_file(ctx, &tree, file, &content, mid, &mpath, dialect);
     }
 }
 

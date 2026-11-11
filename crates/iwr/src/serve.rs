@@ -89,6 +89,22 @@ impl Shared {
 
 type AppState = Arc<Shared>;
 
+/// Is this a file the analyzer reads as code? By its extension, or for a file without one by
+/// its `#!` line (a shell script).
+fn is_source(p: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Some(path) = p.to_str() else { return false };
+    if iwr_core::model::SourceLang::of_path(path).is_some() {
+        return true;
+    }
+    if p.extension().is_some() {
+        return false;
+    }
+    let mut head = [0u8; 128];
+    let n = std::fs::File::open(p).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
+    iwr_core::model::SourceLang::of_file(path, &String::from_utf8_lossy(&head[..n])).is_some()
+}
+
 /// Watch the served folder: an edited source wakes the re-analysis task. Replaces the watch
 /// on the folder served before.
 fn watch_root(shared: &AppState) {
@@ -99,7 +115,7 @@ fn watch_root(shared: &AppState) {
             if ev.kind.is_access() {
                 return;
             }
-            if ev.paths.iter().any(|p| p.to_str().is_some_and(|s| iwr_core::model::SourceLang::of_path(s).is_some()) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
+            if ev.paths.iter().any(|p| is_source(p) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
                 let _ = tx.send(());
             }
         }
