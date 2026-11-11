@@ -204,6 +204,8 @@ pub struct State {
     /// full tour: continue with the next part when one ends
     pub tour: Signal<bool>,
     pub tts_rate: Signal<f64>,
+    /// how fast a recording plays (1 = as recorded); the cues follow its time
+    pub speed: Signal<f64>,
     /// what browser TTS is doing (voices, events), shown in the player
     pub tts_info: Signal<String>,
     /// seconds per cue in silent reading mode
@@ -505,6 +507,7 @@ fn App() -> Element {
         voice_job: Signal::new(None),
         tour: Signal::new(true),
         tts_rate: Signal::new(1.0),
+        speed: Signal::new(1.0),
         live: Signal::new(false),
         lang: Signal::new("en".into()),
         script_src: Signal::new(None),

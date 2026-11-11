@@ -6,6 +6,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Playback speed for recordings: a menu beside the audio bar (0.75× to 2×, remembered). The cues,
+  chart markers and the length shown follow it; videos are still rendered at the recorded speed.
+
 ### Changed
 
 - Recordings and videos are named with underscores only: `01-welcome_en_am-michael.ogg` + `.times`,

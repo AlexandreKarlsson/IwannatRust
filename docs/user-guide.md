@@ -78,7 +78,7 @@ Every cue switches view, glows the relevant boxes, highlights source lines and c
 range. A cue may also open the folders it talks about (the others close), enlarge a panel, light up
 a control (the rest dims) or zoom in on part of a big page; the next cue or part puts things back.
 Questions appear under the text: click one to pause, read the answer, and carry on. `plan` lists
-the parts. Voice: a recording, browser TTS (rate in settings), or silent reading (seconds per cue in
+the parts. Voice: a recording (speed menu beside it, 0.75× to 2×, remembered), browser TTS (rate in settings), or silent reading (seconds per cue in
 settings).
 
 Scripts can also be written by an AI or by hand and loaded with `codecast serve --script`, or `load…` in

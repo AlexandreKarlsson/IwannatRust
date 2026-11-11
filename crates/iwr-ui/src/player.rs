@@ -320,6 +320,17 @@ impl State {
         }
     }
 
+    /// How fast the voice goes compared with its recording: the playback speed while a recording
+    /// plays, 1 otherwise (TTS has its own rate, a video is rendered as recorded).
+    pub fn pace(&self) -> f64 {
+        if *self.voice.read() == Voice::Audio && !*self.render.read() { *self.speed.read() } else { 1.0 }
+    }
+
+    /// A length as shown: a recording played faster lasts less.
+    pub fn paced(&self, (secs, measured): (f64, bool)) -> (f64, bool) {
+        (if measured { secs / self.pace() } else { secs }, measured)
+    }
+
     /// In recording mode, move the player head to the current cue's `[t]`.
     pub fn seek_audio(&self) {
         if *self.voice.read() != Voice::Audio {
@@ -845,6 +856,9 @@ pub async fn fetch_script(live: bool) -> Option<(String, Option<String>, String,
     }
 }
 
+/// Playback speeds offered for a recording.
+const SPEEDS: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+
 #[component]
 pub fn PlayerBar() -> Element {
     let mut state = use_context::<State>();
@@ -862,7 +876,7 @@ pub fn PlayerBar() -> Element {
     let title = s.title.clone();
     // recordings play with 🎧, otherwise a voice reads at the TTS rate
     let (recorded, rate) = (voice == Voice::Audio, *state.tts_rate.read());
-    let length = crate::generate::length(s.duration(recorded, rate));
+    let length = crate::generate::length(state.paced(s.duration(recorded, rate)));
     let say = cue.say.clone();
     // a `sp:` line: the second voice says it, the caption sits apart
     let second = cue.second();
@@ -1150,6 +1164,24 @@ pub fn PlayerBar() -> Element {
         });
     });
 
+    // ---- Audio: play at the chosen speed. The cues follow the recording's time, so they keep up.
+    // `defaultPlaybackRate` too: the element falls back to it when the next part's file loads.
+    let speed = *state.speed.read();
+    use_effect(move || {
+        let (voice, url, speed) = (*state.voice.read(), state.effective_audio(), state.pace());
+        if voice != Voice::Audio || url.is_none() {
+            return;
+        }
+        document::eval(&format!(
+            r#"let tries = 0;
+               const f = () => {{
+                 const a = document.getElementById('iwr-audio');
+                 if (a) {{ a.defaultPlaybackRate = {speed:.2}; a.playbackRate = {speed:.2}; }} else if (tries++ < 50) setTimeout(f, 100);
+               }};
+               f();"#
+        ));
+    });
+
     // a video with subtitles in another language shows them alone, in place of the caption
     let sub_only = *state.render.read() && subtitle.is_some();
     rsx! {
@@ -1227,7 +1259,7 @@ pub fn PlayerBar() -> Element {
                 div { class: "parts",
                     span { class: "status cast-title", "{title} · " span { title: t::player::tip_length(), "{length}" } " · " }
                     for (i, p) in s.parts.iter().enumerate() {
-                        { let name = p.name.clone(); let tip = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate))); rsx! {
+                        { let name = p.name.clone(); let tip = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(state.paced(p.duration(recorded, rate)))); rsx! {
                             button { class: if i == part_idx { "small active" } else { "small" }, title: "{tip}", onclick: move |_| state.goto_part(i), "{name}" }
                         } }
                     }
@@ -1237,7 +1269,15 @@ pub fn PlayerBar() -> Element {
                 }
                 if voice == Voice::Audio {
                     if let Some(u) = &audio_url {
-                        audio { id: "iwr-audio", controls: true, src: "{u}", style: "width:100%; height:32px; margin:4px 0" }
+                        div { class: "audio-row",
+                            audio { id: "iwr-audio", controls: true, src: "{u}" }
+                            select { class: "theme-select", title: t::player::tip_speed(), value: "{speed}",
+                                onchange: move |e| { if let Ok(v) = e.value().parse::<f64>() { state.speed.set(v.clamp(0.5, 2.0)); state.save_settings(); } },
+                                for v in SPEEDS {
+                                    option { value: "{v}", selected: v == speed, "{v}×" }
+                                }
+                            }
+                        }
                     }
                 }
                 div { class: if second { "say second" } else { "say" }, Markdown { text: say } }
@@ -1333,7 +1373,7 @@ pub fn PlanPage() -> Element {
     let n_parts = s.parts.len();
     let total = s.cue_count();
     let (recorded, rate) = (*state.voice.read() == Voice::Audio, *state.tts_rate.read());
-    let length = crate::generate::length(s.duration(recorded, rate));
+    let length = crate::generate::length(state.paced(s.duration(recorded, rate)));
     // `! 2-9` on the plan page: those parts glow, the others step back
     let lit: Vec<usize> = state.hl_ids.read().iter().filter_map(|r| script::plan_parts(r, n_parts)).flatten().collect();
     use_effect(move || {
@@ -1359,7 +1399,7 @@ pub fn PlanPage() -> Element {
                             let first = p.cues.first().map(|c| c.say.clone()).unwrap_or_default();
                             let summary = p.summary.clone().unwrap_or_else(|| iwr_core::shorten(&script::plain(&first), 140));
                             let nq: usize = p.cues.iter().map(|c| c.questions.len()).sum();
-                            let mut meta = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate)));
+                            let mut meta = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(state.paced(p.duration(recorded, rate))));
                             if nq > 0 {
                                 meta.push_str(&format!(" · {}", t::player::questions(nq)));
                             }

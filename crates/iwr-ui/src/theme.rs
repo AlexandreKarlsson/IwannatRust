@@ -419,6 +419,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .kinds .kind input { margin:0; width:11px; height:11px; accent-color:var(--accent); }
 .kinds .kind:hover { border-color:var(--accent); }
 .theme-select { font-size:12px; padding:3px 6px; border-radius:6px; }
+.audio-row { display:flex; align-items:center; gap:6px; margin:4px 0; }
+.audio-row audio { flex:1; min-width:0; height:32px; }
 
 /* ---- Code view: blocks + source */
 .code-view { display:flex; flex:1; min-width:0; min-height:0; }

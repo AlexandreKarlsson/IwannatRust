@@ -30,6 +30,7 @@ subtitle = "subtitle (Settings › Codecast › Subtitles)"
 back = "back to the codecast (space / Esc)"
 own_question = "question from the script"
 glossary_question = "from the Rust glossary"
+speed = "Playback speed of the recording (the length shown follows it)"
 length = "How long the whole codecast lasts: recorded parts from their recordings, the others guessed from their words (≈ = guessed)"
 
 [voice]
