@@ -1,15 +1,16 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::large_enum_variant)]
 //! # iwr-core
 //!
-//! Analyze Rust and C source code into a graph model and build visual layouts from it.
+//! Analyze Rust, C, C++, Go and shell source code into a graph model and build visual layouts from it.
 //! Independent of any UI or documentation platform.
 //!
-//! Pipeline: source files → [`parse`] (items, modules; Rust with `syn`, C through [`c`] with
-//! tree-sitter) → [`resolve`] (calls, CFG,
+//! Pipeline: source files → [`parse`] (items, modules; one front-end per language in [`lang`]:
+//! Rust with `syn`, C, C++, Go and shell scripts with tree-sitter) → [`resolve`] (calls, CFG,
 //! type relations) → [`model::Project`] → [`views`] (per-mode graphs) → [`layout`]
 //! (positions) → [`guide`] (step-by-step walkthrough).
 
 pub mod brief;
+pub mod casts;
 pub mod prompt;
 pub mod config;
 pub mod bytes;
@@ -34,7 +35,7 @@ pub mod views;
 #[cfg(feature = "parse")]
 pub mod blocks;
 #[cfg(feature = "parse")]
-pub mod c;
+pub mod lang;
 #[cfg(feature = "parse")]
 pub mod cfg;
 #[cfg(feature = "parse")]

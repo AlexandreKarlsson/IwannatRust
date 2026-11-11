@@ -1,0 +1,17 @@
+# The cast map (`castmap.rs`): jump to the codecast of a sub-folder or of a parent folder.
+
+title = "Codecasts of this project"
+scanning = "Looking for codecasts…"
+# badge on the folder being served
+here = "you are here"
+no_cast = "no codecast here"
+# small line on the box of a topic (a codecast in a sub-folder of `codecast/`)
+topic = "topic"
+parts = { one = "{n} part", other = "{n} parts" }
+open_tip = "Open “{title}”: its folder is analyzed, then the codecast starts on its plan"
+hint = "Each box is a folder with its own codecast, or one of its topics. Click one to go there; dashed folders only lead the way."
+partial = "This project has too many folders: the search stopped early, some codecasts may be missing."
+busy_recording = "A voice recording is running. Wait for it or cancel it on the Generate page, then try again."
+busy_analyzing = "An analysis is running. Try again when it is done."
+failed = "Could not open that codecast: {error}"
+close = "Close (Esc)"

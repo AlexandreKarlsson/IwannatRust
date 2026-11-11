@@ -634,6 +634,8 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .loading .hint { margin-top:14px; font-size:11px; color:var(--muted); line-height:1.5; }
 .loading .error { margin-top:12px; border:1px solid color-mix(in srgb, #ef4444 50%, var(--border)); background:color-mix(in srgb, #ef4444 10%, var(--panel2)); border-radius:10px; padding:10px 12px; }
 .loading .error pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; color:var(--text); }
+.loading .to-map { margin-top:12px; display:inline-flex; align-items:center; gap:7px; padding:7px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:var(--text); cursor:pointer; }
+.loading .to-map:hover { background:var(--panel3); }
 .loading.failed .bar .fill { background:#ef4444; box-shadow:none; }
 .loading.failed .glow { animation:none; background:color-mix(in srgb, #ef4444 14%, transparent); }
 .loading.failed .backdrop .box.lit, .loading.failed .backdrop .edge.lit { stroke:#ef4444; }

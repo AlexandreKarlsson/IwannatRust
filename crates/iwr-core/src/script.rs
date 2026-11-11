@@ -1227,16 +1227,17 @@ pub fn resolve(p: &Project, r: &str) -> Option<Resolved> {
             return Some(Resolved { span: Span { file: f.id, line_start: 1, col_start: 1, line_end: n, col_end: 1 }, item: None, module: None, inner: false });
         }
     }
-    if r.ends_with(".rs") && !r.contains(':') {
+    if SourceLang::of_path(r).is_some() && !r.contains(':') {
         let f = p.files.iter().find(|f| f.path == r || f.path.ends_with(&format!("/{}", r)))?;
         let n = f.content.lines().count().max(1);
         return Some(Resolved { span: Span { file: f.id, line_start: 1, col_start: 1, line_end: n, col_end: 1 }, item: None, module: None, inner: false });
     }
-    // file:line[-line][:c1-c2]: a Rust file, or any other file of the repository (Terraform, YAML…)
+    // file:line[-line][:c1-c2]: a source file, or any other file of the repository (Terraform, YAML…)
     if let Some((file, rest)) = r.split_once(':') {
-        let text_file = !file.ends_with(".rs") && rest.starts_with(|c: char| c.is_ascii_digit());
+        let source = SourceLang::of_path(file).is_some();
+        let text_file = !source && rest.starts_with(|c: char| c.is_ascii_digit());
         let find = || p.files.iter().find(|f| f.path == file || f.path.ends_with(&format!("/{}", file)));
-        if file.ends_with(".rs") || (text_file && find().is_some()) {
+        if source || (text_file && find().is_some()) {
             let f = find()?;
             let mut parts = rest.split(':');
             let lines = parts.next()?;

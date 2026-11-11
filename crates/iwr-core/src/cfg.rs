@@ -7,12 +7,12 @@
 //!
 //! The [`Builder`] knows nothing about a language: it takes labels, spans and
 //! [`Facts`] and keeps the open ends, loops and conditions straight. A driver
-//! per language walks its syntax tree and calls it: the Rust one is below
-//! (`syn`), the C one in [`crate::c::cfg`] (tree-sitter).
+//! per language walks its syntax tree and calls it: [`crate::lang::rust::cfg`]
+//! (`syn`), [`crate::lang::c::cfg`] (tree-sitter).
 
 use crate::model::*;
-use crate::text::*;
-use syn::visit::Visit;
+use crate::shorten;
+use crate::text::span_union;
 
 /// A node whose "next" edge is still pending, with the kind and label that edge will carry.
 type Open = (usize, CfgEdgeKind, Option<String>);
@@ -59,6 +59,8 @@ pub(crate) struct Facts {
     pub is_let: bool,
     /// Existing state changes (assignment, compound assignment, a mutating method).
     pub is_mutation: bool,
+    /// Input / output the driver knows about (the text test [`is_io`] is tried as well).
+    pub is_io: bool,
 }
 
 /// One arm of a `match` / `switch` given to [`Builder::match_node`].
@@ -66,13 +68,6 @@ pub(crate) struct Arm {
     pub pat: String,
     /// `Ok(c) => c`: the arm only hands a value on, shown on the edge instead of a box.
     pub trivial: Option<String>,
-}
-
-/// Logging macros: noise in a flow graph unless a comment says why they matter.
-fn is_log_macro(path: &syn::Path) -> bool {
-    let first = path.segments.first().map(|s| s.ident.to_string()).unwrap_or_default();
-    let last = path_last(path);
-    matches!(first.as_str(), "log" | "tracing") || matches!(last.as_str(), "trace" | "debug" | "info" | "warn" | "error" | "log" | "event")
 }
 
 /// Input / output, read from the statement's text (Rust macros and std paths, C stdio and sockets).
@@ -107,31 +102,6 @@ fn halt_sentence(code: &str, printed: Option<&str>) -> String {
     }
 }
 
-/// An arm body that only hands a value on (`c`, `0`, `&x`, `None`): no box, it goes on the edge.
-fn is_trivial(e: &syn::Expr) -> bool {
-    match e {
-        syn::Expr::Path(_) | syn::Expr::Lit(_) => true,
-        syn::Expr::Reference(r) => is_trivial(&r.expr),
-        syn::Expr::Paren(p) => is_trivial(&p.expr),
-        syn::Expr::Block(b) => b.block.stmts.len() == 1 && matches!(&b.block.stmts[0], syn::Stmt::Expr(x, None) if is_trivial(x)),
-        _ => false,
-    }
-}
-
-/// Does this expression change existing state (assignment, compound assignment, a mutating method)?
-fn is_mutation(e: &syn::Expr) -> bool {
-    const MUT: &[&str] = &["push", "push_str", "push_back", "push_front", "insert", "remove", "clear", "extend", "pop", "truncate", "sort", "sort_by", "sort_by_key", "sort_unstable", "retain", "dedup", "drain", "append", "swap", "entry", "set"];
-    match e {
-        syn::Expr::Assign(_) => true,
-        syn::Expr::Binary(b) => matches!(
-            b.op,
-            syn::BinOp::AddAssign(_) | syn::BinOp::SubAssign(_) | syn::BinOp::MulAssign(_) | syn::BinOp::DivAssign(_) | syn::BinOp::RemAssign(_) | syn::BinOp::BitOrAssign(_) | syn::BinOp::BitAndAssign(_) | syn::BinOp::BitXorAssign(_) | syn::BinOp::ShlAssign(_) | syn::BinOp::ShrAssign(_)
-        ),
-        syn::Expr::MethodCall(m) => MUT.contains(&m.method.to_string().as_str()) || is_mutation(&m.receiver),
-        _ => false,
-    }
-}
-
 pub use crate::views::NOTE_MAX;
 
 /// A short single-line comment directly above `line` (1-based), if any: `// …` or a one-line `/* … */`.
@@ -161,46 +131,6 @@ pub(crate) fn contains(outer: &Span, inner: &Span) -> bool {
     outer.file == inner.file
         && (outer.line_start, outer.col_start) <= (inner.line_start, inner.col_start)
         && (outer.line_end, outer.col_end) >= (inner.line_end, inner.col_end)
-}
-
-struct FactsVisitor(Facts);
-impl<'ast> Visit<'ast> for FactsVisitor {
-    fn visit_expr_try(&mut self, e: &'ast syn::ExprTry) {
-        self.0.has_try = true;
-        syn::visit::visit_expr_try(self, e);
-    }
-    fn visit_expr_await(&mut self, e: &'ast syn::ExprAwait) {
-        self.0.has_await = true;
-        syn::visit::visit_expr_await(self, e);
-    }
-    fn visit_expr_return(&mut self, e: &'ast syn::ExprReturn) {
-        self.0.has_return = true;
-        syn::visit::visit_expr_return(self, e);
-    }
-    fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
-        let m = e.method.to_string();
-        if m == "unwrap" || m == "expect" {
-            self.0.has_unwrap = true;
-        }
-        syn::visit::visit_expr_method_call(self, e);
-    }
-    fn visit_expr_macro(&mut self, e: &'ast syn::ExprMacro) {
-        let name = path_last(&e.mac.path);
-        if matches!(name.as_str(), "panic" | "unreachable" | "todo" | "unimplemented" | "assert" | "assert_eq" | "assert_ne") {
-            self.0.has_panic = true;
-        }
-        syn::visit::visit_expr_macro(self, e);
-    }
-    fn visit_expr_closure(&mut self, _e: &'ast syn::ExprClosure) {
-        // closures run later / elsewhere: do not attribute their control flow to this statement
-    }
-}
-
-fn facts(e: &syn::Expr) -> Facts {
-    let mut v = FactsVisitor(Facts::default());
-    v.visit_expr(e);
-    v.0.is_mutation = is_mutation(e);
-    v.0
 }
 
 // ---- language-neutral construction ----
@@ -243,6 +173,11 @@ impl<'a> Builder<'a> {
     /// Remember the `//` comment above a statement starting at `line`; the next node created takes it.
     pub(crate) fn note_for(&mut self, line: usize) {
         self.pending_note = note_above(&self.lines, line);
+    }
+
+    /// The note for the next node, read by the driver (a shell `#` comment).
+    pub(crate) fn set_note(&mut self, note: Option<String>) {
+        self.pending_note = note;
     }
 
     pub(crate) fn clear_note(&mut self) {
@@ -320,7 +255,7 @@ impl<'a> Builder<'a> {
             CfgNodeKind::Call
         } else if f.has_await {
             CfgNodeKind::Await
-        } else if is_io(&detail) {
+        } else if f.is_io || is_io(&detail) {
             CfgNodeKind::Io
         } else if f.is_let {
             CfgNodeKind::Let
@@ -367,7 +302,7 @@ impl<'a> Builder<'a> {
     }
 
     /// The program stops: a print just before (same paragraph) joins the node, nothing follows.
-    fn halt(&mut self, code: &str, detail: String, span: Span) {
+    pub(crate) fn halt(&mut self, code: &str, detail: String, span: Span) {
         let prev = match self.open.as_slice() {
             [(prev, CfgEdgeKind::Next, _)] => Some(*prev),
             _ => None,
@@ -409,27 +344,37 @@ impl<'a> Builder<'a> {
     }
 
     /// `let x = if …` / `let x = match …`: the binding goes in front of the branch node's label.
+    pub(crate) fn clear_let_prefix(&mut self) {
+        self.let_prefix = None;
+    }
+
     pub(crate) fn set_let_prefix(&mut self, prefix: String) {
         self.let_prefix = Some(prefix);
     }
 
     /// A branch: `cond` is the condition as written; `then` / `els` build the two sides.
     pub(crate) fn if_node(&mut self, cond: &str, cond_span: Span, then: impl FnOnce(&mut Self), els: Option<impl FnOnce(&mut Self)>) {
+        self.branch_node(&format!("if {}", cond), ("true", "false"), cond_span, then, els);
+    }
+
+    /// A two-way branch that is not written `if` (a `catch`, a shell `cmd || …`): `label` is
+    /// the node's text, `edges` the words on the way into `then` and past it.
+    pub(crate) fn branch_node(&mut self, label: &str, edges: (&str, &str), cond_span: Span, then: impl FnOnce(&mut Self), els: Option<impl FnOnce(&mut Self)>) {
         let pre = self.let_prefix.take().map(|p| format!("{} ", p)).unwrap_or_default();
-        let id = self.seq(CfgNodeKind::If, shorten(&format!("{}if {}", pre, cond), 40), format!("{}if {}", pre, cond), cond_span);
+        let id = self.seq(CfgNodeKind::If, shorten(&format!("{}{}", pre, label), 40), format!("{}{}", pre, label), cond_span);
         self.open.clear();
         self.depth += 1;
-        let what = self.cfg.nodes[id].note.clone().unwrap_or_else(|| format!("if {}", cond));
+        let what = self.cfg.nodes[id].note.clone().unwrap_or_else(|| label.to_string());
         let level = self.frames.len();
         // then
         self.conds.push((level, what.clone()));
-        self.open.push((id, CfgEdgeKind::True, Some("true".into())));
+        self.open.push((id, CfgEdgeKind::True, Some(edges.0.into())));
         then(self);
         let then_ends = std::mem::take(&mut self.open);
         self.conds.pop();
         // else
         self.conds.push((level, format!("not ({})", what)));
-        self.open.push((id, CfgEdgeKind::False, Some("false".into())));
+        self.open.push((id, CfgEdgeKind::False, Some(edges.1.into())));
         if let Some(e) = els {
             e(self);
         }
@@ -488,6 +433,33 @@ impl<'a> Builder<'a> {
         ends.extend(std::mem::take(&mut self.open));
         if !cases.iter().any(|c| c == "default") {
             // no default: the switch can be skipped
+            ends.push((id, CfgEdgeKind::Arm, Some("no match".into())));
+        }
+        self.open = ends;
+    }
+
+    /// A Go `switch` / `select`, a shell `case`: one node labelled `label`, one edge per case,
+    /// no fall-through; `break` leaves it; without a default it can be skipped.
+    pub(crate) fn cases_node(&mut self, label: &str, span: Span, cases: &[String], has_default: bool, mut body: impl FnMut(&mut Self, usize)) {
+        let id = self.seq(CfgNodeKind::Match, shorten(label, 40), label.to_string(), span);
+        self.open.clear();
+        self.depth += 1;
+        self.frames.push(Frame { head: id, breaks: vec![], is_switch: true });
+        let outer_conds = std::mem::take(&mut self.conds);
+        let mut ends = Vec::new();
+        for (i, case) in cases.iter().enumerate() {
+            self.open.push((id, CfgEdgeKind::Arm, Some(shorten(case, 24))));
+            let level = self.frames.len();
+            self.conds.push((level, case.clone()));
+            body(self, i);
+            self.conds.pop();
+            ends.extend(std::mem::take(&mut self.open));
+        }
+        self.conds = outer_conds;
+        self.depth -= 1;
+        let frame = self.frames.pop().unwrap();
+        ends.extend(frame.breaks);
+        if !has_default {
             ends.push((id, CfgEdgeKind::Arm, Some("no match".into())));
         }
         self.open = ends;
@@ -581,168 +553,4 @@ impl<'a> Builder<'a> {
         let exit = self.exit;
         self.edge(id, exit, CfgEdgeKind::Error, Some("Err / None".into()));
     }
-}
-
-// ---- Rust driver (syn) ----
-
-impl<'a> Builder<'a> {
-    fn block(&mut self, b: &syn::Block) {
-        for stmt in &b.stmts {
-            self.stmt(stmt);
-        }
-    }
-
-    fn stmt(&mut self, s: &syn::Stmt) {
-        self.note_for(span_of(s, self.file).line_start);
-        self.stmt_inner(s);
-        self.clear_note();
-    }
-
-    fn stmt_inner(&mut self, s: &syn::Stmt) {
-        match s {
-            syn::Stmt::Local(l) => {
-                let span = span_of(l, self.file);
-                let pat = tokens_to_string(&l.pat);
-                if let Some(init) = &l.init {
-                    let e = &*init.expr;
-                    if matches!(e, syn::Expr::If(_) | syn::Expr::Match(_)) {
-                        // `let x = match …`: one node, "let x = match …" (or the comment above), arms from it
-                        self.set_let_prefix(format!("let {} =", pat));
-                        self.expr(e);
-                        self.let_prefix = None;
-                        return;
-                    }
-                    if is_structured(e) {
-                        // `let x = loop { … }` : structural expr gets its own nodes
-                        let label = format!("let {} =", pat);
-                        self.seq(CfgNodeKind::Block, shorten(&label, 40), tokens_to_string(l), span_of(&l.pat, self.file));
-                        self.expr(e);
-                        return;
-                    }
-                    let mut f = facts(e);
-                    f.is_let = true;
-                    self.plain(&format!("let {} = {}", pat, tokens_to_string(e)), tokens_to_string(l), span, f);
-                } else {
-                    self.plain(&format!("let {}", pat), tokens_to_string(l), span, Facts { is_let: true, ..Default::default() });
-                }
-            }
-            syn::Stmt::Expr(e, _) => self.expr(e),
-            syn::Stmt::Item(_) => {}
-            syn::Stmt::Macro(m) => {
-                let span = span_of(m, self.file);
-                let text = tokens_to_string(m);
-                let name = path_last(&m.mac.path);
-                if is_log_macro(&m.mac.path) {
-                    // logging: shown only when a comment above says why it matters
-                    self.log_node(text, span);
-                    return;
-                }
-                if matches!(name.as_str(), "panic" | "unreachable" | "todo" | "unimplemented") {
-                    self.panic_node(text, span, "panic", true);
-                } else if matches!(name.as_str(), "assert" | "assert_eq" | "assert_ne" | "debug_assert") {
-                    self.panic_node(text, span, "assert fails", false);
-                } else {
-                    self.plain(&text, text.clone(), span, Facts::default());
-                }
-            }
-        }
-    }
-
-    fn expr(&mut self, e: &syn::Expr) {
-        let span = span_of(e, self.file);
-        match e {
-            syn::Expr::If(i) => {
-                let cond = tokens_to_string(&i.cond);
-                let els = i.else_branch.as_ref().map(|(_, else_e)| move |b: &mut Self| b.expr(else_e));
-                self.if_node(&cond, span_of(&i.cond, self.file), |b| b.block(&i.then_branch), els);
-            }
-            syn::Expr::Match(m) => {
-                let scrut = tokens_to_string(&m.expr);
-                let arms: Vec<Arm> = m
-                    .arms
-                    .iter()
-                    .map(|arm| {
-                        let mut pat = tokens_to_string(&arm.pat);
-                        if let Some((_, g)) = &arm.guard {
-                            pat.push_str(" if ");
-                            pat.push_str(&tokens_to_string(g));
-                        }
-                        let trivial = is_trivial(&arm.body).then(|| tokens_to_string(&arm.body).trim_start_matches("{ ").trim_end_matches(" }").to_string());
-                        Arm { pat, trivial }
-                    })
-                    .collect();
-                self.match_node(&scrut, span_of(&m.expr, self.file), &arms, |b, i| b.arm_body(&m.arms[i].body));
-            }
-            syn::Expr::Loop(l) => self.loop_node("loop", span, true, |b| b.block(&l.body)),
-            syn::Expr::While(w) => {
-                let cond = tokens_to_string(&w.cond);
-                self.loop_node(&format!("while {}", cond), span_of(&w.cond, self.file), false, |b| b.block(&w.body))
-            }
-            syn::Expr::ForLoop(f) => {
-                let label = format!("for {} in {}", tokens_to_string(&f.pat), tokens_to_string(&f.expr));
-                self.loop_node(&label, span_union(span_of(&f.pat, self.file), span_of(&f.expr, self.file)), false, |b| b.block(&f.body))
-            }
-            syn::Expr::Block(b) => self.block(&b.block),
-            syn::Expr::Unsafe(u) => self.block(&u.block),
-            syn::Expr::Async(a) => self.block(&a.block),
-            syn::Expr::Return(r) => {
-                let text = tokens_to_string(e);
-                let what = r.expr.as_ref().map(|x| return_label(x)).unwrap_or_else(|| "return".into());
-                self.return_node(what == "return Err", text, span, &what);
-            }
-            syn::Expr::Break(_) => self.break_node(tokens_to_string(e), span),
-            syn::Expr::Continue(_) => self.continue_node(tokens_to_string(e), span),
-            syn::Expr::Try(t) if is_structured(&t.expr) => {
-                self.expr(&t.expr);
-                self.propagate_node(tokens_to_string(e), span);
-            }
-            syn::Expr::Macro(m) if is_log_macro(&m.mac.path) => self.log_node(tokens_to_string(e), span),
-            _ => {
-                let text = tokens_to_string(e);
-                self.plain(&text, text.clone(), span, facts(e));
-            }
-        }
-    }
-
-    fn arm_body(&mut self, body: &syn::Expr) {
-        match body {
-            syn::Expr::Block(b) => self.block(&b.block),
-            other => self.expr(other),
-        }
-    }
-}
-
-fn return_label(e: &syn::Expr) -> String {
-    match e {
-        syn::Expr::Call(c) => {
-            let name = tokens_to_string(&c.func);
-            match name.as_str() {
-                "Ok" => "return Ok".into(),
-                "Err" => "return Err".into(),
-                "Some" => "return Some".into(),
-                _ => "return".into(),
-            }
-        }
-        syn::Expr::Path(p) if p.path.is_ident("None") => "return None".into(),
-        _ => "return".into(),
-    }
-}
-
-fn is_structured(e: &syn::Expr) -> bool {
-    matches!(
-        e,
-        syn::Expr::If(_) | syn::Expr::Match(_) | syn::Expr::Loop(_) | syn::Expr::While(_) | syn::Expr::ForLoop(_) | syn::Expr::Block(_) | syn::Expr::Unsafe(_)
-    )
-}
-
-/// Build the CFG of a Rust function body. `calls` are the (already resolved) call edges of that function.
-pub fn build<'a>(block: &syn::Block, file: FileId, calls: &'a [CallEdge], fn_span: Span, source: &'a str) -> Cfg {
-    let mut b = Builder::new(file, calls, fn_span, source);
-    b.block(block);
-    // label the implicit tail expression as the return value
-    let tail = match block.stmts.last() {
-        Some(syn::Stmt::Expr(e, None)) => Some(return_label(e)),
-        _ => None,
-    };
-    b.finish(tail)
 }

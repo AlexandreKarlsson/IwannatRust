@@ -4,6 +4,7 @@
 #![allow(non_snake_case)]
 
 mod canvas;
+mod castmap;
 mod chart;
 mod code;
 mod design;
@@ -21,6 +22,7 @@ mod side;
 mod source;
 mod subtitles;
 mod theme;
+mod topics;
 mod tutorial;
 
 use crate::i18n::t;
@@ -185,6 +187,14 @@ pub struct State {
     pub render: Signal<bool>,
     // ---- settings
     pub settings_open: Signal<bool>,
+    /// the cast map (jump to another folder's codecast) is shown over the page
+    pub map_open: Signal<bool>,
+    /// the codecasts around the served project, from `/api/casts` (`codecast serve` only)
+    pub casts: Signal<Option<Rc<iwr_core::casts::CastMap>>>,
+    /// the topics of the codecast and the one that plays (`topics.rs`)
+    pub topics: Signal<Option<Rc<iwr_core::casts::Topics>>>,
+    /// the codecast played to its end: the card that proposes the topics is shown
+    pub ended: Signal<bool>,
     /// the Generate page (record the codecast's voice with Kokoro)
     pub generate_open: Signal<bool>,
     /// every part and its recordings, from `/api/voice` (`codecast serve` only)
@@ -285,6 +295,7 @@ impl State {
     pub fn close_pages(&mut self) {
         self.settings_open.set(false);
         self.generate_open.set(false);
+        self.map_open.set(false);
     }
 
     pub fn save_layout(&self) {
@@ -485,6 +496,10 @@ fn App() -> Element {
         drag: Signal::new(None),
         animate: Signal::new(false),
         settings_open: Signal::new(false),
+        map_open: Signal::new(false),
+        casts: Signal::new(None),
+        topics: Signal::new(None),
+        ended: Signal::new(false),
         generate_open: Signal::new(false),
         voice_status: Signal::new(None),
         voice_job: Signal::new(None),
@@ -563,11 +578,12 @@ fn App() -> Element {
                 state.set_lang(l);
             }
         }
-        // `?page=generate` / `?page=settings` open that page
+        // `?page=generate` / `?page=settings` / `?page=map` open that page
         if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('page') || '';").await {
             match v.as_str() {
                 Some("generate") => state.generate_open.set(true),
                 Some("settings") => state.settings_open.set(true),
+                Some("map") => state.open_map(),
                 _ => {}
             }
         }
@@ -580,17 +596,40 @@ fn App() -> Element {
         let mut first = true;
         let live = fetch_version().await.is_some();
         state.live.set(live);
+        if live {
+            spawn(async move { state.load_casts().await });
+        }
         loop {
             let v = if live { fetch_version().await.unwrap_or(0) } else { 1 };
             // version 0: the server is still analyzing (the loading page follows `/api/status`)
             if live && v == 0 {
+                // back to 0 after a project was shown: the server now serves another folder
+                // (the cast map, maybe in another tab). Start over on a fresh page
+                if !first {
+                    document::eval("location.reload();");
+                    break;
+                }
                 gloo_timers::future::sleep(std::time::Duration::from_millis(300)).await;
                 continue;
             }
             if first || v != *state.version.read() {
+                // another tab made the server play another topic: follow it on a fresh page
+                if live && !first && state.topic_changed().await {
+                    document::eval("location.reload();");
+                    break;
+                }
                 match fetch_project(if live { "/api/project" } else { "project.json" }).await {
                     Ok(p) => {
+                        // another folder's project (the jump was missed between two polls)
+                        if state.project.peek().as_ref().is_some_and(|old| old.root != p.root) {
+                            document::eval("location.reload();");
+                            break;
+                        }
                         let root = views::default_root(&p);
+                        // the file tree opens with every folder closed
+                        if first {
+                            state.closed_dirs.set(p.files.iter().flat_map(|f| f.path.match_indices('/').map(|(i, _)| f.path[..i].to_string()).collect::<Vec<_>>()).collect());
+                        }
                         state.project.set(Some(Rc::new(p)));
                         state.version.set(v);
                         if first || state.root.read().is_none() {
@@ -602,7 +641,13 @@ fn App() -> Element {
                             state.fit_request += 1;
                         }
                         if first {
-                            if let Some((text, audio, base, glossary)) = player::fetch_script(live).await {
+                            state.load_topics(live).await;
+                            // a `codecast/` with topics only has no script of its own to play
+                            let fetched = player::fetch_script(live).await.filter(|f| iwr_core::script::parse(&f.0).cue_count() > 0);
+                            if fetched.is_none() && state.has_topics() {
+                                state.set_mode(Mode::Plan);
+                            }
+                            if let Some((text, audio, base, glossary)) = fetched {
                                 state.audio_url.set(audio);
                                 state.audio_base.set(base);
                                 if let Some(g) = glossary {
@@ -613,6 +658,12 @@ fn App() -> Element {
                                 let s = iwr_core::script::parse(&text);
                                 state.own_script.set(Some((Rc::new(s.clone()), state.audio_url.peek().clone(), state.audio_base.peek().clone())));
                                 state.load_script(s);
+                                // `?page=plan`: where a jump from the cast map lands
+                                if let Ok(v) = document::eval("return new URLSearchParams(location.search).get('page') || '';").await {
+                                    if v.as_str() == Some("plan") {
+                                        state.set_mode(Mode::Plan);
+                                    }
+                                }
                                 // `?render=N&voice=V`: `codecast video` films part N with voice V
                                 if let Ok(v) = document::eval("const q = new URLSearchParams(location.search); return [q.get('render') || '', q.get('voice') || '', q.get('sub') || ''];").await {
                                     let get = |i: usize| v.get(i).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -700,7 +751,9 @@ fn App() -> Element {
                     "t" => { state.close_pages(); state.start_tour() }
                     "," => { let v = *state.settings_open.read(); state.close_pages(); state.settings_open.set(!v) }
                     "Escape" => {
-                        if *state.welcome_open.read() {
+                        if *state.map_open.read() {
+                            state.map_open.set(false)
+                        } else if *state.welcome_open.read() {
                             state.close_welcome()
                         } else if *state.settings_open.read() || *state.generate_open.read() {
                             state.close_pages()
@@ -730,6 +783,10 @@ fn App() -> Element {
     let generate_open = *state.generate_open.read();
     let has_side = state.side.read().is_some();
     let focus = *state.focus.read();
+    // during a codecast an empty details panel (nothing selected, no source line, not enlarged by
+    // `+ source`) stays closed: the view takes its width
+    let details_empty = has_guide && state.selected.read().is_none() && state.selected_span.read().is_none()
+        && focus != Some(iwr_core::script::Panel::Source);
     let focus_cls = focus.map(|f| format!(" focus-{}", f.name())).unwrap_or_default();
     // a cue that enlarges the sidebar shows it even when the viewer closed it
     let spot = *state.spot.read();
@@ -743,6 +800,8 @@ fn App() -> Element {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         style { {chart::CSS} }
+        style { {castmap::CSS} }
+        style { {topics::CSS} }
         style { {fonts::faces()} }
         style { {theme::custom_css(&state.font_title.read(), &state.font_text.read(), &state.config.read(), &state.config_base.read())} }
         div { class: format!("app theme-{}{}{}{}{}", theme_name, if dragging { " dragging" } else { "" }, if spot.is_some() && has_guide { " spotting" } else { "" }, if render { " render" } else { "" }, if render && sub_lang_empty { " nocaption" } else { "" }),
@@ -787,11 +846,12 @@ fn App() -> Element {
                 } else {
                     canvas::Canvas {}
                     // the side panel takes the details' place; a codecast's own diagram has no
-                    // item to detail, so without a side panel it gets the whole width (like a chart)
-                    if has_side || !is_diagram {
+                    // item to detail, so without a side panel it gets the whole width (like a chart);
+                    // same for an empty details panel during a codecast
+                    if has_side || (!is_diagram && !details_empty) {
                         div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     }
-                    if has_side { side::SidePanel {} } else if !is_diagram { panels::Details {} }
+                    if has_side { side::SidePanel {} } else if !is_diagram && !details_empty { panels::Details {} }
                 }
                 if has_side && (is_code || is_plan || chart.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
@@ -799,12 +859,19 @@ fn App() -> Element {
                 }
             }
             }
+            // sits right above the player bar, whatever its height
+            if has_guide && loaded && !render && *state.ended.read() && state.has_topics() && state.plays_own() {
+                topics::EndCard {}
+            }
             if has_guide {
                 player::PlayerBar {}
             }
             // the first-start dialog waits for the project (the loading page shows meanwhile)
             if welcome_open && loaded {
                 tutorial::Welcome {}
+            }
+            if *state.map_open.read() {
+                castmap::CastMapPage {}
             }
             if let Some(name) = spot.filter(|_| has_guide) {
                 tutorial::Spot { key: "{name}", name: name.to_string() }

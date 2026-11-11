@@ -4,7 +4,7 @@ use crate::i18n::{core_lang, t};
 use crate::icons::{self, IconButton};
 use crate::State;
 use dioxus::prelude::*;
-use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project, SourceLang};
+use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project};
 use iwr_core::views::{self, Mode, NodeKind};
 
 #[component]
@@ -72,6 +72,9 @@ pub fn TopBar() -> Element {
                         span { class: "gen-dot", "{to_record}" }
                     }
                 }
+            }
+            if live && state.has_other_casts() {
+                IconButton { name: "map", tip: t::panels::top_map_tip().to_string(), active: *state.map_open.read(), onclick: move |_| { if *state.map_open.read() { state.map_open.set(false) } else { state.open_map() } } }
             }
             crate::i18n::LangPicker { compact: true }
             IconButton { name: "question", tip: t::panels::top_help_tip().to_string(), active: *state.welcome_open.read(), onclick: move |_| { state.close_pages(); state.welcome_open.set(true); } }
@@ -237,7 +240,7 @@ fn FileTree() -> Element {
                         let id = fid.unwrap();
                         let f = p.file(id);
                         let count = if f.is_code() { n_items(id) } else { 0 };
-                        let icon = match f.lang { Some(SourceLang::Rust) => "🦀", Some(SourceLang::C) => "🅒", None => if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" } };
+                        let icon = match f.lang { Some(l) => l.icon(), None => if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" } };
                         let cls = format!("frow file{}{}{}", if current == Some(id) { " sel" } else { "" }, if nar_files.contains(&id) { " nar" } else { "" }, if f.is_code() { "" } else { " other" });
                         rsx! {
                             div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", title: if f.is_code() { t::panels::side_file_items(count) } else { name.clone() },

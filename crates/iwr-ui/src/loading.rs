@@ -47,7 +47,7 @@ async fn fetch_status() -> Option<Status> {
 /// Full-page view shown while `State::project` is `None`.
 #[component]
 pub fn LoadingPage() -> Element {
-    let state = use_context::<State>();
+    let mut state = use_context::<State>();
     let live = *state.live.read();
     let mut status: Signal<Option<Status>> = use_signal(|| None);
     // follow the analysis; the component goes away with the page once the project is in
@@ -134,6 +134,10 @@ pub fn LoadingPage() -> Element {
                 }
                 if let Some(e) = error {
                     div { class: "error", pre { "{e}" } div { class: "hint", {t::loading::failed_hint()} } }
+                    // a jump from the cast map that failed: the way back is the map
+                    if state.has_other_casts() {
+                        button { class: "to-map", onclick: move |_| state.open_map(), icons::Icon { name: "map", size: 14 } {t::loading::open_map()} }
+                    }
                 } else if st.is_some() {
                     div { class: "counts",
                         div { class: "count", span { class: "n", "{count(progress.files)}" } span { class: "l", {t::loading::files()} } }

@@ -1,0 +1,14 @@
+# Topics (`topics.rs`): the other codecasts about the same code, in sub-folders of `codecast/`.
+
+# heading on the plan page, above the topic cards
+heading = "トピック"
+intro = "トピックは、このコードについての独立したコードキャストです。クリックで開きます。"
+# the plan page of a project that has topics and no general codecast
+only = "このプロジェクトに全体のコードキャストはありません。トピックを選んでください。"
+# the card that leads back from a topic to the codecast of the whole project
+general = "全体ツアー"
+open_tip = "トピック「{title}」を開く：プランページから始まります"
+open_general_tip = "プロジェクト全体のツアーに戻る"
+# the card shown when the codecast has played to its end
+ended = "このコードキャストはここまでです。さらに詳しく："
+dismiss = "閉じる"

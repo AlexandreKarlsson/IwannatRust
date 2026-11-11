@@ -1,11 +1,13 @@
-//! First pass: parse every file with `syn` and collect items + module tree.
-//! Bodies are kept around so the second pass (`resolve`) can build CFGs and
-//! resolve calls once every item is known.
+//! First pass: hand every source file to the front-end of its language ([`crate::lang`]) and
+//! collect items + module tree. Bodies are kept around so the second pass (`resolve`) can build
+//! CFGs and resolve calls once every item is known.
 
-use crate::progress::{Progress, Stage};
+use crate::lang::{self, Source};
 use crate::model::*;
-use crate::text::*;
+use crate::progress::{Progress, Stage};
 use std::collections::HashMap;
+
+pub use crate::lang::Body;
 
 /// Output of the first pass.
 pub struct Collected {
@@ -14,6 +16,8 @@ pub struct Collected {
     pub bodies: Vec<FnBody>,
     /// Raw `use` paths per module, for external crate detection.
     pub use_paths: Vec<(ModuleId, Vec<String>)>,
+    /// Relations a front-end read by name (a class and its base): linked once every type is known.
+    pub rels: Vec<(ItemId, String, TypeRelKind)>,
 }
 
 pub struct FnBody {
@@ -22,22 +26,29 @@ pub struct FnBody {
     pub body: Body,
 }
 
-/// A function body kept for the second pass, in the syntax tree of its language.
-pub enum Body {
-    Rust { block: syn::Block, sig: syn::Signature },
-    /// A C definition: its tree-sitter tree and the `function_definition` node's byte range.
-    C { tree: tree_sitter::Tree, start: usize, end: usize },
-}
-
-/// State of the first pass, shared by the Rust and C collectors.
+/// State of the first pass, shared by the front-ends.
 pub(crate) struct Ctx<'a> {
     pub(crate) project: &'a mut Project,
     pub(crate) bodies: Vec<FnBody>,
     pub(crate) use_paths: Vec<(ModuleId, Vec<String>)>,
+    pub(crate) rels: Vec<(ItemId, String, TypeRelKind)>,
     module_index: HashMap<String, ModuleId>,
+    /// (module, file, type name) → the item grouping that type's methods there.
+    groups: HashMap<(ModuleId, FileId, String), ItemId>,
+    report: &'a mut dyn FnMut(&Progress),
+    /// Source files parsed so far, of `total`.
+    parsed: usize,
+    total: usize,
 }
 
 impl<'a> Ctx<'a> {
+    /// Say that `file` is being parsed: a front-end calls it once per file, before reading it.
+    pub(crate) fn parsing(&mut self, file: FileId) {
+        self.parsed += 1;
+        let p = Progress { stage: Stage::Parsing, done: self.parsed, total: self.total, current: self.project.files[file].path.clone(), files: self.project.files.len(), items: self.project.items.len(), ..Default::default() };
+        (self.report)(&p);
+    }
+
     /// The module at `path` (`crate::a::b`), created with its parents when missing.
     pub(crate) fn module_for(&mut self, path: &str) -> ModuleId {
         if let Some(id) = self.module_index.get(path) {
@@ -70,6 +81,50 @@ impl<'a> Ctx<'a> {
         id
     }
 
+    /// Put `method` in the group of the methods of `target` written in the method's file (an
+    /// `Impl` item named `name`, made on first use): the views list a type's methods through it.
+    /// For languages whose methods are not written inside an `impl` block (C++, Go).
+    pub(crate) fn group_method(&mut self, method: ItemId, target: &str, name: &str) {
+        let (mid, span) = (self.project.items[method].module, self.project.items[method].span);
+        let key = (mid, span.file, target.to_string());
+        let group = match self.groups.get(&key) {
+            Some(g) => *g,
+            None => {
+                let mpath = self.project.modules[mid].path.clone();
+                let g = self.push_item(Item {
+                    id: 0,
+                    kind: ItemKind::Impl,
+                    name: name.to_string(),
+                    path: format!("{}::<{}>", mpath, name),
+                    module: mid,
+                    vis: Visibility::Private,
+                    span,
+                    signature: name.to_string(),
+                    doc: None,
+                    attrs: vec![],
+                    extra: ItemExtra::Impl(ImplInfo { target: target.to_string(), target_id: None, trait_name: None, trait_id: None, methods: vec![] }),
+                });
+                self.groups.insert(key, g);
+                g
+            }
+        };
+        // the group spans from its first method to its last
+        let gs = &mut self.project.items[group].span;
+        if (span.line_start, span.col_start) < (gs.line_start, gs.col_start) {
+            (gs.line_start, gs.col_start) = (span.line_start, span.col_start);
+        }
+        if (span.line_end, span.col_end) > (gs.line_end, gs.col_end) {
+            (gs.line_end, gs.col_end) = (span.line_end, span.col_end);
+        }
+        if let ItemExtra::Impl(i) = &mut self.project.items[group].extra {
+            i.methods.push(method);
+        }
+        if let Some(f) = self.project.items[method].fn_info_mut() {
+            f.impl_id = Some(group);
+            f.owner_type_name = Some(target.to_string());
+        }
+    }
+
     pub(crate) fn push_item(&mut self, mut item: Item) -> ItemId {
         let id = self.project.items.len();
         item.id = id;
@@ -79,549 +134,44 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// Module path for a file, derived from its location. See README for the rules.
-pub fn module_path_for_file(rel_path: &str) -> String {
-    let parts: Vec<&str> = rel_path.split('/').filter(|p| !p.is_empty()).collect();
-    let src_idx = parts.iter().rposition(|p| *p == "src");
-    let (prefix, rest): (Vec<&str>, Vec<&str>) = match src_idx {
-        Some(i) => (parts[..i].to_vec(), parts[i + 1..].to_vec()),
-        None => (vec![], parts.clone()),
-    };
-    let mut segs: Vec<String> = Vec::new();
-    // crate root name
-    if src_idx.is_some() {
-        segs.push("crate".to_string());
-        if let Some(last) = prefix.last() {
-            // multi-crate layout: crates/foo/src -> crate::foo? No: name it after the crate dir.
-            segs = vec![last.to_string()];
-        }
-    }
-    if src_idx.is_none() {
-        // files outside any `src/` (tests/, benches/, examples/*.rs, build.rs): <parent dir>::<stem>
-        let n = rest.len();
-        if n >= 2 {
-            segs.push(rest[n - 2].to_string());
-        }
-        if let Some(last) = rest.last() {
-            segs.push(last.trim_end_matches(".rs").to_string());
-        }
-        return if segs.is_empty() { "crate".to_string() } else { segs.join("::") };
-    }
-    for (i, p) in rest.iter().enumerate() {
-        let is_last = i + 1 == rest.len();
-        let stem = if is_last { p.trim_end_matches(".rs") } else { p };
-        if is_last && (stem == "mod" || stem == "lib" || stem == "main") {
-            continue;
-        }
-        segs.push(stem.to_string());
-    }
-    if segs.is_empty() {
-        "crate".to_string()
-    } else {
-        segs.join("::")
-    }
-}
-
-/// `[package] name` of every `Cargo.toml` below the root, keyed by its directory, so a crate
-/// whose folder is not its name (`files/config-handler` holding `z-config-handler`) gets its name.
-fn package_names(files: &[(String, String)]) -> HashMap<String, String> {
-    let mut names = HashMap::new();
-    for (path, content) in files {
-        let Some(dir) = path.strip_suffix("Cargo.toml").and_then(|d| d.strip_suffix('/')) else { continue };
-        let mut in_package = false;
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('[') {
-                in_package = line == "[package]";
-            } else if in_package {
-                if let Some(v) = line.strip_prefix("name").map(str::trim_start).and_then(|r| r.strip_prefix('=')) {
-                    let v = v.trim().trim_matches('"');
-                    if !v.is_empty() {
-                        names.insert(dir.to_string(), v.to_string());
-                    }
-                    break;
-                }
-            }
-        }
-    }
-    names
-}
-
-/// Rename the first segment of a multi-crate module path after the crate's package name.
-fn crate_named(mpath: String, rel_path: &str, names: &HashMap<String, String>) -> String {
-    let parts: Vec<&str> = rel_path.split('/').collect();
-    let Some(i) = parts.iter().rposition(|p| *p == "src") else { return mpath };
-    if i == 0 {
-        return mpath;
-    }
-    let Some(name) = names.get(&parts[..i].join("/")) else { return mpath };
-    match mpath.split_once("::") {
-        Some((_, rest)) => format!("{name}::{rest}"),
-        None => name.clone(),
-    }
-}
-
-fn vis_of(v: &syn::Visibility) -> Visibility {
-    match v {
-        syn::Visibility::Public(_) => Visibility::Public,
-        syn::Visibility::Restricted(r) => {
-            if r.path.is_ident("crate") {
-                Visibility::Crate
-            } else {
-                Visibility::Restricted
-            }
-        }
-        syn::Visibility::Inherited => Visibility::Private,
-    }
-}
-
 /// Parse all files and collect items. `report` hears about every source file parsed.
 pub fn collect(name: &str, root: &str, files: Vec<(String, String)>, report: &mut dyn FnMut(&Progress)) -> Collected {
     let mut project = Project { name: name.to_string(), root: root.to_string(), ..Default::default() };
-    let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], module_index: HashMap::new() };
-    ctx.module_for("crate");
-    let names = package_names(&files);
-    let mut c_files: Vec<(FileId, String, String)> = Vec::new();
-    let total = files.iter().filter(|(p, _)| SourceLang::of_path(p).is_some()).count();
-    let mut parsed = 0usize;
-
+    // every file is listed first (the file tree shows them all), sources sorted by language
+    let mut sources: Vec<(SourceLang, Source)> = Vec::new();
     for (path, content) in files {
-        let file_id = ctx.project.files.len();
-        let lang = SourceLang::of_path(&path);
-        if lang.is_some() {
-            parsed += 1;
-            report(&Progress { stage: Stage::Parsing, done: parsed, total, current: path.clone(), files: file_id + 1, items: ctx.project.items.len(), ..Default::default() });
-        }
+        let file = project.files.len();
+        let lang = SourceLang::of_file(&path, &content);
         let text = !content.is_empty() || lang.is_some();
-        ctx.project.files.push(SourceFile { id: file_id, path: path.clone(), content: content.clone(), lang, text });
-        match lang {
-            Some(SourceLang::Rust) => {}
-            Some(SourceLang::C) => {
-                c_files.push((file_id, path, content));
-                continue;
-            }
-            None => continue,
+        if let Some(l) = lang {
+            sources.push((l, Source { file, path: path.clone(), content: content.clone() }));
         }
-        let ast = match syn::parse_file(&content) {
-            Ok(a) => a,
-            Err(e) => {
-                let s = e.span().start();
-                ctx.project.diagnostics.push(format!("{}:{}:{}: {}", path, s.line, s.column + 1, e));
-                continue;
-            }
-        };
-        let mpath = crate_named(module_path_for_file(&path), &path, &names);
-        let mid = ctx.module_for(&mpath);
-        if !path.split('/').any(|c| c == "src") && path.split('/').any(|c| c == "tests") {
-            ctx.project.modules[mid].is_test = true;
-        }
-        if ctx.project.modules[mid].file.is_none() {
-            ctx.project.modules[mid].file = Some(file_id);
-        }
-        if ctx.project.modules[mid].doc.is_none() {
-            ctx.project.modules[mid].doc = doc_of(&ast.attrs);
-        }
-        collect_items(&mut ctx, &ast.items, mid, &mpath, file_id);
+        project.files.push(SourceFile { id: file, path, content, lang, text });
     }
+    // what a file is read as can depend on its neighbours (a `.h` next to C++ sources)
+    let present: Vec<SourceLang> = sources.iter().map(|(l, _)| *l).collect();
+    for (l, s) in &mut sources {
+        *l = l.among(&s.path, |x| present.contains(&x));
+        project.files[s.file].lang = Some(*l);
+    }
+    let total = sources.len();
+    let mut ctx = Ctx { project: &mut project, bodies: vec![], use_paths: vec![], rels: vec![], module_index: HashMap::new(), groups: HashMap::new(), report, parsed: 0, total };
+    ctx.module_for("crate");
 
-    // C files after the Rust ones: a mixed project keeps `crate` for the Rust side
-    if !c_files.is_empty() {
-        crate::c::collect(&mut ctx, c_files);
+    // one front-end after the other, in the order of `SourceLang::ALL`: in a mixed project the
+    // first language that has an entry point gets the root module
+    for l in SourceLang::ALL {
+        let (mine, rest): (Vec<_>, Vec<_>) = sources.into_iter().partition(|(sl, _)| *sl == l);
+        sources = rest;
+        if !mine.is_empty() {
+            lang::collect(l, &mut ctx, mine.into_iter().map(|(_, s)| s).collect());
+        }
     }
 
     // sort children/items deterministically by name for stable output
     for m in &mut ctx.project.modules {
         m.children.sort();
     }
-    let Ctx { bodies, use_paths, .. } = ctx;
-    Collected { project, bodies, use_paths }
-}
-
-fn collect_items(ctx: &mut Ctx, items: &[syn::Item], mid: ModuleId, mpath: &str, file: FileId) {
-    for it in items {
-        match it {
-            syn::Item::Fn(f) => {
-                let id = push_fn(ctx, &f.sig, &f.vis, &f.attrs, mid, mpath, file, span_of(f, file), None, None, None);
-                ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: (*f.block).clone(), sig: f.sig.clone() } });
-            }
-            syn::Item::Struct(s) => {
-                let is_tuple = matches!(s.fields, syn::Fields::Unnamed(_));
-                let is_unit = matches!(s.fields, syn::Fields::Unit);
-                let fields = fields_of(&s.fields);
-                let sig = format!("{}struct {}{}", vis_prefix(&s.vis), s.ident, tokens_to_string(&s.generics));
-                ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Struct,
-                    name: s.ident.to_string(),
-                    path: format!("{}::{}", mpath, s.ident),
-                    module: mid,
-                    vis: vis_of(&s.vis),
-                    span: span_of(s, file),
-                    signature: sig,
-                    doc: doc_of(&s.attrs),
-                    attrs: attrs_of(&s.attrs),
-                    extra: ItemExtra::Struct(StructInfo { fields, derives: derives_of(&s.attrs), is_tuple, is_unit }),
-                });
-            }
-            syn::Item::Enum(e) => {
-                let variants = e
-                    .variants
-                    .iter()
-                    .map(|v| Variant { name: v.ident.to_string(), fields: fields_of(&v.fields) })
-                    .collect();
-                let sig = format!("{}enum {}{}", vis_prefix(&e.vis), e.ident, tokens_to_string(&e.generics));
-                ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Enum,
-                    name: e.ident.to_string(),
-                    path: format!("{}::{}", mpath, e.ident),
-                    module: mid,
-                    vis: vis_of(&e.vis),
-                    span: span_of(e, file),
-                    signature: sig,
-                    doc: doc_of(&e.attrs),
-                    attrs: attrs_of(&e.attrs),
-                    extra: ItemExtra::Enum(EnumInfo { variants, derives: derives_of(&e.attrs) }),
-                });
-            }
-            syn::Item::Trait(t) => {
-                let supertraits: Vec<String> = t
-                    .supertraits
-                    .iter()
-                    .filter_map(|b| match b {
-                        syn::TypeParamBound::Trait(tb) => Some(path_last(&tb.path)),
-                        _ => None,
-                    })
-                    .collect();
-                let sig = format!("{}trait {}{}", vis_prefix(&t.vis), t.ident, tokens_to_string(&t.generics));
-                let tid = ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Trait,
-                    name: t.ident.to_string(),
-                    path: format!("{}::{}", mpath, t.ident),
-                    module: mid,
-                    vis: vis_of(&t.vis),
-                    span: span_of(t, file),
-                    signature: sig,
-                    doc: doc_of(&t.attrs),
-                    attrs: attrs_of(&t.attrs),
-                    extra: ItemExtra::Trait(TraitInfo { supertraits, supertrait_ids: vec![], methods: vec![] }),
-                });
-                let tpath = format!("{}::{}", mpath, t.ident);
-                let mut methods = Vec::new();
-                for ti in &t.items {
-                    if let syn::TraitItem::Fn(m) = ti {
-                        let id = push_fn(
-                            ctx,
-                            &m.sig,
-                            &syn::Visibility::Inherited,
-                            &m.attrs,
-                            mid,
-                            &tpath,
-                            file,
-                            span_of(m, file),
-                            None,
-                            Some((t.ident.to_string(), tid)),
-                            None,
-                        );
-                        methods.push(id);
-                        if let Some(b) = &m.default {
-                            ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: b.clone(), sig: m.sig.clone() } });
-                        }
-                    }
-                }
-                if let ItemExtra::Trait(ti) = &mut ctx.project.items[tid].extra {
-                    ti.methods = methods;
-                }
-            }
-            syn::Item::Impl(im) => {
-                let target = tokens_to_string(&im.self_ty);
-                let target_short = match &*im.self_ty {
-                    syn::Type::Path(p) => path_last(&p.path),
-                    _ => target.clone(),
-                };
-                let trait_name = im.trait_.as_ref().map(|(_, p, _)| tokens_to_string(p));
-                let name = match &trait_name {
-                    Some(t) => format!("impl {} for {}", t, target),
-                    None => format!("impl {}", target),
-                };
-                let sig = format!("impl{} {}", tokens_to_string(&im.generics), &name[5..]);
-                let iid = ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Impl,
-                    name: name.clone(),
-                    path: format!("{}::<{}>", mpath, name),
-                    module: mid,
-                    vis: Visibility::Private,
-                    span: span_of(im, file),
-                    signature: sig,
-                    doc: doc_of(&im.attrs),
-                    attrs: attrs_of(&im.attrs),
-                    extra: ItemExtra::Impl(ImplInfo {
-                        target: target_short.clone(),
-                        target_id: None,
-                        trait_name: trait_name.clone(),
-                        trait_id: None,
-                        methods: vec![],
-                    }),
-                });
-                let tpath = format!("{}::{}", mpath, target_short);
-                let mut methods = Vec::new();
-                for ii in &im.items {
-                    if let syn::ImplItem::Fn(m) = ii {
-                        let id = push_fn(
-                            ctx,
-                            &m.sig,
-                            &m.vis,
-                            &m.attrs,
-                            mid,
-                            &tpath,
-                            file,
-                            span_of(m, file),
-                            Some((target_short.clone(), iid)),
-                            trait_name.clone().map(|t| (t, usize::MAX)),
-                            None,
-                        );
-                        methods.push(id);
-                        ctx.bodies.push(FnBody { item: id, file, body: Body::Rust { block: m.block.clone(), sig: m.sig.clone() } });
-                    }
-                }
-                if let ItemExtra::Impl(ii) = &mut ctx.project.items[iid].extra {
-                    ii.methods = methods;
-                }
-            }
-            syn::Item::Type(t) => {
-                let target = tokens_to_string(&t.ty);
-                ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::TypeAlias,
-                    name: t.ident.to_string(),
-                    path: format!("{}::{}", mpath, t.ident),
-                    module: mid,
-                    vis: vis_of(&t.vis),
-                    span: span_of(t, file),
-                    signature: format!("{}type {}{} = {}", vis_prefix(&t.vis), t.ident, tokens_to_string(&t.generics), target),
-                    doc: doc_of(&t.attrs),
-                    attrs: attrs_of(&t.attrs),
-                    extra: ItemExtra::TypeAlias { target },
-                });
-            }
-            syn::Item::Const(c) => {
-                let ty = tokens_to_string(&c.ty);
-                ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Const,
-                    name: c.ident.to_string(),
-                    path: format!("{}::{}", mpath, c.ident),
-                    module: mid,
-                    vis: vis_of(&c.vis),
-                    span: span_of(c, file),
-                    signature: format!("{}const {}: {}", vis_prefix(&c.vis), c.ident, ty),
-                    doc: doc_of(&c.attrs),
-                    attrs: attrs_of(&c.attrs),
-                    extra: ItemExtra::Const { ty },
-                });
-            }
-            syn::Item::Static(s) => {
-                let ty = tokens_to_string(&s.ty);
-                ctx.push_item(Item {
-                    id: 0,
-                    kind: ItemKind::Static,
-                    name: s.ident.to_string(),
-                    path: format!("{}::{}", mpath, s.ident),
-                    module: mid,
-                    vis: vis_of(&s.vis),
-                    span: span_of(s, file),
-                    signature: format!("{}static {}: {}", vis_prefix(&s.vis), s.ident, ty),
-                    doc: doc_of(&s.attrs),
-                    attrs: attrs_of(&s.attrs),
-                    extra: ItemExtra::Const { ty },
-                });
-            }
-            syn::Item::Mod(m) => {
-                let child_path = format!("{}::{}", mpath, m.ident);
-                let cid = ctx.module_for(&child_path);
-                if m.attrs.iter().any(is_cfg_test) {
-                    ctx.project.modules[cid].is_test = true;
-                }
-                if let Some((_, items)) = &m.content {
-                    ctx.project.modules[cid].span = Some(span_of(m, file));
-                    ctx.project.modules[cid].doc = doc_of(&m.attrs);
-                    ctx.project.modules[cid].file = Some(file);
-                    collect_items(ctx, items, cid, &child_path, file);
-                } else if ctx.project.modules[cid].doc.is_none() {
-                    ctx.project.modules[cid].doc = doc_of(&m.attrs);
-                }
-            }
-            syn::Item::Use(u) => {
-                let mut paths = Vec::new();
-                flatten_use(&u.tree, String::new(), &mut paths);
-                ctx.project.modules[mid].uses.extend(paths.iter().cloned());
-                ctx.use_paths.push((mid, paths));
-            }
-            _ => {}
-        }
-    }
-}
-
-/// `#[cfg(test)]`, `#[cfg(all(test, …))]` (not `#[cfg(not(test))]`).
-fn is_cfg_test(a: &syn::Attribute) -> bool {
-    let t = tokens_to_string(&a.meta).replace(' ', "");
-    a.path().is_ident("cfg") && !t.contains("not(") && t.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == "test")
-}
-
-fn flatten_use(tree: &syn::UseTree, prefix: String, out: &mut Vec<String>) {
-    match tree {
-        syn::UseTree::Path(p) => {
-            let np = if prefix.is_empty() { p.ident.to_string() } else { format!("{}::{}", prefix, p.ident) };
-            flatten_use(&p.tree, np, out);
-        }
-        syn::UseTree::Name(n) => {
-            out.push(if prefix.is_empty() { n.ident.to_string() } else { format!("{}::{}", prefix, n.ident) });
-        }
-        syn::UseTree::Rename(r) => {
-            out.push(if prefix.is_empty() { r.ident.to_string() } else { format!("{}::{}", prefix, r.ident) });
-        }
-        syn::UseTree::Glob(_) => out.push(format!("{}::*", prefix)),
-        syn::UseTree::Group(g) => {
-            for t in &g.items {
-                flatten_use(t, prefix.clone(), out);
-            }
-        }
-    }
-}
-
-fn vis_prefix(v: &syn::Visibility) -> String {
-    match v {
-        syn::Visibility::Inherited => String::new(),
-        other => format!("{} ", tokens_to_string(other)),
-    }
-}
-
-fn fields_of(f: &syn::Fields) -> Vec<Field> {
-    match f {
-        syn::Fields::Named(n) => n
-            .named
-            .iter()
-            .map(|f| Field {
-                name: f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default(),
-                ty: tokens_to_string(&f.ty),
-                vis: vis_of(&f.vis),
-                refs: vec![],
-            })
-            .collect(),
-        syn::Fields::Unnamed(u) => u
-            .unnamed
-            .iter()
-            .enumerate()
-            .map(|(i, f)| Field { name: i.to_string(), ty: tokens_to_string(&f.ty), vis: vis_of(&f.vis), refs: vec![] })
-            .collect(),
-        syn::Fields::Unit => vec![],
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_fn(
-    ctx: &mut Ctx,
-    sig: &syn::Signature,
-    vis: &syn::Visibility,
-    attrs: &[syn::Attribute],
-    mid: ModuleId,
-    parent_path: &str,
-    _file: FileId,
-    span: Span,
-    owner: Option<(String, ItemId)>,
-    trait_: Option<(String, ItemId)>,
-    _unused: Option<()>,
-) -> ItemId {
-    let mut info = FnInfo {
-        is_async: sig.asyncness.is_some(),
-        is_unsafe: sig.unsafety.is_some(),
-        is_const: sig.constness.is_some(),
-        ..Default::default()
-    };
-    for input in &sig.inputs {
-        match input {
-            syn::FnArg::Receiver(r) => {
-                info.self_kind = if r.reference.is_some() {
-                    if r.mutability.is_some() {
-                        SelfKind::RefMut
-                    } else {
-                        SelfKind::Ref
-                    }
-                } else {
-                    SelfKind::Owned
-                };
-            }
-            syn::FnArg::Typed(t) => {
-                info.params.push(Param { name: tokens_to_string(&t.pat), ty: tokens_to_string(&t.ty) });
-            }
-        }
-    }
-    if let syn::ReturnType::Type(_, ty) = &sig.output {
-        info.ret = Some(tokens_to_string(ty));
-        if let syn::Type::Path(p) = &**ty {
-            if let Some(seg) = p.path.segments.last() {
-                let n = seg.ident.to_string();
-                let args: Vec<String> = match &seg.arguments {
-                    syn::PathArguments::AngleBracketed(a) => a
-                        .args
-                        .iter()
-                        .filter_map(|ga| match ga {
-                            syn::GenericArgument::Type(t) => Some(tokens_to_string(t)),
-                            _ => None,
-                        })
-                        .collect(),
-                    _ => vec![],
-                };
-                if n == "Result" {
-                    info.returns_result = true;
-                    info.result_ok = args.first().cloned();
-                    info.result_err = args.get(1).cloned();
-                } else if n == "Option" {
-                    info.returns_option = true;
-                } else if n.ends_with("Result") {
-                    // type alias like io::Result<T> / anyhow::Result<T>
-                    info.returns_result = true;
-                    info.result_ok = args.first().cloned();
-                    info.result_err = args.get(1).cloned();
-                }
-            }
-        }
-    }
-    let kind = if owner.is_some() || trait_.is_some() { ItemKind::Method } else { ItemKind::Function };
-    if let Some((tname, iid)) = &owner {
-        info.impl_id = Some(*iid);
-        info.owner_type_name = Some(tname.clone());
-    }
-    if let Some((tname, tid)) = &trait_ {
-        info.trait_name = Some(tname.clone());
-        if *tid != usize::MAX {
-            info.trait_id = Some(*tid);
-        }
-    }
-    info.is_test = attrs.iter().any(|a| a.path().is_ident("test") || tokens_to_string(&a.meta).contains("::test"));
-    let module = &ctx.project.modules[mid];
-    let is_root = module.path == "crate" || module.file.map(|f| ctx.project.files[f].path.ends_with("main.rs")).unwrap_or(false);
-    info.is_main = kind == ItemKind::Function && sig.ident == "main" && is_root;
-    let name = sig.ident.to_string();
-    let signature = format!("{}{}", vis_prefix(vis), tokens_to_string(sig));
-    let item = Item {
-        id: 0,
-        kind,
-        name: name.clone(),
-        path: format!("{}::{}", parent_path, name),
-        module: mid,
-        vis: vis_of(vis),
-        span,
-        signature,
-        doc: doc_of(attrs),
-        attrs: attrs_of(attrs),
-        extra: ItemExtra::Fn(info),
-    };
-    let id = ctx.push_item(item);
-    if ctx.project.items[id].fn_info().map(|f| f.is_main).unwrap_or(false) && ctx.project.main.is_none() {
-        ctx.project.main = Some(id);
-    }
-    id
+    let Ctx { bodies, use_paths, rels, .. } = ctx;
+    Collected { project, bodies, use_paths, rels }
 }

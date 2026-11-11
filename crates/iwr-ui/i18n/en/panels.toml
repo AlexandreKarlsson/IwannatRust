@@ -18,6 +18,7 @@ gen_running = "Generating the voice… (open to follow it)"
 gen_stale = { one = "Generate the voice: the text changed since {n} recording — regenerate or delete it", other = "Generate the voice: the text changed since {n} recordings — regenerate or delete them" }
 gen_todo = { one = "Generate the voice: {n} part without an up-to-date recording", other = "Generate the voice: {n} parts without an up-to-date recording" }
 gen_idle = "Generate the voice: record the codecast with Kokoro (voice, language, speed)"
+map_tip = "Cast map: the codecasts of the folders around this one"
 help_tip = "Help: the tutorial, a codecast about the app"
 settings_tip = "Settings (,): theme, views, voice, layout"
 

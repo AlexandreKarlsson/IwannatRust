@@ -253,7 +253,7 @@ fn main() -> Result<()> {
             let loaded = codecast::load(&script)?;
             let mut s = iwr_core::script::parse(&loaded.text);
             // generated tours read the project; without one they are left out
-            let root = path.unwrap_or_else(|| script.canonicalize().ok().and_then(|f| f.parent().map(|d| d.to_path_buf())).unwrap_or_else(|| PathBuf::from(".")));
+            let root = path.unwrap_or_else(|| codecast::default_project(&script));
             if s.parts.iter().any(|p| p.cues.iter().any(|c| c.tour.is_some())) {
                 if let Ok(p) = iwr_core::analyze_path(&root) {
                     iwr_core::script::expand_tours(&p, &mut s);
@@ -297,7 +297,7 @@ fn main() -> Result<()> {
             let script = std::path::absolute(&script)?;
             let path = match path {
                 Some(p) => p,
-                None => script.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from(".")),
+                None => codecast::default_project(&script),
             };
             // with --voice, the parts that voice is missing or has a stale recording of are
             // recorded first (here: Kokoro and the translation model live on this machine)
@@ -311,60 +311,18 @@ fn main() -> Result<()> {
         Cmd::Translate { script, lang, path, pieces } => if pieces { translate::print_pieces(&script, &path, &lang) } else { translate::run(&script, &path, &lang) },
         Cmd::Check { path, script } => {
             let p = iwr_core::analyze_path(&path)?;
-            let loaded = codecast::load(&script)?;
-            let s = iwr_core::script::parse(&loaded.text);
-            let mut bad = iwr_core::script::check(&p, &s);
-            if let Some(g) = &loaded.glossary {
-                bad.extend(codecast::check_glossary(&p, g));
+            // the general codecast, then each topic (a `codecast/` with topics only has no general one)
+            let mut casts = vec![];
+            if codecast::has_general(&script) || !script.is_dir() {
+                casts.push(script.clone());
             }
-            for a in codecast::audio_files(&s) {
-                if !loaded.dir.join(&a).is_file() {
-                    bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
-                }
+            casts.extend(codecast::topics(&script).into_iter().map(|t| script.join(t.dir)));
+            anyhow::ensure!(!casts.is_empty(), "no codecast in {}", script.display());
+            let mut ok = true;
+            for c in &casts {
+                ok &= check_cast(&p, c)?;
             }
-            bad.extend(codecast::check_config(&script));
-            for stem in &loaded.stale {
-                println!("  note: {}: text changed since its recording, TTS speaks it until `codecast voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
-            }
-            for n in iwr_core::script::stage_notes(&s) {
-                println!("  note: {n}");
-            }
-            let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
-            for p in &s.parts {
-                for (i, c) in p.cues.iter().enumerate() {
-                    for u in iwr_core::speech::unspoken(&c.say, &pron) {
-                        println!("  note: {} / cue {}: `{}` will be spoken as written; add a `pronounce:` line", p.name, i + 1, u);
-                    }
-                    let answers = c.questions.iter().map(|q| q.answer.as_str());
-                    for w in std::iter::once(c.say.as_str()).chain(answers).flat_map(iwr_core::script::hard_to_say) {
-                        println!("  note: {} / cue {}: `{}` is hard to say; say it in words and show it with a `^` line", p.name, i + 1, w);
-                    }
-                }
-            }
-            let nq: usize = s.parts.iter().flat_map(|p| &p.cues).map(|c| c.questions.len()).sum();
-            let nd: usize = s.parts.iter().map(|p| p.diagrams.len()).sum();
-            let nb: usize = s.parts.iter().map(|p| p.layouts.len()).sum();
-            let nn: usize = s.parts.iter().map(|p| p.notes.len()).sum();
-            let ne: usize = s.parts.iter().map(|p| p.examples.len()).sum();
-            let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
-            println!(
-                "{}: {} part(s), {} cue(s), {} question(s){}{}{}{}{}{}",
-                s.title,
-                s.parts.len(),
-                s.cue_count(),
-                nq,
-                if nd > 0 { format!(", {} diagram(s)", nd) } else { String::new() },
-                if nb > 0 { format!(", {} byte layout(s)", nb) } else { String::new() },
-                if nn > 0 { format!(", {} side note(s)", nn) } else { String::new() },
-                if ne > 0 { format!(", {} example(s)", ne) } else { String::new() },
-                if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() },
-                if s.glossary { "" } else { ", built-in glossary off" }
-            );
-            for b in &bad {
-                println!("  {}", b);
-            }
-            if bad.is_empty() {
-                println!("all refs resolve");
+            if ok {
                 Ok(())
             } else {
                 std::process::exit(1)
@@ -412,4 +370,65 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// `codecast check` of one codecast (the general one, or a topic): prints its notes, its
+/// counts and what does not resolve; `false` when something is wrong.
+fn check_cast(p: &iwr_core::Project, script: &std::path::Path) -> Result<bool> {
+    let loaded = codecast::load(script)?;
+    let s = iwr_core::script::parse(&loaded.text);
+    let mut bad = iwr_core::script::check(p, &s);
+    if let Some(g) = &loaded.glossary {
+        bad.extend(codecast::check_glossary(p, g));
+    }
+    for a in codecast::audio_files(&s) {
+        if !loaded.dir.join(&a).is_file() {
+            bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
+        }
+    }
+    bad.extend(codecast::check_config(script));
+    for stem in &loaded.stale {
+        println!("  note: {}: text changed since its recording, TTS speaks it until `codecast voice {}{}`", stem, script.display(), codecast::lang_arg(stem));
+    }
+    for n in iwr_core::script::stage_notes(&s) {
+        println!("  note: {n}");
+    }
+    let pron = codecast::pronounce(&s, loaded.glossary.as_deref());
+    for p in &s.parts {
+        for (i, c) in p.cues.iter().enumerate() {
+            for u in iwr_core::speech::unspoken(&c.say, &pron) {
+                println!("  note: {} / cue {}: `{}` will be spoken as written; add a `pronounce:` line", p.name, i + 1, u);
+            }
+            let answers = c.questions.iter().map(|q| q.answer.as_str());
+            for w in std::iter::once(c.say.as_str()).chain(answers).flat_map(iwr_core::script::hard_to_say) {
+                println!("  note: {} / cue {}: `{}` is hard to say; say it in words and show it with a `^` line", p.name, i + 1, w);
+            }
+        }
+    }
+    let nq: usize = s.parts.iter().flat_map(|p| &p.cues).map(|c| c.questions.len()).sum();
+    let nd: usize = s.parts.iter().map(|p| p.diagrams.len()).sum();
+    let nb: usize = s.parts.iter().map(|p| p.layouts.len()).sum();
+    let nn: usize = s.parts.iter().map(|p| p.notes.len()).sum();
+    let ne: usize = s.parts.iter().map(|p| p.examples.len()).sum();
+    let ng = loaded.glossary.as_deref().map(|g| iwr_core::glossary::parse(g).len()).unwrap_or(0);
+    println!(
+        "{}: {} part(s), {} cue(s), {} question(s){}{}{}{}{}{}",
+        s.title,
+        s.parts.len(),
+        s.cue_count(),
+        nq,
+        if nd > 0 { format!(", {} diagram(s)", nd) } else { String::new() },
+        if nb > 0 { format!(", {} byte layout(s)", nb) } else { String::new() },
+        if nn > 0 { format!(", {} side note(s)", nn) } else { String::new() },
+        if ne > 0 { format!(", {} example(s)", ne) } else { String::new() },
+        if ng > 0 { format!(", {} glossary term(s)", ng) } else { String::new() },
+        if s.glossary { "" } else { ", built-in glossary off" }
+    );
+    for b in &bad {
+        println!("  {}", b);
+    }
+    if bad.is_empty() {
+        println!("all refs resolve");
+    }
+    Ok(bad.is_empty())
 }

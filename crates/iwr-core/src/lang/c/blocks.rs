@@ -21,7 +21,7 @@ impl<'s> Driver<'s> {
     }
 
     fn facts(&self, n: Node) -> Facts {
-        Facts { has_panic: calls_one_of(n, self.src, &["assert", "abort"]), has_return: has_kind(n, &["return_statement"]), ..Default::default() }
+        Facts { has_panic: calls_one_of(n, self.src, &["assert", "abort"]) || has_kind(n, &["throw_statement"]), has_return: has_kind(n, &["return_statement", "co_return_statement"]), ..Default::default() }
     }
 
     /// Locals in scope that `n` reads.
@@ -196,7 +196,52 @@ impl<'s> Driver<'s> {
                 blk.children = kids;
                 out.push(blk);
             }
-            "return_statement" => {
+            "for_range_loop" => {
+                let body = field(n, "body");
+                let label = match body {
+                    Some(bd) => clean(&self.src[n.start_byte()..bd.start_byte()]),
+                    None => self.text(n),
+                };
+                let mut blk = b.new_block(BlockKind::Loop, label.clone(), label, sp);
+                let defs: Vec<String> = field(n, "declarator").and_then(|d| declarator_name(d, self.src)).into_iter().collect();
+                if let Some(r) = field(n, "right") {
+                    blk.uses = self.uses(b, r, true);
+                }
+                b.push_scope(&defs);
+                let mut kids = Vec::new();
+                if let Some(s) = body {
+                    self.body(b, s, &mut kids);
+                }
+                b.pop_scope();
+                blk.defines = defs;
+                blk.children = kids;
+                out.push(blk);
+            }
+            "try_statement" => {
+                let mut blk = b.new_block(BlockKind::If, "try".into(), "try".into(), sp);
+                let mut kids = Vec::new();
+                if let Some(s) = field(n, "body") {
+                    self.body(b, s, &mut kids);
+                }
+                blk.children = kids;
+                out.push(blk);
+                for c in named(n).into_iter().filter(|c| c.kind() == "catch_clause") {
+                    let params = field(c, "parameters");
+                    let label = format!("catch {}", params.map(|p| self.text(p)).unwrap_or_default());
+                    let mut cb = b.new_block(BlockKind::ElseIf, label.clone(), label, span(c, file, self.src));
+                    let defs: Vec<String> = params.map(|p| named(p).into_iter().filter_map(|x| field(x, "declarator").and_then(|d| declarator_name(d, self.src))).collect()).unwrap_or_default();
+                    b.push_scope(&defs);
+                    let mut kids = Vec::new();
+                    if let Some(s) = field(c, "body") {
+                        self.body(b, s, &mut kids);
+                    }
+                    b.pop_scope();
+                    cb.defines = defs;
+                    cb.children = kids;
+                    out.push(cb);
+                }
+            }
+            "return_statement" | "co_return_statement" => {
                 let text = self.stmt_text(n);
                 let mut blk = b.new_block(BlockKind::Return, text.clone(), text, sp);
                 if let Some(e) = named(n).into_iter().next() {
@@ -244,7 +289,7 @@ impl<'s> Driver<'s> {
 fn param_names(fn_node: Node, src: &str) -> Vec<String> {
     let Some(list) = field(fn_node, "declarator").and_then(parameter_list) else { return vec![] };
     named(list).into_iter().filter_map(|p| match p.kind() {
-        "parameter_declaration" => field(p, "declarator").and_then(|d| declarator_name(d, src)),
+        "parameter_declaration" | "optional_parameter_declaration" => field(p, "declarator").and_then(|d| declarator_name(d, src)),
         "identifier" => Some(raw(p, src).to_string()),
         _ => None,
     }).collect()
@@ -260,8 +305,9 @@ pub fn build(fn_node: Node, file: FileId, calls: &[CallEdge], fn_span: Span, src
     if let Some(body) = body {
         d.block(&mut b, body, &mut kids);
     }
-    let signature = match body {
-        Some(bd) => clean(&src[fn_node.start_byte()..bd.start_byte()]),
+    let sig_end = children(fn_node).into_iter().find(|c| c.kind() == "field_initializer_list").or(body).map(|c| c.start_byte());
+    let signature = match sig_end {
+        Some(end) => clean(&src[fn_node.start_byte()..end]),
         None => text(fn_node, src),
     };
     b.root(signature, fn_span, params, kids, src)

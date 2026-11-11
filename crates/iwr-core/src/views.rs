@@ -1344,7 +1344,7 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
         let (label, caption) = match short_doc_line(module.doc.as_deref()) {
             Some(doc) => {
                 let cap = match &file {
-                    Some(f) if f.trim_end_matches(".rs").rsplit('/').next() == Some(module.name.as_str()) || f.ends_with("/mod.rs") && f.contains(&format!("/{}/", module.name)) => f.clone(),
+                    Some(f) if SourceLang::stem(f).rsplit('/').next() == Some(module.name.as_str()) || f.ends_with("/mod.rs") && f.contains(&format!("/{}/", module.name)) => f.clone(),
                     Some(f) => format!("{} · {}", name, f),
                     None => name.clone(),
                 };
@@ -1685,7 +1685,7 @@ fn types(p: &Project, opts: &ViewOptions) -> Graph {
         let kind = match r.kind {
             TypeRelKind::Contains => EdgeKind::Contains,
             TypeRelKind::Implements => EdgeKind::Implements,
-            TypeRelKind::Supertrait => EdgeKind::Supertrait,
+            TypeRelKind::Supertrait | TypeRelKind::Extends => EdgeKind::Supertrait,
             TypeRelKind::Aliases => EdgeKind::Aliases,
             TypeRelKind::UsesInSignature => continue,
         };
@@ -1932,6 +1932,7 @@ pub fn item_info_in(p: &Project, id: ItemId, lang: Lang) -> ItemInfo {
                     TypeRelKind::Contains => ti::rel_contains(lang, &p.item(r.to).name),
                     TypeRelKind::Implements => ti::rel_implements(lang, &p.item(r.to).name),
                     TypeRelKind::Supertrait => ti::rel_requires(lang, &p.item(r.to).name),
+                    TypeRelKind::Extends => ti::rel_extends(lang, &p.item(r.to).name),
                     TypeRelKind::Aliases => ti::rel_alias_of(lang, &p.item(r.to).name),
                     TypeRelKind::UsesInSignature => continue,
                 };
@@ -1941,6 +1942,7 @@ pub fn item_info_in(p: &Project, id: ItemId, lang: Lang) -> ItemInfo {
                     TypeRelKind::Contains => ti::rel_field_of(lang, &p.item(r.from).name),
                     TypeRelKind::Implements => ti::rel_implemented_by(lang, &p.item(r.from).name),
                     TypeRelKind::Supertrait => ti::rel_supertrait_of(lang, &p.item(r.from).name),
+                    TypeRelKind::Extends => ti::rel_extended_by(lang, &p.item(r.from).name),
                     TypeRelKind::Aliases => ti::rel_aliased_as(lang, &p.item(r.from).name),
                     TypeRelKind::UsesInSignature => ti::rel_used_by(lang, item_label(p.item(r.from))),
                 };

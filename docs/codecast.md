@@ -45,6 +45,39 @@ A part file may start with its own `# heading`; after the title in `index.md`, f
 ignored. `codecast check codecast/` validates the whole directory;
 [codecast/](../codecast/), this repository's own tour, is one.
 
+## Topics: more codecasts about the same code
+
+A sub-folder of `codecast/` with the same files inside is a **topic**: a codecast of its own
+about the same project, for a subject the general tour only touches.
+
+```
+codecast/
+  index.md  01-welcome.md  …        the general codecast (optional)
+  glossary.md  codecast.toml  fonts/
+  01-the_parser/                    a topic: "the parser"
+    index.md  01-tokens.md  …       same files as above; recordings and translations/ are its own
+  02-error_handling/                a topic: "error handling"
+    01-why.md
+```
+
+- **Name.** The folder name is the topic's label: an ordering prefix (`02-`) is dropped and `_`
+  reads as a space. A `# Title` in the topic's `index.md` replaces it (punctuation, capitals).
+- **Order.** By folder name; number them (`01-`, `02-`) to choose it.
+- **What counts.** A sub-folder with an `index.md` or part files. `fonts/`, `translations/` and
+  hidden folders are not topics. Topics do not nest.
+- **Shared files.** A topic without its own `codecast.toml` (and fonts) or `glossary.md` uses
+  the ones of `codecast/`. Recordings and `translations/` are per topic.
+- **In the player.** The plan page lists the topics under the parts, and a card proposes them
+  when the codecast has played to its end. A `codecast/` with topics only (no `index.md`, no
+  part file of its own) opens on the list of topics. From a topic, a card leads back to the
+  general tour. Opening a topic analyzes nothing again: it is the same project.
+- **Commands.** `codecast check codecast/` checks the general codecast and every topic. The
+  others take one codecast: `codecast voice codecast/02-error_handling`, `codecast speak`,
+  `codecast video`, `codecast translate` (the project defaults to the folder that holds
+  `codecast/`). With `codecast serve`, the Generate page records the topic that plays.
+  `codecast export` writes each topic under `topics/<folder>/` and lists them in `topics.json`;
+  the exported page plays one with `?topic=<folder>`.
+
 ## Look and defaults: `codecast.toml`
 
 The author decides what the viewer gets: a `codecast.toml` next to the script (in the `codecast/`

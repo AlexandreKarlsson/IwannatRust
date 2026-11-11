@@ -23,7 +23,7 @@ top bar asks again.
 
 | Area | Content |
 |------|---------|
-| Top bar | `Code` (default) · `Views ▸` reveals the analysis views as icons (hover for the name and what it shows) · split icon (source next to the blocks) · search · 📣 codecast · 📍 full tour · ? help (the tutorial) · ⚙ settings |
+| Top bar | `Code` (default) · `Views ▸` reveals the analysis views as icons (hover for the name and what it shows) · split icon (source next to the blocks) · search · 📣 codecast · 📍 full tour · cast map (tree icon, when other folders of the repository have a codecast) · ? help (the tutorial) · ⚙ settings |
 | Sidebar (`☰` toggles, open by default) | Two tabs. **📁 files** (default, like an editor's explorer): the whole repository tree, Rust files with their item count, other text files viewable in the source pane; the file being shown is highlighted, files a codecast cue points at glow; click a file to open it in the Code view (item count on the right). **☰ items**: every item grouped by module. Click = select + show source. Double-click a function = open its control flow. Click a **module header** = scope the module-level views to that subtree (chip in the canvas clears it). |
 | Center | Code view or graph canvas |
 | Right | Details + source (graph modes) or the source pane (Code view) |
@@ -84,6 +84,29 @@ settings).
 Scripts can also be written by an AI or by hand and loaded with `codecast serve --script`, or `load…` in
 the player bar. See [codecast.md](codecast.md) for the format, the brief and the player.
 
+## Topics: more codecasts about the same code
+
+A codecast can come with **topics**: shorter codecasts about one subject of the same project
+(sub-folders of its `codecast/` directory, see [codecast.md](codecast.md)). The plan page lists
+them under the parts, and when the codecast has played to its end a card proposes them. Click
+one: it opens on its own plan, at once (the project is not analyzed again). From a topic, the
+*General tour* card leads back. A project with topics only opens on their list. Topics are also
+boxes on the cast map, under their folder.
+
+## Cast map: the codecasts of other folders
+
+A repository can hold several codecasts: one for the whole project, one inside a crate or a
+sub-folder (`crates/foo/codecast/`), each written against its own folder. When `codecast serve`
+finds more than the one it plays, the top bar shows a tree icon. It opens the **cast map**: the
+folders from the git root down, a lit box per codecast (title, parts, length, recorded
+languages), dashed boxes for the folders in between, *you are here* on the one being served.
+
+Click a box to go there, up to a parent folder or down into a sub-folder. The server then serves
+that folder: it is analyzed again (the loading page shows it) and its codecast opens on its plan.
+Every open tab follows. A jump is refused while a voice recording or an analysis runs. Only
+folders with Rust or C sources count (a `docs/codecast.md` is a document), and `target/`,
+`node_modules/` and hidden folders are not searched. A static export has one codecast and no map.
+
 ## Keyboard
 
 | Key | Action |
@@ -134,7 +157,7 @@ voice (▶ plays a sample), the speed, the pause between cues and the compressio
 with the time left; *Cancel* keeps the parts already written. The recording runs in the server, so
 you can leave the page (the top-bar button shows a ring meanwhile); when it ends the player loads
 the new recordings. The first run installs Kokoro (~90 MB) under `~/.cache/codecast/kokoro`.
-`?page=generate` (or `?page=settings`) in the URL opens the page directly.
+`?page=generate` (or `?page=settings`, `?page=map`, `?page=plan`) in the URL opens the page directly.
 
 Every voice keeps its own recordings, so you can record the codecast with several. The player then
 shows a **recorded voice** chip: click it to see every voice with how many parts it recorded, and

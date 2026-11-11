@@ -179,7 +179,7 @@ fn guide_walks_from_main() {
 
 #[test]
 fn module_paths() {
-    use iwr_core::parse::module_path_for_file as m;
+    use iwr_core::lang::rust::module_path as m;
     assert_eq!(m("src/main.rs"), "crate");
     assert_eq!(m("src/lib.rs"), "crate");
     assert_eq!(m("src/net/mod.rs"), "crate::net");

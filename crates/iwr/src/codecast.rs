@@ -1,5 +1,8 @@
 //! Finding and reading a codecast on disk: a single file (`codecast.md`, legacy `codecast.txt`)
 //! or a `codecast/` directory with `index.md` and one file per part (`01-welcome.md`, …).
+//! A sub-folder of that directory with the same files inside is a topic: a codecast of its own
+//! about the same code (`codecast/error_handling/`), which borrows the directory's
+//! `codecast.toml`, fonts and `glossary.md` unless it has its own.
 
 use anyhow::{Context, Result};
 use iwr_core::config::{self, Config};
@@ -28,14 +31,114 @@ pub fn script_dir(script: &Path) -> PathBuf {
 }
 
 /// The project glossary file next to a script: `codecast/glossary.md` for a directory,
-/// `glossary.md` beside a single-file script.
+/// `glossary.md` beside a single-file script. A topic without one has its codecast's.
 pub fn glossary_path(script: &Path) -> PathBuf {
-    script_dir(script).join("glossary.md")
+    asset_path(script, "glossary.md")
 }
 
-/// The codecast's look and defaults (`codecast.toml` next to the script), if it has one.
+/// Does `dir` hold a codecast's files: an `index.md` or part files?
+fn is_cast_dir(dir: &Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    rd.flatten().any(|e| {
+        let p = e.path();
+        p.is_file() && p.extension().and_then(|x| x.to_str()) == Some("md") && p.file_stem().and_then(|x| x.to_str()) != Some("glossary")
+    })
+}
+
+/// The `codecast/` directory a topic belongs to: the folder above a script directory, when it
+/// is one (named `codecast`, or with an `index.md` or a `codecast.toml`). `None` for a
+/// codecast that is not a topic.
+pub fn parent_cast(script: &Path) -> Option<PathBuf> {
+    if !script.is_dir() {
+        return None;
+    }
+    let dir = script.canonicalize().ok()?;
+    let up = dir.parent()?;
+    let is_cast = up.file_name().is_some_and(|n| n == "codecast") || up.join("index.md").is_file() || up.join(config::FILE).is_file();
+    is_cast.then(|| up.to_path_buf())
+}
+
+/// Where a file of a codecast is read from (`name` relative to its directory): a topic that
+/// does not have it takes its codecast's.
+pub fn asset_path(script: &Path, name: &str) -> PathBuf {
+    let own = script_dir(script).join(name);
+    if own.exists() {
+        return own;
+    }
+    match parent_cast(script).map(|up| up.join(name)) {
+        Some(shared) if shared.exists() => shared,
+        _ => own,
+    }
+}
+
+/// The directory `codecast.toml` and its fonts are in, and are saved to: a topic without a
+/// `codecast.toml` of its own shares its codecast's look.
+pub fn config_dir(script: &Path) -> PathBuf {
+    let own = script_dir(script);
+    if own.join(config::FILE).is_file() {
+        return own;
+    }
+    parent_cast(script).unwrap_or(own)
+}
+
+/// The project a script explains when `--path` is not given: the folder its `codecast/`
+/// directory (or file) is in; for a topic, the one above that.
+pub fn default_project(script: &Path) -> PathBuf {
+    let abs = script.canonicalize().unwrap_or_else(|_| script.to_path_buf());
+    let cast = parent_cast(&abs).unwrap_or(abs);
+    cast.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The `index.md` of a codecast directory (empty without one). A topic whose index has no
+/// `# Title` is titled after its folder (`02-error_handling` → `error handling`).
+fn index_text(dir: &Path) -> String {
+    let index = std::fs::read_to_string(dir.join("index.md")).unwrap_or_default();
+    if index.lines().any(|l| l.starts_with("# ")) || parent_cast(dir).is_none() {
+        return index;
+    }
+    let name = dir.canonicalize().ok().and_then(|d| Some(d.file_name()?.to_string_lossy().to_string())).unwrap_or_default();
+    format!("# {}\n\n{}", iwr_core::casts::topic_label(&name), index)
+}
+
+/// Is there a general codecast at `script`: a single file, or a directory with an `index.md`
+/// or part files of its own (not only topics)?
+pub fn has_general(script: &Path) -> bool {
+    script.is_file() || is_cast_dir(script)
+}
+
+/// The topics of a `codecast/` directory: its sub-folders that hold a codecast's files, in
+/// name order (`01-…`, `02-…` to order them). Hidden folders are skipped; `translations/` and
+/// `fonts/` hold no script, so they are not topics.
+pub fn topics(script: &Path) -> Vec<iwr_core::casts::Topic> {
+    let Ok(rd) = std::fs::read_dir(script) else { return vec![] };
+    let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir() && is_cast_dir(p)).collect();
+    dirs.sort();
+    dirs.iter()
+        .filter_map(|d| {
+            let dir = d.file_name()?.to_str()?.to_string();
+            if dir.starts_with('.') {
+                return None;
+            }
+            let info = info(d)?;
+            // the title written in the topic's `index.md`, else the folder name (see `index_text`)
+            let label = if info.title.trim().is_empty() { iwr_core::casts::topic_label(&dir) } else { info.title.clone() };
+            Some(iwr_core::casts::Topic { dir, label, info })
+        })
+        .collect()
+}
+
+/// What `GET /api/topics` answers for the codecast at `script`, `current` being the topic
+/// that plays (empty: the general codecast).
+pub fn topic_list(script: &Path, current: &str) -> iwr_core::casts::Topics {
+    let general = has_general(script);
+    let title = if general { info(script).map(|i| i.title).unwrap_or_default() } else { String::new() };
+    iwr_core::casts::Topics { general, title, current: current.to_string(), topics: topics(script) }
+}
+
+/// The codecast's look and defaults (`codecast.toml` next to the script; a topic without one
+/// has its codecast's), if it has one.
 pub fn read_config(script: &Path) -> Result<Option<Config>> {
-    let path = script_dir(script).join(config::FILE);
+    let path = config_dir(script).join(config::FILE);
     let Ok(text) = std::fs::read_to_string(&path) else { return Ok(None) };
     Config::from_toml(&text).map(Some).map_err(|e| anyhow::anyhow!("{}: {}", path.display(), e))
 }
@@ -44,7 +147,7 @@ pub fn read_config(script: &Path) -> Result<Option<Config>> {
 pub fn check_config(script: &Path) -> Vec<String> {
     match read_config(script) {
         Ok(Some(c)) => {
-            let dir = script_dir(script);
+            let dir = config_dir(script);
             let mut bad: Vec<String> = c.problems().into_iter().map(|b| format!("{}: {}", config::FILE, b)).collect();
             for f in c.font_files() {
                 if !dir.join(&f).is_file() {
@@ -70,13 +173,133 @@ pub fn locate(project: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The folder a served path stands for: itself, or the folder of a single file.
+pub fn project_dir(project: &Path) -> PathBuf {
+    let p = project.canonicalize().unwrap_or_else(|_| project.to_path_buf());
+    if p.is_file() {
+        p.parent().map(Path::to_path_buf).unwrap_or(p)
+    } else {
+        p
+    }
+}
+
+/// Where the cast map starts: the git root above the project, else the project's own folder.
+pub fn map_top(project: &Path) -> PathBuf {
+    let dir = project_dir(project);
+    dir.ancestors().find(|a| a.join(".git").exists()).map(Path::to_path_buf).unwrap_or(dir)
+}
+
+/// What the cast map shows about a codecast: read from the script alone (no analysis, nothing
+/// renamed or written), `None` when it cannot be read.
+pub fn info(script_path: &Path) -> Option<iwr_core::casts::CastInfo> {
+    let mut langs: Vec<String> = Vec::new();
+    let text = if script_path.is_dir() {
+        let index = index_text(script_path);
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(script_path).ok()?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        entries.sort();
+        let mut parts = Vec::new();
+        for f in entries.iter().filter(|f| f.extension().and_then(|e| e.to_str()) == Some("md")) {
+            let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+            if stem == "index" || stem == "glossary" {
+                continue;
+            }
+            // a recording named after the part alone is English
+            if AUDIO_EXTS.iter().any(|e| script_path.join(format!("{stem}.{e}")).is_file()) {
+                langs.push("en".into());
+            }
+            langs.extend(variants(&entries, &stem).into_iter().map(|(lang, _)| lang));
+            parts.push(PartFile { text: std::fs::read_to_string(f).ok()?, stem, audio: None, times: vec![], voices: vec![] });
+        }
+        script::assemble(&index, &parts)
+    } else {
+        std::fs::read_to_string(script_path).ok()?
+    };
+    langs.sort();
+    langs.dedup();
+    let sc = script::parse(&text);
+    Some(iwr_core::casts::CastInfo { title: sc.title.clone(), parts: sc.parts.len(), cues: sc.cue_count(), secs: sc.duration(false, 1.0).0, langs })
+}
+
+/// Folders a scan for codecasts does not enter: hidden ones, build output, dependencies, and a
+/// codecast's own directory.
+fn skip_dir(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "target" | "node_modules" | "codecast")
+}
+
+/// Is there Rust or C source somewhere under `dir`? Gives up (no) after a few thousand entries.
+fn has_source(dir: &Path, seen: &mut usize) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    let mut dirs = Vec::new();
+    for e in rd.flatten() {
+        *seen += 1;
+        if *seen > 5000 {
+            return false;
+        }
+        let p = e.path();
+        if e.file_type().is_ok_and(|t| t.is_dir()) {
+            if !skip_dir(&e.file_name().to_string_lossy()) {
+                dirs.push(p);
+            }
+        } else if p.to_str().is_some_and(|x| iwr_core::model::SourceLang::of_path(x).is_some()) {
+            return true;
+        }
+    }
+    dirs.iter().any(|d| has_source(d, seen))
+}
+
+/// Most folders a scan for codecasts visits before it gives up (a huge checkout).
+const MAX_SCAN: usize = 50_000;
+
+/// The codecasts around `project`: every folder under the git root (see [`map_top`]) that has
+/// one and sources to show, as a tree. Build output, dependencies, hidden folders and the codecast folders
+/// themselves are not entered; links are not followed. The topics of each codecast are nodes
+/// under its folder; `topic` is the one that plays in the served folder (empty: none).
+pub fn discover(project: &Path, topic: &str) -> iwr_core::casts::CastMap {
+    let top = map_top(project);
+    let current = project_dir(project);
+    let rel = |p: &Path| p.strip_prefix(&top).unwrap_or(Path::new("")).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/");
+    let mut found = Vec::new();
+    let mut with_topics = Vec::new();
+    let mut stack = vec![top.clone()];
+    let mut seen = 0usize;
+    let mut partial = false;
+    while let Some(dir) = stack.pop() {
+        seen += 1;
+        if seen > MAX_SCAN {
+            partial = true;
+            break;
+        }
+        // a `codecast.md` in a folder without sources is a document, not a codecast to play
+        if let Some(s) = locate(&dir).filter(|_| has_source(&dir, &mut 0)) {
+            if let Some(i) = info(&s).filter(|_| has_general(&s)) {
+                found.push((rel(&dir), Some(i)));
+            }
+            let t = topics(&s);
+            if !t.is_empty() {
+                with_topics.push((rel(&dir), t));
+            }
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !skip_dir(&name) && e.file_type().is_ok_and(|t| t.is_dir()) {
+                stack.push(e.path());
+            }
+        }
+    }
+    let name = top.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| top.display().to_string());
+    let mut map = iwr_core::casts::CastMap::build_with_topics(&top.display().to_string(), &name, found, with_topics, &rel(&current), topic);
+    map.partial = partial;
+    map
+}
+
 /// Read a script file or directory.
 pub fn load(path: &Path) -> Result<Loaded> {
     if path.is_dir() {
         for (old, new) in migrate_names(path) {
             eprintln!("renamed {old} → {new}");
         }
-        let index = std::fs::read_to_string(path.join("index.md")).unwrap_or_default();
+        let index = index_text(path);
         let mut parts: Vec<PartFile> = Vec::new();
         let mut entries: Vec<PathBuf> = std::fs::read_dir(path).with_context(|| format!("reading {}", path.display()))?.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
@@ -435,5 +658,106 @@ mod naming_tests {
             self.sort();
             self
         }
+    }
+}
+
+#[cfg(test)]
+mod discover_tests {
+    use super::*;
+
+    /// A codecast in the top folder and in a sub-folder are both on the map, the folder between
+    /// them too; build output and hidden folders are not searched.
+    #[test]
+    fn finds_the_codecasts_under_the_git_root() {
+        let top = std::env::temp_dir().join(format!("iwr-discover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let write = |rel: &str, text: &str| {
+            let f = top.join(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, text).unwrap();
+        };
+        write(".git/HEAD", "");
+        write("codecast.md", "# Whole\n\n## One\nHello.\n");
+        write("src/main.rs", "fn main() {}\n");
+        write("crates/core/src/lib.rs", "");
+        write("docs/codecast.md", "# The format\n");
+        write("crates/core/codecast/index.md", "# Core\n");
+        write("crates/core/codecast/01-a.md", "## A\nFirst.\n");
+        write("crates/core/codecast/01-a_ja.ogg", "");
+        write("target/codecast.md", "# Built\n");
+        write(".hidden/codecast.md", "# Hidden\n");
+        let top = top.canonicalize().unwrap();
+
+        // served from the sub-folder: the scan still starts at the git root
+        let m = discover(&top.join("crates/core"), "");
+        let paths: Vec<&str> = m.nodes.iter().map(|n| n.path.as_str()).collect();
+        assert_eq!(paths, ["", "crates", "crates/core"]);
+        assert_eq!(m.nodes[0].cast.as_ref().unwrap().title, "Whole");
+        assert!(m.nodes[1].cast.is_none());
+        let core = m.nodes[2].cast.as_ref().unwrap();
+        assert_eq!((core.title.as_str(), core.parts, core.langs.as_slice()), ("Core", 1, &["ja".to_string()][..]));
+        assert!(m.nodes[2].current && !m.partial);
+        std::fs::remove_dir_all(&top).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod topic_tests {
+    use super::*;
+
+    /// Sub-folders of `codecast/` with a codecast's files are topics, named after the folder
+    /// unless their `index.md` has a title; they borrow the glossary and the look.
+    #[test]
+    fn topics_are_the_sub_folders_with_a_script() {
+        let top = std::env::temp_dir().join(format!("iwr-topics-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let write = |rel: &str, text: &str| {
+            let f = top.join(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, text).unwrap();
+        };
+        write("src/main.rs", "fn main() {}\n");
+        write("codecast/index.md", "# Whole\n");
+        write("codecast/01-a.md", "## A\nFirst.\n");
+        write("codecast/glossary.md", "## term\nWhat it is.\n");
+        write("codecast/codecast.toml", "");
+        write("codecast/translations/ja.json", "{}");
+        write("codecast/fonts/x.woff2", "");
+        write("codecast/02-error_handling/01-why.md", "## Why\nBecause.\n");
+        write("codecast/01-the_parser/index.md", "# Parsing, step by step\n");
+        write("codecast/01-the_parser/01-tokens.md", "## Tokens\nOne.\n");
+        write("codecast/01-the_parser/glossary.md", "## token\nA word.\n");
+        let top = top.canonicalize().unwrap();
+        let cast = top.join("codecast");
+
+        let t = topic_list(&cast, "02-error_handling");
+        assert!(t.general);
+        assert_eq!(t.title, "Whole");
+        let seen: Vec<(&str, &str, usize)> = t.topics.iter().map(|t| (t.dir.as_str(), t.label.as_str(), t.info.parts)).collect();
+        assert_eq!(seen, [("01-the_parser", "Parsing, step by step", 1), ("02-error_handling", "error handling", 1)]);
+
+        let (parser, errors) = (cast.join("01-the_parser"), cast.join("02-error_handling"));
+        assert_eq!(parent_cast(&errors), Some(cast.clone()));
+        assert_eq!(parent_cast(&cast), None);
+        assert_eq!(glossary_path(&errors), cast.join("glossary.md"));
+        assert_eq!(glossary_path(&parser), parser.join("glossary.md"));
+        assert_eq!(config_dir(&errors), cast);
+        assert_eq!(default_project(&errors), top);
+        assert_eq!(default_project(&cast), top);
+        // the general codecast does not read the topics' files
+        assert_eq!(script::parse(&load(&cast).unwrap().text).parts.len(), 1);
+        assert_eq!(script::parse(&load(&errors).unwrap().text).title, "error handling");
+
+        // on the map, under the folder; the one that plays is marked
+        let m = discover(&top, "02-error_handling");
+        let names: Vec<(&str, bool)> = m.nodes.iter().map(|n| (n.name.as_str(), n.current)).collect();
+        assert_eq!(names[1..], [("Parsing, step by step", false), ("error handling", true)]);
+
+        // topics alone: no general codecast
+        std::fs::remove_file(cast.join("index.md")).unwrap();
+        std::fs::remove_file(cast.join("01-a.md")).unwrap();
+        assert!(!topic_list(&cast, "").general);
+        assert!(discover(&top, "").nodes[0].cast.is_none());
+        std::fs::remove_dir_all(&top).unwrap();
     }
 }

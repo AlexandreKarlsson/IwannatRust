@@ -161,7 +161,7 @@ impl State {
             let map: Result<std::collections::HashMap<String, String>, String> = if live {
                 fetch_translations(&lang, &texts).await.map(|done| texts.iter().cloned().zip(done).collect())
             } else {
-                match fetch_text(&format!("translations/{lang}.json")).await {
+                match fetch_text(&format!("{}translations/{lang}.json", crate::topics::static_base())).await {
                     Some(t) => serde_json::from_str(&t).map_err(|e| e.to_string()),
                     None => Err(t::player::translate_no_export(&name, &lang)),
                 }
@@ -367,6 +367,11 @@ impl State {
                 self.audio_base.set(base);
                 self.load_script((*s).clone());
             }
+            // topics and no general codecast: the plan page offers the topics
+            None if self.has_topics() => {
+                self.close_pages();
+                self.set_mode(Mode::Plan);
+            }
             None => self.start_builtin_guide(None),
         }
     }
@@ -382,6 +387,7 @@ impl State {
 
     pub fn stop_script(&mut self) {
         self.script.set(None);
+        self.ended.set(false);
         self.playing.set(false);
         self.tts_gen += 1;
         self.hl.set(vec![]);
@@ -450,6 +456,10 @@ impl State {
             self.goto_part(part + 1);
             return true;
         }
+        // the last cue of the last part was played: the topics are proposed
+        if part + 1 >= n {
+            self.ended.set(true);
+        }
         false
     }
 
@@ -477,6 +487,9 @@ impl State {
 
     /// Apply the current cue: view, root/scope, highlights, code mark, camera.
     pub fn apply_cue(&mut self) {
+        if *self.ended.peek() {
+            self.ended.set(false);
+        }
         let Some(p) = self.project.read().clone() else { return };
         let Some(cue) = self.current_cue() else { return };
         // `>` lines are sticky inside a part: replay them from its first cue
@@ -818,13 +831,17 @@ pub async fn fetch_script(live: bool) -> Option<(String, Option<String>, String,
         let glossary = fetch_text("/api/glossary").await;
         Some((t, audio, "/api/codecast/".into(), glossary))
     } else {
-        let t = match fetch_text("codecast.md").await {
+        // a topic's files are in its own folder of the export
+        let base = crate::topics::static_base();
+        let t = match fetch_text(&format!("{base}codecast.md")).await {
             Some(t) => t,
-            None => fetch_text("script.txt").await?,
+            None if base.is_empty() => fetch_text("script.txt").await?,
+            None => return None,
         };
-        let audio = fetch_text("audio.txt").await.map(|a| a.trim().to_string());
-        let glossary = fetch_text("glossary.md").await;
-        Some((t, audio, "codecast/".into(), glossary))
+        // the `--audio` recording is the general codecast's
+        let audio = if base.is_empty() { fetch_text("audio.txt").await.map(|a| a.trim().to_string()) } else { None };
+        let glossary = fetch_text(&format!("{base}glossary.md")).await;
+        Some((t, audio, format!("{base}codecast/"), glossary))
     }
 }
 
@@ -1295,9 +1312,23 @@ pub fn PlayerBar() -> Element {
 #[component]
 pub fn PlanPage() -> Element {
     let mut state = use_context::<State>();
+    let has_topics = state.has_topics();
     let Some(s) = state.script.read().clone() else {
+        // topics and no general codecast: the topics are the plan
+        if has_topics {
+            return rsx! {
+                div { class: "plan",
+                    div { class: "wrap",
+                        h2 { Icon { name: "plan".to_string(), size: 22 } {t::topics::heading()} }
+                        p { class: "intro", {t::topics::only()} }
+                        crate::topics::TopicCards {}
+                    }
+                }
+            };
+        }
         return rsx! { div { class: "plan", div { class: "wrap", p { class: "intro", {t::player::plan_page_none()} } } } };
     };
+    let offer_topics = has_topics && state.plays_own();
     let cur = *state.part_idx.read();
     let n_parts = s.parts.len();
     let total = s.cue_count();
@@ -1352,6 +1383,11 @@ pub fn PlanPage() -> Element {
                             }
                         }
                     }
+                }
+                if offer_topics {
+                    h3 { class: "topics-h", {t::topics::heading()} }
+                    p { class: "topics-intro", {t::topics::intro()} }
+                    crate::topics::TopicCards {}
                 }
             }
         }
