@@ -14,11 +14,11 @@ fn item<'a>(p: &'a Project, name: &str) -> &'a Item {
 
 #[test]
 fn module_paths() {
-    assert_eq!(iwr_core::c::module_path("src/net/sock.c"), "crate::net::sock");
-    assert_eq!(iwr_core::c::module_path("include/net/sock.h"), "crate::net::sock");
-    assert_eq!(iwr_core::c::module_path("main.c"), "crate");
-    assert_eq!(iwr_core::c::module_path("src/main.c"), "crate");
-    assert_eq!(iwr_core::c::module_path("foo.c"), "crate::foo");
+    assert_eq!(iwr_core::lang::c::module_path("src/net/sock.c"), "crate::net::sock");
+    assert_eq!(iwr_core::lang::c::module_path("include/net/sock.h"), "crate::net::sock");
+    assert_eq!(iwr_core::lang::c::module_path("main.c"), "crate");
+    assert_eq!(iwr_core::lang::c::module_path("src/main.c"), "crate");
+    assert_eq!(iwr_core::lang::c::module_path("foo.c"), "crate::foo");
 }
 
 #[test]

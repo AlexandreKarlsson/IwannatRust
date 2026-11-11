@@ -3,7 +3,8 @@
 
 use super::text::*;
 use crate::model::*;
-use crate::parse::{Body, Ctx, FnBody};
+use crate::lang::{Body, TreeBody};
+use crate::parse::{Ctx, FnBody};
 use tree_sitter::{Node, Tree};
 
 struct File<'a> {
@@ -155,7 +156,7 @@ fn function(ctx: &mut Ctx, f: &File, tree: &Tree, n: Node) {
     if name == "main" && ctx.project.main.is_none() {
         ctx.project.main = Some(id);
     }
-    ctx.bodies.push(FnBody { item: id, file: f.file, body: Body::C { tree: tree.clone(), start: n.start_byte(), end: n.end_byte() } });
+    ctx.bodies.push(FnBody { item: id, file: f.file, body: Body::C(TreeBody { tree: tree.clone(), start: n.start_byte(), end: n.end_byte() }) });
 }
 
 /// `*` layers between a function's declarator and its name: the pointer depth of the return type.

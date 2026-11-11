@@ -99,7 +99,7 @@ fn watch_root(shared: &AppState) {
             if ev.kind.is_access() {
                 return;
             }
-            if ev.paths.iter().any(|p| p.extension().map(|e| e == "rs").unwrap_or(false) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
+            if ev.paths.iter().any(|p| p.to_str().is_some_and(|s| iwr_core::model::SourceLang::of_path(s).is_some()) || p.file_name().map(|f| f == "Cargo.toml").unwrap_or(false)) {
                 let _ = tx.send(());
             }
         }

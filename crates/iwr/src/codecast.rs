@@ -240,7 +240,7 @@ fn has_source(dir: &Path, seen: &mut usize) -> bool {
             if !skip_dir(&e.file_name().to_string_lossy()) {
                 dirs.push(p);
             }
-        } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x, "rs" | "c" | "h")) {
+        } else if p.to_str().is_some_and(|x| iwr_core::model::SourceLang::of_path(x).is_some()) {
             return true;
         }
     }

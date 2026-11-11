@@ -1,5 +1,6 @@
 //! Load a cargo project, a C project, or a bare directory of source files from disk.
 
+use crate::model::SourceLang;
 use crate::progress::{Progress, Stage};
 use std::path::{Path, PathBuf};
 
@@ -15,7 +16,7 @@ fn is_ignored_dir(name: &str) -> bool {
 
 const MAX_TEXT: u64 = 512 * 1024;
 
-/// Read a file that is not Rust as text when it is small and valid UTF-8; empty string otherwise.
+/// Read a file that is not a source as text when it is small and valid UTF-8; empty string otherwise.
 fn read_other(p: &Path) -> String {
     match std::fs::metadata(p) {
         Ok(m) if m.len() <= MAX_TEXT => std::fs::read(p).ok().and_then(|b| String::from_utf8(b).ok()).unwrap_or_default(),
@@ -62,9 +63,11 @@ pub fn load_with(root: &Path, report: &mut dyn FnMut(&Progress)) -> std::io::Res
             if files.len() % 25 == 0 {
                 report(&Progress { stage: Stage::Reading, done: files.len(), files: files.len(), current: rel.clone(), ..Default::default() });
             }
-            if p.extension().map(|e| e == "rs").unwrap_or(false) {
-                if let Ok(c) = std::fs::read_to_string(p) {
-                    files.push((rel, c));
+            if SourceLang::of_path(&rel).is_some() {
+                // a source is read whole, whatever its size; bytes that are not UTF-8 (old C
+                // comments in Latin-1) become `�` rather than losing the file
+                if let Ok(bytes) = std::fs::read(p) {
+                    files.push((rel, String::from_utf8_lossy(&bytes).into_owned()));
                 }
             } else {
                 files.push((rel, read_other(p)));
@@ -73,8 +76,7 @@ pub fn load_with(root: &Path, report: &mut dyn FnMut(&Progress)) -> std::io::Res
     }
     // put entry points first so `crate` module gets its file
     files.sort_by_key(|(p, _)| {
-        let pri = if p.ends_with("src/main.rs") || p.ends_with("main.c") { 0 } else if p.ends_with("src/lib.rs") { 1 } else if p.ends_with("mod.rs") { 2 } else { 3 };
-        (pri, p.clone())
+        (SourceLang::entry_rank(p), p.clone())
     });
     Ok(Loaded { name, root, files })
 }

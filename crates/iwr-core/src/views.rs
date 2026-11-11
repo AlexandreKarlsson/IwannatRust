@@ -1344,7 +1344,7 @@ fn architecture(p: &Project, opts: &ViewOptions) -> Graph {
         let (label, caption) = match short_doc_line(module.doc.as_deref()) {
             Some(doc) => {
                 let cap = match &file {
-                    Some(f) if f.trim_end_matches(".rs").rsplit('/').next() == Some(module.name.as_str()) || f.ends_with("/mod.rs") && f.contains(&format!("/{}/", module.name)) => f.clone(),
+                    Some(f) if SourceLang::stem(f).rsplit('/').next() == Some(module.name.as_str()) || f.ends_with("/mod.rs") && f.contains(&format!("/{}/", module.name)) => f.clone(),
                     Some(f) => format!("{} · {}", name, f),
                     None => name.clone(),
                 };

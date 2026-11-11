@@ -40,14 +40,69 @@ pub enum SourceLang {
     C,
 }
 
+/// Everything the rest of the code needs to know about a language is asked here (and the
+/// parsing itself in `lang`): a new language is a variant, a row in each method below, and a
+/// front-end.
 impl SourceLang {
-    /// The language of a file, from its extension (`.rs`; `.c` and `.h`).
+    /// Every language, in the order their front-ends run: in a mixed project the first one with
+    /// an entry point gets the root module.
+    pub const ALL: [SourceLang; 2] = [SourceLang::Rust, SourceLang::C];
+
+    /// The language's name, as written everywhere.
+    pub fn name(self) -> &'static str {
+        match self {
+            SourceLang::Rust => "Rust",
+            SourceLang::C => "C",
+        }
+    }
+
+    /// File extensions of its sources, lowercase.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            SourceLang::Rust => &["rs"],
+            SourceLang::C => &["c", "h"],
+        }
+    }
+
+    /// The language of a file, from its extension.
     pub fn of_path(path: &str) -> Option<SourceLang> {
         let ext = path.rsplit(['/', '\\']).next().unwrap_or(path).rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase())?;
-        match ext.as_str() {
-            "rs" => Some(SourceLang::Rust),
-            "c" | "h" => Some(SourceLang::C),
-            _ => None,
+        SourceLang::ALL.into_iter().find(|l| l.extensions().contains(&ext.as_str()))
+    }
+
+    /// A source path without its extension (`src/net/sock.c` → `src/net/sock`); other paths as they are.
+    pub fn stem(path: &str) -> &str {
+        match SourceLang::of_path(path) {
+            Some(_) => path.rsplit_once('.').map(|(s, _)| s).unwrap_or(path),
+            None => path,
+        }
+    }
+
+    /// The file's icon in the file tree.
+    pub fn icon(self) -> &'static str {
+        match self {
+            SourceLang::Rust => "🦀",
+            SourceLang::C => "🅒",
+        }
+    }
+
+    /// The word in front of the root module's name (`crate NAME`), when the language has one.
+    pub fn root_word(self) -> Option<&'static str> {
+        match self {
+            SourceLang::Rust => Some("crate"),
+            SourceLang::C => None,
+        }
+    }
+
+    /// How early a file is read: `0` a program's entry point, `1` a library's root, `2` a file
+    /// that stands for its folder, `3` the rest. The root module gets the first file's docs.
+    pub fn entry_rank(path: &str) -> usize {
+        match SourceLang::of_path(path) {
+            Some(SourceLang::Rust) if path.ends_with("src/main.rs") => 0,
+            Some(SourceLang::Rust) if path.ends_with("src/lib.rs") => 1,
+            Some(SourceLang::Rust) if path.ends_with("mod.rs") => 2,
+            Some(SourceLang::C) if path.ends_with("main.c") => 0,
+            Some(SourceLang::Rust) | Some(SourceLang::C) | None => 3,
         }
     }
 }
@@ -567,13 +622,21 @@ impl Project {
     pub fn functions(&self) -> impl Iterator<Item = &Item> + '_ {
         self.items.iter().filter(|i| i.is_callable())
     }
+    /// Does the project hold sources in `lang`?
+    pub fn has_lang(&self, lang: SourceLang) -> bool {
+        self.files.iter().any(|f| f.lang == Some(lang))
+    }
     /// Does the project hold Rust sources? (C-only projects are not called a "crate".)
     pub fn has_rust(&self) -> bool {
-        self.files.iter().any(|f| f.lang == Some(SourceLang::Rust))
+        self.has_lang(SourceLang::Rust)
     }
-    /// The word for the root module: `crate NAME` in Rust, the bare name otherwise.
+    /// The root module's name with the word its language puts in front: `crate NAME` in Rust,
+    /// the bare name otherwise.
     pub fn root_label(&self) -> String {
-        if self.has_rust() { format!("crate {}", self.name) } else { self.name.clone() }
+        match SourceLang::ALL.into_iter().filter(|l| self.has_lang(*l)).find_map(SourceLang::root_word) {
+            Some(word) => format!("{} {}", word, self.name),
+            None => self.name.clone(),
+        }
     }
 }
 

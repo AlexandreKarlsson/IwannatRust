@@ -69,9 +69,12 @@ impl Lang {
     pub fn detect(path: &str, src: &str) -> Lang {
         let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
         let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+        match crate::model::SourceLang::of_path(path) {
+            Some(crate::model::SourceLang::Rust) => return Lang::Rust,
+            Some(crate::model::SourceLang::C) => return Lang::C,
+            None => {}
+        }
         match ext.as_str() {
-            "rs" => Lang::Rust,
-            "c" | "h" => Lang::C,
             "sh" | "bash" | "zsh" | "ksh" | "bats" | "bashrc" | "zshrc" | "profile" | "envrc" => Lang::Shell,
             "tf" | "tfvars" | "hcl" | "nomad" => Lang::Hcl,
             "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" => Lang::Conf,

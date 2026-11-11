@@ -4,7 +4,7 @@ use crate::i18n::{core_lang, t};
 use crate::icons::{self, IconButton};
 use crate::State;
 use dioxus::prelude::*;
-use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project, SourceLang};
+use iwr_core::model::{ItemExtra, ItemKind, ModuleId, Project};
 use iwr_core::views::{self, Mode, NodeKind};
 
 #[component]
@@ -240,7 +240,7 @@ fn FileTree() -> Element {
                         let id = fid.unwrap();
                         let f = p.file(id);
                         let count = if f.is_code() { n_items(id) } else { 0 };
-                        let icon = match f.lang { Some(SourceLang::Rust) => "🦀", Some(SourceLang::C) => "🅒", None => if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" } };
+                        let icon = match f.lang { Some(l) => l.icon(), None => if name.ends_with(".toml") { "⚙️" } else if name.ends_with(".md") { "📝" } else if name.ends_with(".txt") { "🎙️" } else if !f.text { "📦" } else { "📄" } };
                         let cls = format!("frow file{}{}{}", if current == Some(id) { " sel" } else { "" }, if nar_files.contains(&id) { " nar" } else { "" }, if f.is_code() { "" } else { " other" });
                         rsx! {
                             div { class: "{cls}", id: "ft-{dp}", style: "padding-left:{pad}px", title: if f.is_code() { t::panels::side_file_items(count) } else { name.clone() },

@@ -468,7 +468,7 @@ fn todo(p: &Project, scope: Option<ModuleId>, lang: Lang) -> Vec<Cue> {
 
 /// How a file is said: `main`, `parser`, `net` for `net/mod.rs` (the view shows the full path).
 fn file_name(f: &SourceFile) -> String {
-    let mut parts = f.path.trim_end_matches(".rs").rsplit('/');
+    let mut parts = SourceLang::stem(&f.path).rsplit('/');
     let stem = parts.next().unwrap_or("");
     let stem = if stem == "mod" { parts.next().unwrap_or(stem) } else { stem };
     format!("`{}`", stem)

@@ -12,8 +12,10 @@ pub mod cfg;
 pub mod items;
 pub(crate) mod text;
 
+use crate::lang::{Analyzed, Source};
 use crate::model::*;
 use crate::parse::Ctx;
+use crate::resolve::Index;
 
 /// A parser for C.
 pub fn parser() -> tree_sitter::Parser {
@@ -44,16 +46,16 @@ pub fn module_path(rel_path: &str) -> String {
 }
 
 /// First pass for the C files of a project: parse each, create its module, collect its items.
-pub(crate) fn collect(ctx: &mut Ctx, files: Vec<(FileId, String, String)>) {
+pub(crate) fn collect(ctx: &mut Ctx, files: Vec<Source>) {
     let mut parser = parser();
-    for (file, path, content) in files {
+    for Source { file, path, content } in files {
+        ctx.parsing(file);
         let Some(tree) = parser.parse(&content, None) else {
             ctx.project.diagnostics.push(format!("{}: could not parse", path));
             continue;
         };
-        if let Some(err) = first_error(tree.root_node()) {
-            let p = err.start_position();
-            ctx.project.diagnostics.push(format!("{}:{}:{}: syntax error ({})", path, p.row + 1, p.column + 1, if err.is_missing() { "missing token" } else { "unexpected text" }));
+        if let Some(d) = text::syntax_error(tree.root_node(), &path) {
+            ctx.project.diagnostics.push(d);
         }
         let mpath = module_path(&path);
         let mid = ctx.module_for(&mpath);
@@ -76,15 +78,12 @@ pub(crate) fn collect(ctx: &mut Ctx, files: Vec<(FileId, String, String)>) {
     }
 }
 
-/// The first error or missing node of a tree, if any.
-fn first_error(n: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    if !n.has_error() {
-        return None;
-    }
-    if n.is_error() || n.is_missing() {
-        return Some(n);
-    }
-    let mut cur = n.walk();
-    let kids: Vec<tree_sitter::Node> = n.children(&mut cur).collect();
-    kids.into_iter().find_map(first_error)
+/// Second pass for one C function: its calls, flow graph, block tree and counts.
+pub(crate) fn analyze(p: &Project, ix: &Index, item: ItemId, file: FileId, node: tree_sitter::Node) -> Analyzed {
+    let fn_span = p.items[item].span;
+    let src = &p.files[file].content;
+    let (calls, stats) = body::analyze(p, ix, item, file, node, src);
+    let cfg = cfg::build(node, file, &calls, fn_span, src);
+    let blocks = blocks::build(node, file, &calls, fn_span, src);
+    Analyzed { calls, cfg, blocks, stats }
 }
