@@ -1,41 +1,18 @@
-//! Tiny markdown subset renderer for guide text: fenced code, bullets, `code`, **bold**.
-//! Code is shown as written and carries its spoken form (see `iwr_core::speech`).
+//! Markdown of guide text, notes and answers, drawn from the tree of `iwr_core::markdown`:
+//! headings, nested and numbered lists, task lists, tables, quotes, links, images, rules, and
+//! code blocks coloured in the language of their fence (`iwr_core::highlight`).
+//! Inline code is shown as written and carries its spoken form (see `iwr_core::speech`).
 
 use crate::i18n::t;
 use crate::State;
 use dioxus::prelude::*;
+use iwr_core::highlight::{self, Lang};
+use iwr_core::markdown::{self, Align, Block, Inline};
 use iwr_core::speech::{self, Segment};
 
-/// Inline markdown: `**bold**`, then code. Code (backtick spans and bare tokens that look like
-/// code) is rendered as written with its spoken form as a tooltip, or in parentheses after it
-/// when the viewer asked for that in Settings ([`crate::State::speech_parens`]).
-fn inline(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
-    let mut out = Vec::new();
-    let mut rest = s;
-    while !rest.is_empty() {
-        match rest.find("**") {
-            Some(b) => {
-                if b > 0 {
-                    out.extend(speech_spans(&rest[..b], pron, parens));
-                }
-                if let Some(end) = rest[b + 2..].find("**") {
-                    let bold = rest[b + 2..b + 2 + end].to_string();
-                    out.push(rsx! { b { "{bold}" } });
-                    rest = &rest[b + 4 + end..];
-                } else {
-                    out.extend(speech_spans(&rest[b..], pron, parens));
-                    rest = "";
-                }
-            }
-            None => {
-                out.extend(speech_spans(rest, pron, parens));
-                rest = "";
-            }
-        }
-    }
-    out
-}
-
+/// Text with its code: backtick spans and bare tokens that look like code are rendered as
+/// written with their spoken form as a tooltip, or in parentheses after them when the viewer
+/// asked for that in Settings ([`crate::State::speech_parens`]).
 fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element> {
     // `segments` trims its text: keep the spaces next to a **bold** run
     let lead = s.starts_with(char::is_whitespace).then(|| rsx! { " " });
@@ -58,102 +35,125 @@ fn speech_spans(s: &str, pron: &[(String, String)], parens: bool) -> Vec<Element
         .collect()
 }
 
+/// What the pieces of a text need to know to be drawn.
+struct Ctx {
+    /// `pronounce:` overrides of the codecast.
+    pron: std::rc::Rc<Vec<(String, String)>>,
+    /// Spoken forms in parentheses instead of tooltips.
+    parens: bool,
+}
+
+/// Inline pieces: emphasis, links and images around the text runs.
+fn inlines(items: &[Inline], cx: &Ctx) -> Vec<Element> {
+    let mut out = Vec::new();
+    for i in items {
+        match i {
+            Inline::Text(t) => out.extend(speech_spans(t, &cx.pron, cx.parens)),
+            Inline::Code(c) => out.push(rsx! { code { "{c}" } }),
+            Inline::Strong(k) => {
+                let k = inlines(k, cx);
+                out.push(rsx! { b { for x in k { {x} } } });
+            }
+            Inline::Em(k) => {
+                let k = inlines(k, cx);
+                out.push(rsx! { i { for x in k { {x} } } });
+            }
+            Inline::Strike(k) => {
+                let k = inlines(k, cx);
+                out.push(rsx! { del { for x in k { {x} } } });
+            }
+            Inline::Link { href, text } => {
+                let k = inlines(text, cx);
+                // an address the page must not follow leaves its text
+                out.push(if href.is_empty() {
+                    rsx! { span { for x in k { {x} } } }
+                } else {
+                    rsx! { a { href: "{href}", target: "_blank", rel: "noopener noreferrer", for x in k { {x} } } }
+                });
+            }
+            Inline::Image { src, alt } => out.push(if src.is_empty() {
+                rsx! { span { "{alt}" } }
+            } else {
+                rsx! { img { class: "mdi", src: "{src}", alt: "{alt}", title: "{alt}" } }
+            }),
+            Inline::Break => out.push(rsx! { br {} }),
+        }
+    }
+    out
+}
+
+/// A code block, coloured when its fence names a language the highlighter knows.
+fn code_block(lang: &str, text: &str) -> Element {
+    let lines = highlight::code(Lang::of_fence(lang), text);
+    let last = lines.len().saturating_sub(1);
+    rsx! {
+        pre { class: "mdc",
+            for (n, line) in lines.into_iter().enumerate() {
+                for (tok, t) in line {
+                    span { class: tok.class(), "{t}" }
+                }
+                if n < last { "\n" }
+            }
+        }
+    }
+}
+
+/// One block, with the blocks inside it.
+fn block(b: &Block, cx: &Ctx) -> Element {
+    match b {
+        Block::Para(p) => {
+            let k = inlines(p, cx);
+            rsx! { p { for x in k { {x} } } }
+        }
+        Block::Heading(level, h) => {
+            let k = inlines(h, cx);
+            rsx! { h4 { class: "mdh mdh{level}", for x in k { {x} } } }
+        }
+        Block::Code { lang, text } => code_block(lang, text),
+        Block::Quote(q) => {
+            let k: Vec<Element> = q.iter().map(|b| block(b, cx)).collect();
+            rsx! { blockquote { for x in k { {x} } } }
+        }
+        Block::Rule => rsx! { hr {} },
+        Block::List { start, items } => {
+            let lis: Vec<Element> = items
+                .iter()
+                .map(|it| {
+                    let k: Vec<Element> = it.blocks.iter().map(|b| block(b, cx)).collect();
+                    match it.task {
+                        Some(done) => rsx! { li { class: "task", input { r#type: "checkbox", checked: done, disabled: true } div { for x in k { {x} } } } },
+                        None => rsx! { li { for x in k { {x} } } },
+                    }
+                })
+                .collect();
+            match start {
+                Some(n) => rsx! { ol { start: "{n}", for x in lis { {x} } } },
+                None => rsx! { ul { for x in lis { {x} } } },
+            }
+        }
+        Block::Table { align, head, rows } => {
+            let style = |n: usize| match align.get(n) {
+                Some(Align::Center) => "text-align:center",
+                Some(Align::Right) => "text-align:right",
+                _ => "",
+            };
+            let row = |r: &Vec<Vec<Inline>>| -> Vec<(&'static str, Vec<Element>)> { r.iter().enumerate().map(|(n, c)| (style(n), inlines(c, cx))).collect() };
+            let head = row(head);
+            let rows: Vec<_> = rows.iter().map(row).collect();
+            rsx! {
+                table { class: "mdt",
+                    thead { tr { for (st, c) in head { th { style: "{st}", for x in c { {x} } } } } }
+                    tbody { for r in rows { tr { for (st, c) in r { td { style: "{st}", for x in c { {x} } } } } } }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn Markdown(text: String) -> Element {
     let state = use_context::<State>();
-    let pron = state.pronounce.read().clone();
-    let parens = *state.speech_parens.read();
-    let inline = |t: &str| inline(t, &pron, parens);
-    let mut blocks: Vec<Element> = Vec::new();
-    let mut code: Option<Vec<String>> = None;
-    // (indent level, `1.` marker of a numbered item, text)
-    let mut bullets: Vec<(usize, Option<String>, String)> = Vec::new();
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    let mut para: Vec<String> = Vec::new();
-    let flush_para = |para: &mut Vec<String>, blocks: &mut Vec<Element>| {
-        if !para.is_empty() {
-            let t = para.join(" ");
-            para.clear();
-            let parts = inline(&t);
-            blocks.push(rsx! { p { for x in parts { {x} } } });
-        }
-    };
-    let flush_bullets = |bullets: &mut Vec<(usize, Option<String>, String)>, blocks: &mut Vec<Element>| {
-        if !bullets.is_empty() {
-            let items: Vec<(String, String, Vec<Element>)> = bullets
-                .iter()
-                .map(|(lvl, num, b)| (format!("margin-left:{}px", lvl * 16), num.clone().unwrap_or_else(|| "•".into()), inline(b)))
-                .collect();
-            bullets.clear();
-            blocks.push(rsx! { ul { class: "mdl", for (style, mark, it) in items { li { style: "{style}", span { class: "lnum", "{mark}" } span { for x in it { {x} } } } } } });
-        }
-    };
-    // `| a | b |` rows; the first is the header, `|---|` lines are skipped
-    let flush_rows = |rows: &mut Vec<Vec<String>>, blocks: &mut Vec<Element>| {
-        if !rows.is_empty() {
-            let mut cells: Vec<Vec<Vec<Element>>> = rows.iter().map(|r| r.iter().map(|c| inline(c)).collect()).collect();
-            rows.clear();
-            let head = cells.remove(0);
-            blocks.push(rsx! { table { class: "mdt",
-                thead { tr { for c in head { th { for x in c { {x} } } } } }
-                tbody { for r in cells { tr { for c in r { td { for x in c { {x} } } } } } }
-            } });
-        }
-    };
-    for line in text.lines() {
-        if let Some(c) = code.as_mut() {
-            if line.trim_start().starts_with("```") {
-                let t = c.join("\n");
-                code = None;
-                blocks.push(rsx! { pre { "{t}" } });
-            } else {
-                c.push(line.to_string());
-            }
-            continue;
-        }
-        if line.trim_start().starts_with("```") {
-            flush_para(&mut para, &mut blocks);
-            flush_bullets(&mut bullets, &mut blocks);
-            code = Some(Vec::new());
-            continue;
-        }
-        let t = line.trim();
-        let indent = (line.len() - line.trim_start().len()) / 2;
-        if !t.starts_with('|') {
-            flush_rows(&mut rows, &mut blocks);
-        }
-        let numbered = t.split_once(". ").filter(|(n, _)| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()));
-        if t.is_empty() {
-            flush_para(&mut para, &mut blocks);
-            flush_bullets(&mut bullets, &mut blocks);
-        } else if t.starts_with('|') {
-            flush_para(&mut para, &mut blocks);
-            flush_bullets(&mut bullets, &mut blocks);
-            if !t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) {
-                rows.push(t.trim_matches('|').split('|').map(|c| c.trim().to_string()).collect());
-            }
-        } else if let Some(h) = t.strip_prefix("### ").or_else(|| t.strip_prefix("## ")).or_else(|| t.strip_prefix("# ")) {
-            flush_para(&mut para, &mut blocks);
-            flush_bullets(&mut bullets, &mut blocks);
-            let parts = inline(h);
-            blocks.push(rsx! { h4 { class: "mdh", for x in parts { {x} } } });
-        } else if let Some(b) = t.strip_prefix("• ").or_else(|| t.strip_prefix("- ")).or_else(|| t.strip_prefix("* ")) {
-            flush_para(&mut para, &mut blocks);
-            bullets.push((indent, None, b.to_string()));
-        } else if let Some((n, b)) = numbered {
-            flush_para(&mut para, &mut blocks);
-            bullets.push((indent, Some(format!("{}.", n)), b.to_string()));
-        } else {
-            flush_bullets(&mut bullets, &mut blocks);
-            para.push(t.to_string());
-        }
-    }
-    flush_rows(&mut rows, &mut blocks);
-    if let Some(c) = code {
-        let t = c.join("\n");
-        blocks.push(rsx! { pre { "{t}" } });
-    }
-    flush_para(&mut para, &mut blocks);
-    flush_bullets(&mut bullets, &mut blocks);
+    let cx = Ctx { pron: state.pronounce.read().clone(), parens: *state.speech_parens.read() };
+    let blocks: Vec<Element> = markdown::parse(&text).iter().map(|b| block(b, &cx)).collect();
     rsx! { div { class: "md", for b in blocks { {b} } } }
 }

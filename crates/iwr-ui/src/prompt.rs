@@ -24,6 +24,7 @@ fn page_name(key: &str) -> &'static str {
         "diagram" => t::prompt::page_diagram(),
         "seqdiagram" => t::prompt::page_seqdiagram(),
         "chart" => t::prompt::page_chart(),
+        "scene" => t::prompt::page_scene(),
         "bytes" => t::prompt::page_bytes(),
         "example" => t::prompt::page_example(),
         _ => t::prompt::page_tours(),

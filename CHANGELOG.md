@@ -8,6 +8,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Scenes: a ```` ```scene ```` block places objects on a grid (shapes, sizes, states such as `off`,
+  lines between objects or cells), shown with `@ scene` or `| scene`. Markers in a cue's text move
+  it on that word: `{>id 3,1}`, `{=id off}`, `{=id "text"}`, with the chart markers `+ - !` and
+  callouts. `codecast check` reports what would draw badly. The tour has a topic about them
+  (`codecast/01-scenes/`).
 - Playback speed for recordings: a menu beside the audio bar (0.75× to 2×, remembered). The cues,
   chart markers and the length shown follow it; videos are still rendered at the recorded speed.
 

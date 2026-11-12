@@ -241,7 +241,7 @@ pub fn legend(mode: Mode) -> Vec<LegendEntry> {
         Mode::Sequence => vec![n(NodeKind::Module), n(NodeKind::Struct), n(NodeKind::Trait), n(NodeKind::Function), n(NodeKind::Method), n(NodeKind::Loop), n(NodeKind::If), e(EdgeKind::Call), e(EdgeKind::Recursion), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Await)],
         Mode::ErrorFlow => vec![n(NodeKind::Function), n(NodeKind::Panic), n(NodeKind::ErrorType), e(EdgeKind::Propagate), e(EdgeKind::Unwrap), e(EdgeKind::Handles), e(EdgeKind::Error), e(EdgeKind::Aliases)],
         // a sketch explains itself, and the plan page is not a graph: no legend
-        Mode::Diagram | Mode::Chart | Mode::Plan => vec![],
+        Mode::Diagram | Mode::Chart | Mode::Scene | Mode::Plan => vec![],
     }
 }
 
@@ -591,7 +591,12 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .guide .loader textarea { width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font: 12px ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; padding:6px; }
 .guide .loader .row { display:flex; gap:8px; align-items:center; margin-top:4px; }
 .guide .loader input[type=file] { font-size:11px; color:var(--muted); }
-.md ul { margin:3px 0 3px 18px; padding:0; }
+.md ul, .md ol { margin:3px 0 3px 18px; padding:0; } .md li > p { margin:0; } .md li::marker { color:var(--muted); }
+.md li.task { list-style:none; display:flex; gap:6px; margin-left:-16px; } .md li.task input { flex:none; margin:3px 0 0; }
+.md blockquote { margin:6px 0; padding:1px 10px; border-left:3px solid var(--border); color:var(--muted); }
+.md hr { border:0; border-top:1px solid var(--border); margin:8px 0; }
+.md a { color:var(--accent); } .md del { color:var(--muted); } .md img.mdi { max-width:100%; height:auto; vertical-align:middle; }
+.md pre.mdc { background:var(--panel2); border:1px solid var(--border); padding:6px 8px; border-radius:6px; margin:4px 0; font-size:12px; white-space:pre-wrap; text-align:left; }
 .progress { height:3px; background:var(--panel3); border-radius:2px; overflow:hidden; }
 .progress div { height:100%; background:var(--accent); transition:width .25s linear; }
 /* ---- loading page (loading.rs): shown while the server analyzes the project */
@@ -806,7 +811,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .example-table td, .example-table th { border:1px solid var(--border); padding:2px 6px; text-align:left; white-space:nowrap; }
 .example-table th { background:var(--panel3); }
 .md table.mdt { border-collapse:collapse; margin:6px 0; font-size:12px; } .md table.mdt td, .md table.mdt th { border:1px solid var(--border); padding:2px 6px; text-align:left; vertical-align:top; } .md table.mdt th { background:var(--panel3); }
-.md h4.mdh { margin:10px 0 4px; font-size:13px; } .md ul.mdl { list-style:none; margin-left:2px; } .md ul.mdl li { display:flex; gap:6px; } .md .lnum { flex:none; min-width:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.md h4.mdh { margin:10px 0 4px; font-size:13px; } .md h4.mdh1 { font-size:16px; } .md h4.mdh2 { font-size:14px; } .md h4.mdh:first-child { margin-top:2px; }
 .bytes .strip { display:flex; flex-direction:column; gap:3px; margin-bottom:12px; }
 .bytes .brow { display:grid; grid-template-columns: 38px repeat(var(--row), minmax(0, 1fr)); gap:2px; align-items:end; }
 .bytes .off { font-family: ui-monospace, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; font-size:10px; color:var(--muted); padding-bottom:5px; }

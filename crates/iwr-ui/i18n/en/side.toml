@@ -6,6 +6,7 @@ bytes = "bytes"
 notes = "notes"
 diagram = "diagram"
 chart = "chart"
+scene = "scene"
 
 # byte layout table
 [bytes]

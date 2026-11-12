@@ -6,6 +6,7 @@
 mod canvas;
 mod castmap;
 mod chart;
+mod scene;
 mod code;
 mod design;
 mod fonts;
@@ -125,6 +126,8 @@ pub struct State {
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
     /// the chart shown by `@ chart` (from the current part)
     pub chart: Signal<Option<Rc<iwr_core::chart::Chart>>>,
+    /// the scene shown by `@ scene` (from the current part)
+    pub scene: Signal<Option<Rc<iwr_core::scene::Scene>>>,
     /// how far the voice is into the current cue, 0 to 1: chart markers up to there have fired
     pub cue_frac: Signal<f64>,
     /// `>` ops of the current part up to the current cue, replayed on the diagram
@@ -468,6 +471,7 @@ fn App() -> Element {
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
         chart: Signal::new(None),
+        scene: Signal::new(None),
         cue_frac: Signal::new(1.0),
         side: Signal::new(None),
         code_mark: Signal::new(None),
@@ -778,7 +782,8 @@ fn App() -> Element {
     let is_code = *state.mode.read() == Mode::Code;
     let is_plan = *state.mode.read() == Mode::Plan;
     let chart = (*state.mode.read() == Mode::Chart).then(|| state.chart.read().clone());
-    let is_graph = !is_code && !is_plan && chart.is_none();
+    let scene = (*state.mode.read() == Mode::Scene).then(|| state.scene.read().clone());
+    let is_graph = !is_code && !is_plan && chart.is_none() && scene.is_none();
     let is_diagram = *state.mode.read() == Mode::Diagram;
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
@@ -803,6 +808,7 @@ fn App() -> Element {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         style { {chart::CSS} }
+        style { {scene::CSS} }
         style { {castmap::CSS} }
         style { {topics::CSS} }
         style { {fonts::faces()} }
@@ -846,6 +852,11 @@ fn App() -> Element {
                         Some(c) => rsx! { chart::ChartView { chart: (*c).clone(), full: true } },
                         None => rsx! { div { class: "chart full", {t::app::no_chart()} } },
                     }
+                } else if let Some(s) = scene.clone() {
+                    match s {
+                        Some(s) => rsx! { scene::SceneView { scene: (*s).clone(), full: true } },
+                        None => rsx! { div { class: "scene full", {t::app::no_scene()} } },
+                    }
                 } else {
                     canvas::Canvas {}
                     // the side panel takes the details' place; a codecast's own diagram has no
@@ -856,7 +867,7 @@ fn App() -> Element {
                     }
                     if has_side { side::SidePanel {} } else if !is_diagram && !details_empty { panels::Details {} }
                 }
-                if has_side && (is_code || is_plan || chart.is_some()) {
+                if has_side && (is_code || is_plan || chart.is_some() || scene.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     side::SidePanel {}
                 }

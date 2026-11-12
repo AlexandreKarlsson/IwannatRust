@@ -27,6 +27,8 @@ pub enum Mode {
     Sequence,
     /// A chart drawn by a codecast (see [`crate::chart`]; rendered by the UI, no graph).
     Chart,
+    /// Objects on a grid drawn by a codecast (see [`crate::scene`]; rendered by the UI, no graph).
+    Scene,
     /// The plan page of a codecast: its parts, one line each (rendered by the UI, no graph).
     Plan,
 }
@@ -54,6 +56,7 @@ impl Mode {
             Mode::Diagram => t::label_diagram(lang),
             Mode::Sequence => t::label_sequence(lang),
             Mode::Chart => t::label_chart(lang),
+            Mode::Scene => t::label_scene(lang),
             Mode::Plan => t::label_plan(lang),
         }
     }
@@ -76,6 +79,7 @@ impl Mode {
             Mode::Diagram => t::desc_diagram(lang),
             Mode::Sequence => t::desc_sequence(lang),
             Mode::Chart => t::desc_chart(lang),
+            Mode::Scene => t::desc_scene(lang),
             Mode::Plan => t::desc_plan(lang),
         }
     }
@@ -635,7 +639,7 @@ pub fn build(p: &Project, mode: Mode, opts: &ViewOptions) -> Graph {
         Mode::ErrorFlow => error_flow(p, opts),
         Mode::Sequence => crate::sequence::view(p, opts),
         Mode::Diagram => Graph { note: Some(tv::note_diagram(opts.lang).into()), ..Default::default() },
-        Mode::Plan | Mode::Chart => Graph::default(),
+        Mode::Plan | Mode::Chart | Mode::Scene => Graph::default(),
     };
     g.mode = Some(mode);
     g

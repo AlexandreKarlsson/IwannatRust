@@ -26,7 +26,8 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
 | bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
 | chart:<name>               a chart beside the view (`@ chart:<name>` fills the view instead)
-{+id !id =id 18 …}           chart markers inside a spoken sentence, fired on that word (see Charts)
+| scene:<name>               objects on a grid beside the view (`@ scene:<name>` fills the view)
+{+id !id =id 18 >id 3,1 …}   chart / scene markers inside a spoken sentence, fired on that word (see Charts, Scenes)
 <name>_tour[:<ref>]          generated cues (see Tours): architecture types errors entry flow todo files
 <One or two spoken sentences.>
 sp: <A line said by the second voice>      optional: a question, a doubt, a guess (see Two voices)
@@ -409,6 +410,39 @@ time if none), recordings by how far the cue's audio has played.
   its markers at the same fraction of the sentence.
 - Come back to the code afterwards: a chart backs up a point, it is not the point.
 
+## Scenes (where things sit, and how they move)
+
+When position is the point (slots of a buffer, hosts on a network, a queue, a matrix, a board),
+place objects on a grid: a ```` ```scene <title> ```` block, `@ scene:<title>` (or `| scene:<title>`
+beside the code). Use a diagram instead when only the links matter.
+
+````
+```scene Ring
+grid: 6x2
+head icon 1,1 "👉"
+a 1,2 "A"
+b 2,2 "B" :::off
+disk store 5,2 2x1 "💾 Disk"
+b -->|flush| disk
+```
+@ scene:Ring
+! a
+The head points at the first slot.
+It steps {>head 2,1 =b on} to the next one, which wakes up.
+````
+
+- Object: `id [shape] col,row [WxH] ["label"] [:::state]`. Cells start at `1,1` top left.
+  Shapes: `box` (default) `round` `pill` `diamond` `store` `icon` (big emoji) `text` `zone` (area behind others).
+  States: `off` (grey) `ok` `warn` `err` `hidden`.
+- Line: `a --> b`, `---`, `-.->`, `==>`, `a -->|label| b`; ends are ids or cells (`1,2 --- 6,2`); ids `l1`, `l2`… in order.
+  Lines are straight and may not cross a third object: bend through free cells (`a --- 1,3 --- 5,3 --> b`).
+- `grid: CxR [lines] [square]` is optional (max 16x16).
+- Markers in a cue: `{>id 3,1}` move (or `{>id other}` onto it) · `{=id off|on|ok|warn|err}` ·
+  `{=id "text"}` relabel · `{+id}` `{-id}` · `{!id}` · `{"note"@id}`.
+- A box holds about 11 letters per cell: widen it (`2x1`) or break the label (`<br>`). Two objects
+  never start on the same cells unless one is `:::hidden` or a `zone`. Ids are unique in a part.
+- One idea per scene, at most a dozen objects; change one or two things per cue.
+
 ## Example
 
 ```
@@ -448,6 +482,7 @@ Then each task is copied into storage, because storage wants to own it and the l
   twelve cues.
 - Data the code sends, reads or stores is shown in an example block, not described.
 - A number that changed or a share of a whole is a chart revealed with `{+id}` markers, not a list.
+- Things whose place matters (slots, hosts, a queue) are a scene moved with `{>id 3,1}` markers.
 - Each big idea has one metaphor; jargon comes after the plain words.
 - Cues are full spoken sentences, not "label: definition" notes.
 - Every module has a `//!`, loops and key `if`s a short `//` (if you may edit the code).

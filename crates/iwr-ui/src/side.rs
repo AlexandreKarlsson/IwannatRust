@@ -35,6 +35,7 @@ pub fn SidePanel() -> Element {
         Side::Diagram(d) => (t::side::kind_diagram(), d.title.clone()),
         Side::Example(e) => (e.lang.as_str(), e.title.clone()),
         Side::Chart(c) => (t::side::kind_chart(), c.title.clone()),
+        Side::Scene(s) => (t::side::kind_scene(), s.title.clone()),
     };
     rsx! {
         div { class: "side", style: "width:{dw * 100.0:.2}vw",
@@ -51,6 +52,7 @@ pub fn SidePanel() -> Element {
                     Side::Diagram(d) => rsx! { MiniDiagram { diagram: d.clone() } },
                     Side::Example(e) => rsx! { ExampleCard { example: e.clone() } },
                     Side::Chart(c) => rsx! { crate::chart::ChartView { chart: c.clone() } },
+                    Side::Scene(s) => rsx! { crate::scene::SceneView { scene: s.clone() } },
                 }
             }
         }

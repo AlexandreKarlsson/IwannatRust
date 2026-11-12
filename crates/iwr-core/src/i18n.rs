@@ -165,6 +165,18 @@ fn walk(s: &mut Script, glossary: &mut [Entry], f: &mut dyn FnMut(&str) -> Strin
                 tx(&mut r.label, false);
             }
         }
+        // scene labels (a lone emoji has nothing to translate); ids and cells stay
+        for sc in &mut part.scenes {
+            if let Some(t) = &mut sc.title {
+                tx(t, false);
+            }
+            for o in sc.objs.iter_mut().filter(|o| o.label != o.id && o.label.chars().any(char::is_alphabetic)) {
+                tx(&mut o.label, false);
+            }
+            for t in sc.lines.iter_mut().filter_map(|l| l.label.as_mut()) {
+                tx(t, false);
+            }
+        }
         for cue in &mut part.cues {
             tx(&mut cue.say, cue.told);
             for q in &mut cue.questions {

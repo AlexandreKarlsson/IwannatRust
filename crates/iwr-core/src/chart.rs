@@ -15,6 +15,9 @@
 //! Markers sit in braces inside a cue's text, `Then caching cut it {+v2 !v2} a bit.`: [`split_say`]
 //! takes them out of the spoken text and remembers where they were, so the player fires them on
 //! that word. [`Chart::state`] folds the markers fired so far into what is drawn.
+//!
+//! The same markers move a scene ([`crate::scene`]), which adds `{>id 3,1}` (move an object),
+//! `{=id off}` (its state) and `{=id "text"}` (its label).
 
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +111,12 @@ pub enum Mark {
     Series(String, bool),
     /// `"text"@id`: a callout on a mark
     Note(String, String),
+    /// `>id 3,1` / `>id other`: move a scene object to a cell, or onto another object
+    Move(String, String),
+    /// `=id off`: the state of a scene object (`on` `off` `ok` `warn` `err`)
+    State(String, String),
+    /// `=id "text"`: the label of a scene object or line
+    Label(String, String),
 }
 
 /// Markers of one `{}` in a cue: they fire `at` characters into its `of` characters of text (the
@@ -207,7 +216,7 @@ pub fn parse(src: &str, title: Option<&str>) -> Chart {
 }
 
 /// Words of a line; a `"quoted label"` (with what is glued to it, `"text"@id`) is one.
-fn tokens(t: &str) -> Vec<String> {
+pub(crate) fn tokens(t: &str) -> Vec<String> {
     let mut out = vec![];
     let mut cur = String::new();
     let mut q = false;
@@ -229,7 +238,7 @@ fn tokens(t: &str) -> Vec<String> {
     out
 }
 
-fn quoted(t: &str) -> Option<&str> {
+pub(crate) fn quoted(t: &str) -> Option<&str> {
     t.strip_prefix('"')?.strip_suffix('"')
 }
 
@@ -293,10 +302,22 @@ pub fn parse_marks(inner: &str) -> Option<Vec<Mark>> {
                 vs.push(v);
                 i += 1;
             }
-            if vs.is_empty() {
+            if !vs.is_empty() {
+                out.push(Mark::Set(id.to_string(), vs));
+            } else if let Some(l) = toks.get(i).and_then(|l| quoted(l)) {
+                out.push(Mark::Label(id.to_string(), l.to_string()));
+                i += 1;
+            } else if let Some(w) = toks.get(i).filter(|w| *w == "on" || crate::scene::STATES.contains(&w.as_str())) {
+                out.push(Mark::State(id.to_string(), w.clone()));
+                i += 1;
+            } else {
                 return None;
             }
-            out.push(Mark::Set(id.to_string(), vs));
+        } else if let Some(id) = t.strip_prefix('>') {
+            // a cell (`3,1`, `2.5,1`) or an object id
+            let to = toks.get(i).filter(|w| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || "_,.".contains(c)))?;
+            out.push(Mark::Move(id.to_string(), to.clone()));
+            i += 1;
         } else if let Some(id) = t.strip_prefix('!') {
             let g = glow.get_or_insert_with(Vec::new);
             if !id.is_empty() {
@@ -309,7 +330,7 @@ pub fn parse_marks(inner: &str) -> Option<Vec<Mark>> {
         } else {
             return None;
         }
-        if out.iter().any(|m| matches!(m, Mark::Show(s) | Mark::Hide(s) | Mark::Set(s, _) | Mark::Note(s, _) if s.is_empty())) {
+        if out.iter().any(|m| matches!(m, Mark::Show(s) | Mark::Hide(s) | Mark::Set(s, _) | Mark::Note(s, _) | Mark::Move(s, _) | Mark::State(s, _) | Mark::Label(s, _) if s.is_empty())) {
             return None;
         }
     }
@@ -399,6 +420,9 @@ pub fn marks_text(ms: &[Mark]) -> String {
             Mark::ClearSpans => "[]".into(),
             Mark::Series(n, on) => format!("{}@{n}", if *on { '+' } else { '-' }),
             Mark::Note(id, t) => format!("\"{t}\"@{id}"),
+            Mark::Move(id, to) => format!(">{id} {to}"),
+            Mark::State(id, st) => format!("={id} {st}"),
+            Mark::Label(id, t) => format!("={id} \"{t}\""),
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -502,6 +526,8 @@ impl Chart {
                         s.notes.push((id.clone(), t.clone()));
                     }
                 }
+                // scene markers
+                Mark::Move(..) | Mark::State(..) | Mark::Label(..) => {}
             }
         }
         s
@@ -511,7 +537,7 @@ impl Chart {
     pub fn unknown<'a>(&self, m: &'a Mark) -> Vec<&'a str> {
         let ids: Vec<&str> = match m {
             Mark::Show(i) | Mark::Hide(i) => return i.split("..").filter(|i| self.row(i).is_none()).collect(),
-            Mark::Set(i, _) | Mark::Note(i, _) => vec![i],
+            Mark::Set(i, _) | Mark::Note(i, _) | Mark::Move(i, _) | Mark::State(i, _) | Mark::Label(i, _) => vec![i],
             Mark::Glow(v) => v.iter().map(String::as_str).collect(),
             Mark::Delta(a, b) | Mark::Span(a, b, _) => vec![a, b],
             Mark::Series(n, _) => return if self.series.contains(n) { vec![] } else { vec![n] },

@@ -184,7 +184,7 @@ architecture_tour                        generated cues, e.g. every module with 
   A crate is one library or program…     answer lines are indented (markdown)
 ```
 
-Roughly 10 tokens of directives per sentence. Directives: `sp:` ([second voice](#two-voices)), a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `+` [enlarge a panel or light up a part of the app](#panels-spots-and-the-file-tree), `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, and for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks.
+Roughly 10 tokens of directives per sentence. Directives: `sp:` ([second voice](#two-voices)), a `*_tour` line (generated cues, see [Tours](#tours)), `@` show, `!` highlight, `=` code, `^` [popup](#popups), `[t]` time, `?` question, `+` [enlarge a panel or light up a part of the app](#panels-spots-and-the-file-tree), `##` part, `#` title, `audio:`, `plan:`, `glossary:`, `pronounce:`, `spell:`, for [diagrams](#diagrams) a ```` ```mermaid ```` block plus `>` to move a node, for the [side panel](#side-panel) `|` with ```` ```bytes ```` / ```` ```md ```` blocks, and `{}` markers in a cue's text for [charts](#charts) and [scenes](#scenes).
 
 **The plan page.** `@ plan` on a cue (the "here is where we go" sentence of a welcome, typically)
 shows the codecast's itinerary instead of a view: the parts in order with one line each, the
@@ -331,9 +331,10 @@ place, in the Code view and the plan page it docks on the right; on a narrow win
 | Line | Shows |
 |---|---|
 | `\| bytes` · `\| bytes:2` · `\| bytes:Frame` | a ```` ```bytes Frame ```` block of the part: a byte layout |
-| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown (lists, numbered steps, tables, `###` headings) |
+| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown (headings, nested / numbered / task lists, tables, quotes, links, images; blank lines are kept; code blocks inside use `~~~yaml` fences and are coloured for Rust, C, C++, Go, shell, HCL, TOML, YAML, BitBake `bb`) |
 | `\| diagram:2` | a ```` ```mermaid ```` block of the part, drawn small and still |
 | `\| example:Body` · `\| json:Body` · `\| csv` | a ```` ```json Body ```` block (also `csv` `tsv` `yaml` `toml` `xml` `http` `sql` `sh` `text`): sample data, csv as a table |
+| `\| chart:Build time` · `\| scene:Ring` | a ```` ```chart ```` or ```` ```scene ```` block, moved by the same `{}` markers as in the view |
 | `\|` | closes the panel |
 
 `!` refs may name the panel's byte fields, diagram nodes, example keys (`"user":`, `user:`, `<user`) or csv columns next to code refs: `! crate::read/b2 len`
@@ -387,6 +388,60 @@ recordings' text hashes and translations see plain sentences. While playing, a m
 the voice reaches it (TTS word boundaries, else the time spoken; a recording's time into the cue);
 a cue reached by hand shows all of its markers. `codecast check` reports chart errors, markers naming
 rows no chart of the part has, and markers in a part without a chart.
+
+## Scenes
+
+A ```` ```scene <title> ```` block places objects on a grid and joins them with lines: where a
+diagram lays things out itself, here position means something (slots of a buffer, machines on a
+network, cells of a matrix, pins of a board). `@ scene[:ref]` fills the view with it, `| scene[:ref]`
+puts it in the side panel (ref: the n-th scene of the part, or its title).
+
+````
+```scene Ring buffer
+grid: 8x3 lines                 optional: columns x rows; `lines` draws the cells, `square` makes them square
+head  icon  1,1  "👉"           id [shape] col,row [WxH] ["label"] [:::hidden] [:::off]
+a     1,2  "A"                  shape defaults to box; cells count from 1,1 at the top left
+b     2,2  "B"  :::off
+disk  store 7,2 2x1 "💾 Disk"   two cells wide, one high
+b -->|flush| disk               a line between two objects; its id is l1 (then l2…)
+1,3 --- 8,3                     or between two cells
+```
+@ scene
+! a
+The head points at the first slot.
+It moves {>head 2,1 =b on} one slot on, and the slot wakes up.
+````
+
+| Thing | Written |
+|---|---|
+| grid | `grid: 8x3` (at most 16x16, 25x16 with `square`); without the line, the grid is what the objects take |
+| shape | `box` (default, blue) `round` (green) `pill` (purple) `diamond` (yellow) `store` (teal): the colours of a diagram's shapes · `icon` (the label drawn large, no outline: an emoji) · `text` (no outline) · `zone` (a dashed area behind other objects, titled at its top) |
+| cell | `col,row`, the object's top left cell; a half sits between two cells (`2.5,1`) |
+| size | `WxH` in cells, 1x1 when left out |
+| label | `"text"`, `<br>` breaks a line; the id when left out |
+| state | `:::off` grey and faded (an emoji too), `:::ok` green, `:::warn` yellow, `:::err` red; `:::hidden` waits for its `+id` |
+| line | `a --> b`, `a --- b` (no head), `a -.-> b` (dotted), `a ==> b` (thick); `a -->|label| b`; a chain `a --> b --> c`; an end is an object or a cell; `:::hidden` at the end of the line |
+
+Markers in braces inside a cue's text change it on that word, like a chart's (same rules: never
+spoken, a fraction of the text, folded from the part's first cue so stepping back undoes them):
+
+| Marker | Does |
+|---|---|
+| `>id 3,1` · `>id other` | glides an object to a cell, or onto another object (centred on it) |
+| `=id off` | its state: `on` (none) `off` `ok` `warn` `err` |
+| `=id "text"` | its label (an object's or a line's) |
+| `+id` · `-id` | shows / hides an object or a line (`l2`) |
+| `!id` | glows objects and lines until the cue ends (`!` alone: nothing glows); a `!` line above a cue is sticky as usual |
+| `"text"@id` | a callout over an object |
+
+A line is drawn while both its ends are, follows them when they move, and glows when both glow.
+It is straight: to go around an object, bend it through free cells (`a --- 1,3 --- 5,3 --> b`).
+Zones are drawn behind, then the boxes in the order written, then icons and texts, so an icon
+moved onto a box stays visible. Labels (title, objects, lines) are translated
+with the cues; ids, cells and markers are not. `codecast check` reports: lines it cannot read, an
+object or a move outside the grid, two objects on the same cells (unless one is hidden or a
+`zone`), a label wider than its box, a line to an unknown object or straight through a third one, markers and `!` refs naming
+nothing of the scene, an object id used by two scenes of a part (a marker finds an object by its id). A `>` line is for diagrams: scene objects move with `{>id 3,1}`.
 
 ## Panels, spots and the file tree
 
