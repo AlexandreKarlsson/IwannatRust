@@ -150,10 +150,23 @@ fn walk(s: &mut Script, glossary: &mut [Entry], f: &mut dyn FnMut(&str) -> Strin
             tx(t, false);
         }
         for note in &mut part.notes {
+            // the script's `|` and `!` lines name the note and what is in it as written
+            let (title, ids) = (note.title.clone(), crate::markdown::all_ids(&note.text));
             if let Some(t) = &mut note.title {
                 tx(t, false);
             }
             tx(&mut note.text, false);
+            if note.title != title {
+                note.key = note.key.take().or(title);
+            }
+            let shown = crate::markdown::all_ids(&note.text);
+            if shown.len() == ids.len() {
+                let old = std::mem::take(&mut note.alias);
+                // an id already renamed keeps the name the script gave it
+                let first = |w: &String| old.iter().find(|(s, _)| s == w).map_or(w.clone(), |(_, w)| w.clone());
+                note.alias = shown.into_iter().zip(ids).filter(|(s, w)| s != w && !s.is_empty() && !w.is_empty()).map(|(s, w)| (s, first(&w))).collect();
+                note.alias.dedup();
+            }
         }
         // chart labels; ids, values and `{}` markers stay (markers sit at a fraction of the text)
         for c in &mut part.charts {
@@ -229,19 +242,28 @@ pub fn unmark(s: &mut Script) {
 }
 
 /// Markdown, line by line: code fences and table rules as they are; heading marks, list markers,
-/// quote marks and indentation kept around the text; table rows cell by cell.
+/// quote marks and indentation kept around the text; table rows cell by cell; of an admonition's
+/// first line (`!!! note "Title"`) and of a tab's (`=== "Name"`), the title.
 pub fn map_markdown(text: &str, f: &mut dyn FnMut(&str) -> String) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut fence = false;
     for line in text.split('\n') {
         let t = line.trim();
-        if t.starts_with("```") {
+        if t.starts_with("```") || t.starts_with("~~~") {
             fence = !fence;
             out.push(line.to_string());
             continue;
         }
         if fence || t.is_empty() || !t.chars().any(char::is_alphabetic) {
             out.push(line.to_string());
+            continue;
+        }
+        // an admonition's first line: its quoted title is the only text
+        if t.starts_with("!!!") || t.starts_with("???") || t.starts_with("> [!") || t.starts_with("=== \"") {
+            out.push(match (line.find('"'), line.rfind('"')) {
+                (Some(a), Some(b)) if a < b && line[a + 1..b].chars().any(char::is_alphabetic) => format!("{}{}{}", &line[..=a], f(&line[a + 1..b]), &line[b..]),
+                _ => line.to_string(),
+            });
             continue;
         }
         if t.starts_with('|') {
@@ -332,14 +354,29 @@ mod tests {
     }
 
     #[test]
+    fn a_translated_note_keeps_its_names() {
+        let mut s = crate::script::parse("# T\n## P\n```md Steps\n## The trip\n1. go\n\n=== \"Wire\"\n    | field |\n    |---|\n    | len |\n```\n| md:Steps\n! the-trip/1\nx\n");
+        walk(&mut s, &mut [], &mut |t| format!("ja {t}"));
+        let note = &s.parts[0].notes[0];
+        assert_eq!(note.title.as_deref(), Some("ja Steps"));
+        assert!(note.text.starts_with("## ja The trip\n1. ja go") && note.text.contains("=== \"ja Wire\""));
+        // the script's lines still find the note and what is in it
+        let Ok(Some(side)) = crate::script::find_side(&s.parts[0], "md:Steps") else { panic!() };
+        assert_eq!(side.ids(), ["the-trip", "the-trip/1", "wire", "len", "field"]);
+    }
+
+    #[test]
     fn markdown_keeps_its_marks() {
         let mut seen = vec![];
-        let out = map_markdown("## Title\n- one item\n12. two\n\n```rust\nlet x = 1;\n```\n| a | b |\n|---|---|\n| cell | 2 |", &mut |t| {
+        let out = map_markdown("## Title\n- one item\n12. two\n\n```rust\nlet x = 1;\n```\n| a | b |\n|---|---|\n| cell | 2 |\n!!! tip \"Hint\"\n    body\n??? note\n> [!NOTE]", &mut |t| {
             seen.push(t.to_string());
             t.to_uppercase()
         });
-        assert_eq!(seen, ["Title", "one item", "two", "a", "b", "cell"]);
-        assert_eq!(out, "## TITLE\n- ONE ITEM\n12. TWO\n\n```rust\nlet x = 1;\n```\n| A | B |\n|---|---|\n| CELL | 2 |");
+        assert_eq!(seen, ["Title", "one item", "two", "a", "b", "cell", "Hint", "body"]);
+        assert_eq!(out, "## TITLE\n- ONE ITEM\n12. TWO\n\n```rust\nlet x = 1;\n```\n| A | B |\n|---|---|\n| CELL | 2 |\n!!! tip \"HINT\"\n    BODY\n??? note\n> [!NOTE]");
+        // tabs keep their mark, a diagram inside a note is left alone
+        let out = map_markdown("=== \"Wire\"\n    ~~~mermaid\n    a --> b\n    ~~~\n    text", &mut |t| t.to_uppercase());
+        assert_eq!(out, "=== \"WIRE\"\n    ~~~mermaid\n    a --> b\n    ~~~\n    TEXT");
     }
 
     #[test]

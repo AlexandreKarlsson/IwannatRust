@@ -129,13 +129,13 @@ pub fn doc_page(title: &str, doc: Option<&String>, lang: Lang) -> Option<Vec<Doc
     if !rich {
         return None;
     }
-    let mut stops = vec![DocStop { note: crate::script::Note { title: Some(title.to_string()), text: doc.clone() }, say: authored(lang, &spoken_md(&sections[0].1.join("\n"))) }];
+    let mut stops = vec![DocStop { note: crate::script::Note { title: Some(title.to_string()), text: doc.clone(), ..Default::default() }, say: authored(lang, &spoken_md(&sections[0].1.join("\n"))) }];
     for (h, body) in sections.iter().skip(1) {
         let h = h.clone().unwrap_or_default();
         let text = body.join("\n").trim().to_string();
         let say = authored(lang, format!("{}. {}", h.trim_end_matches(['.', ':']), spoken_md(&text)).trim());
         // the heading again in the body: the panel's title line cuts long ones
-        stops.push(DocStop { note: crate::script::Note { title: Some(format!("{} · {}", title, h)), text: format!("## {}\n\n{}", h, text) }, say });
+        stops.push(DocStop { note: crate::script::Note { title: Some(format!("{} · {}", title, h)), text: format!("## {}\n\n{}", h, text), ..Default::default() }, say });
     }
     Some(stops)
 }

@@ -13,6 +13,21 @@ and the project uses [Semantic Versioning](https://semver.org/).
   it on that word: `{>id 3,1}`, `{=id off}`, `{=id "text"}`, with the chart markers `+ - !` and
   callouts. `codecast check` reports what would draw badly. The tour has a topic about them
   (`codecast/01-scenes/`).
+- Notes (`| md`) read like a documentation page: admonitions (`!!! tip "Title"` over an indented
+  body, `???` folded, `???+` open, GitHub's `> [!NOTE]`) in twelve kinds with their colour and icon,
+  code blocks with a `title="src/main.rs"` and a copy button, framed tables, round task boxes,
+  larger headings and framed `code` spans.
+- A codecast points into a note: `!` glows and scrolls to a heading (`! the-steps`), a list item
+  (`! the-steps/2`), a table row or column, a titled admonition. Notes have tabs (`=== "Name"`
+  over an indented body; `!` on a tab or on anything inside opens it) and draw a `~~~mermaid`
+  block as a small diagram whose nodes and sequence messages glow by id. Small diagrams show the
+  text of their edges.
+- Blocks are written once: a part that names by title a block it does not have (`| md:Steps`,
+  `@ diagram:Bus`, `| bytes:Frame`, charts, scenes, examples) is lent the one written in another
+  part or before the first part. The tour has a topic about both (`codecast/02-notes/`, with its
+  Japanese translation). A translated note keeps the names the script uses: its title for
+  `| md:<title>`, its ids for `!`; tab lines and `~~~` code blocks are no longer sent to translation
+  as prose.
 - Playback speed for recordings: a menu beside the audio bar (0.75× to 2×, remembered). The cues,
   chart markers and the length shown follow it; videos are still rendered at the recorded speed.
 

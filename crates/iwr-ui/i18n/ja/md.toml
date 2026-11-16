@@ -1,1 +1,17 @@
 spoken = "読み方：{say}"
+
+copy = "コードをコピー"
+copied = "コピーしました"
+
+adm_note = "メモ"
+adm_abstract = "概要"
+adm_info = "情報"
+adm_tip = "ヒント"
+adm_success = "成功"
+adm_question = "質問"
+adm_warning = "注意"
+adm_failure = "失敗"
+adm_danger = "危険"
+adm_bug = "バグ"
+adm_example = "例"
+adm_quote = "引用"

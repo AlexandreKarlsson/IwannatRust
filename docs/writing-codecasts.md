@@ -24,7 +24,8 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 ^ <exact text>               popup card with a path, endpoint, command or name (this cue only, never spoken)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
-| bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
+| bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes);
+                             a <name> may be a block of another part: write each block once
 | chart:<name>               a chart beside the view (`@ chart:<name>` fills the view instead)
 | scene:<name>               objects on a grid beside the view (`@ scene:<name>` fills the view)
 {+id !id =id 18 >id 3,1 …}   chart / scene markers inside a spoken sentence, fired on that word (see Charts, Scenes)
@@ -280,6 +281,42 @@ switching views. `| bytes:<title>` shows a ```` ```bytes <title> ```` block: one
 with field ids glows them in the strip and table, alongside code refs on the same line.
 `| md:<title>` shows a ```` ```md <title> ```` block (numbered steps, a field table, short notes);
 `| diagram:<title>` a small, still mermaid block.
+
+**Point into the note** instead of rewriting it. `!` glows, and scrolls to, what a `| md` page
+holds: a heading by its title in lower case with `-` for spaces (`! the-steps`), an item of the
+first list under it (`! the-steps/2`; `! 2` before any heading), a table row by its first cell or
+a column by its header (`! len`), a titled admonition, a tab (`=== "Wire format"` over an indented
+body → `! wire-format` opens it; so does a ref to anything inside), and the nodes of a
+`~~~mermaid` block inside the note (`! m3` for the third message of a `sequenceDiagram`). One page
+with three tabs and a `!` per cue beats three notes.
+
+````
+```md Formats
+=== "Request"
+    | field | size |
+    |---|---|
+    | len | 2 |
+    | body | len |
+
+=== "Exchange"
+    ~~~mermaid
+    sequenceDiagram
+    c->>s: request
+    s-->>c: reply
+    ~~~
+```
+| md:Formats
+! len
+First the length, two bytes.
+! m2
+Then the server answers.
+````
+
+**One block, many cues, many parts.** Never copy a block. Inside a part, keep it open and move
+the `!`. In another part, name it by title (`| md:Formats`, `@ diagram:Bus`, `| bytes:Frame`,
+`@ chart:…`, `| json:…`): a part without a block of that title is lent the one another part wrote.
+Blocks that belong to no part in particular go before the first part (top of `codecast.md`, or
+`index.md`). Give every block you will come back to a title.
 
 ````
 ## Reading a frame

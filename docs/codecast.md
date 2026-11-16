@@ -331,7 +331,7 @@ place, in the Code view and the plan page it docks on the right; on a narrow win
 | Line | Shows |
 |---|---|
 | `\| bytes` · `\| bytes:2` · `\| bytes:Frame` | a ```` ```bytes Frame ```` block of the part: a byte layout |
-| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown (headings, nested / numbered / task lists, tables, quotes, links, images; blank lines are kept; code blocks inside use `~~~yaml` fences and are coloured for Rust, C, C++, Go, shell, HCL, TOML, YAML, BitBake `bb`) |
+| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown laid out as a page (headings, nested / numbered / task lists, tables, quotes, links, images, admonitions: `!!! tip "Title"` over a body indented by four spaces, `???` folded, `???+` folds but starts open, kinds note / abstract / info / tip / success / question / warning / failure / danger / bug / example / quote, or GitHub's `> [!NOTE]`; blank lines are kept; code blocks inside use `~~~yaml` fences, `~~~rust title="src/main.rs"` to give one a title, have a copy button and are coloured for Rust, C, C++, Go, shell, HCL, TOML, YAML, BitBake `bb`; a `~~~mermaid` block is drawn as a small diagram; tabs: `=== "Name"` over a body indented by four spaces, the ones that follow each other make one set) |
 | `\| diagram:2` | a ```` ```mermaid ```` block of the part, drawn small and still |
 | `\| example:Body` · `\| json:Body` · `\| csv` | a ```` ```json Body ```` block (also `csv` `tsv` `yaml` `toml` `xml` `http` `sql` `sh` `text`): sample data, csv as a table |
 | `\| chart:Build time` · `\| scene:Ring` | a ```` ```chart ```` or ```` ```scene ```` block, moved by the same `{}` markers as in the view |
@@ -339,6 +339,29 @@ place, in the Code view and the plan page it docks on the right; on a narrow win
 
 `!` refs may name the panel's byte fields, diagram nodes, example keys (`"user":`, `user:`, `<user`) or csv columns next to code refs: `! crate::read/b2 len`
 glows block `b2` in the code and field `len` in the strip. An answer may carry its own `|` line.
+
+**Pointing into a note.** A `| md` page has ids too, and the panel scrolls to what glows:
+
+| In the note | `!` ref |
+|---|---|
+| a heading `## The steps` | `the-steps`: the title in lower case, letters, digits and `_` kept, the rest a `-` |
+| an item of the first list under it | `the-steps/2` (a numbered list: the number as written; bullets: the rank); before any heading, `2` |
+| a table row · a column | its first cell · its header, written the same way: `len`, `size` |
+| an admonition with a title | `mind-the-lock` |
+| a tab `=== "Wire format"` | `wire-format`: the tab opens. Naming anything inside a tab opens it too |
+| a `~~~mermaid` block | its node ids; in a `sequenceDiagram` the participants and messages `m1`, `m2`, … |
+
+When a ref is neither one of them nor a code ref, `codecast check` lists the ids of the panel.
+Ids are taken from the note as written: played in another language, the headings, cells and tab
+names on screen are translated and the same `!` lines still glow them.
+
+**Write a block once.** A part may name by title a block another part wrote: `| md:Steps`,
+`@ diagram:Bus`, `| bytes:Frame`, `@ chart:Build time`, `| json:Body`. The part that has no block
+with that title is lent the first one found, in the header first (the lines before the first part:
+the top of `codecast.md`, or `index.md`), then in the parts in playing order. So a diagram, a
+table or a set of tabs that several parts talk about is written in one place and each part points
+into it with `!`. A number (`| md:2`) counts the part's own blocks only. Markers and `>` lines of
+a part change its own copy: another part starts again from the block as written.
 
 **Byte layouts.** One field per line, `id size [format] description`:
 

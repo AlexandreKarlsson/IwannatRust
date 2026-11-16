@@ -46,6 +46,10 @@
 //! inside a part like `>` lines; `|` alone closes it. `!` refs may name its fields or nodes.
 //! A ```` ```json Request body ```` block (also `csv`, `yaml`, `toml`, `xml`, `http`, `sql`, `sh`,
 //! `text`) is an **example**: `| example:Request body` shows it, `!` glows its keys or columns.
+//!
+//! A block is written once: a part that names by title a block it does not have (`@ diagram:Bus`,
+//! `| md:Steps`) is lent it by the part that wrote it, or by the header, the lines before the
+//! first part (see [`lend`]).
 
 use crate::diagram::{Diagram, Op};
 use crate::model::*;
@@ -201,6 +205,31 @@ impl Part {
 pub struct Note {
     pub title: Option<String>,
     pub text: String,
+    /// The title as the script wrote it, when a translation changed `title`: `| md:<title>`
+    /// lines still find the note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Ids a translation changed, (as shown, as written): a `!` line names a heading, a row or
+    /// a tab the way the script wrote it (see [`Note::ids`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alias: Vec<(String, String)>,
+}
+
+impl Note {
+    /// What `!` may glow in the note, as the script wrote it (see [`crate::markdown::ids`]).
+    pub fn ids(&self) -> Vec<String> {
+        crate::markdown::ids(&self.text).into_iter().map(|id| self.written(&id).to_string()).collect()
+    }
+
+    /// The id the script uses for the thing shown with `id`.
+    pub fn written<'a>(&'a self, id: &'a str) -> &'a str {
+        self.alias.iter().find(|(shown, _)| shown == id).map_or(id, |(_, w)| w.as_str())
+    }
+
+    /// Whether `| md:<r>` names this note.
+    fn named(&self, r: &str) -> bool {
+        [&self.key, &self.title].into_iter().flatten().any(|t| t.eq_ignore_ascii_case(r))
+    }
 }
 
 /// A ```` ```json Title ```` (csv, yaml…) block: sample data shown in the side panel, a request
@@ -437,6 +466,8 @@ pub fn parse(text: &str) -> Script {
     let mut question: Option<(Question, bool)> = None;
     // a ```mermaid / ```bytes / ```md block being read: (kind, title, lines)
     let mut fence: Option<(Fence, Option<String>, Vec<String>)> = None;
+    // the blocks written before the first part: lent to the parts that name them
+    let mut header = Part::default();
     fn flush(q: &mut Option<(Question, bool)>, part: &mut Part, pending: &mut Cue) {
         if let Some((mut q, prev)) = q.take() {
             q.answer = q.answer.trim().to_string();
@@ -510,6 +541,8 @@ pub fn parse(text: &str) -> Script {
             apply_times(&mut part, &mut times);
             if !part.cues.is_empty() || !s.parts.is_empty() {
                 s.parts.push(std::mem::take(&mut part));
+            } else {
+                header = std::mem::take(&mut part);
             }
             part = Part { name: rest.trim().to_string(), ..Default::default() };
             in_part = true;
@@ -630,7 +663,68 @@ pub fn parse(text: &str) -> Script {
     if s.title.is_empty() {
         s.title = "Codecast".into();
     }
+    lend(&mut s, &header);
     s
+}
+
+/// Give each part a copy of the blocks it names by title but did not write: `@ diagram:Bus` or
+/// `| md:Steps` in a part without that block finds it in `header` (the blocks before the first
+/// part), else in the first part that wrote one. The part then plays as if the block were its
+/// own; a number (`@ diagram:2`) counts the part's own blocks only.
+fn lend(s: &mut Script, header: &Part) {
+    let written = s.parts.clone();
+    let pool: Vec<&Part> = std::iter::once(header).chain(written.iter()).collect();
+    /// Copy the block titled `r` into `mine` unless one is there.
+    fn one<T: Clone>(mine: &mut Vec<T>, pool: &[&Part], of: impl Fn(&Part) -> &Vec<T>, r: &str, title: impl Fn(&T) -> Option<&str>) {
+        let is = |x: &T| title(x).is_some_and(|t| t.eq_ignore_ascii_case(r));
+        if !mine.iter().any(&is) {
+            if let Some(x) = pool.iter().flat_map(|p| of(p).iter()).find(|x| is(x)) {
+                mine.push(x.clone());
+            }
+        }
+    }
+    for part in &mut s.parts {
+        // what the part's `@` and `|` lines name: (kind, title)
+        let mut named: Vec<(String, String)> = Vec::new();
+        let mut name = |line: Option<&str>, shown: bool| {
+            let Some((kind, r)) = line.and_then(|l| l.split_once(':')) else { return };
+            let (kind, r) = (kind.trim(), r.trim());
+            if r.is_empty() || r.parse::<usize>().is_ok() {
+                return;
+            }
+            // `@ chart:Build time` and `| chart:Build time` are the same block
+            let kind = match (shown, view_of(kind)) {
+                (true, Some(Mode::Diagram)) => "diagram",
+                (true, Some(Mode::Chart)) => "chart",
+                (true, Some(Mode::Scene)) => "scene",
+                (true, _) => return,
+                (false, _) => kind,
+            };
+            named.push((kind.to_string(), r.to_string()));
+        };
+        for c in &part.cues {
+            name(c.show.as_deref(), true);
+            name(c.side.as_deref(), false);
+            for q in &c.questions {
+                name(q.show.as_deref(), true);
+                name(q.side.as_deref(), false);
+            }
+        }
+        for (kind, r) in &named {
+            match kind.as_str() {
+                "bytes" => one(&mut part.layouts, &pool, |p| &p.layouts, r, |l| l.title.as_deref()),
+                "md" | "markdown" | "note" | "list" => one(&mut part.notes, &pool, |p| &p.notes, r, |n| n.title.as_deref()),
+                "diagram" | "sketch" => one(&mut part.diagrams, &pool, |p| &p.diagrams, r, |d| d.title.as_deref()),
+                "chart" | "graph" => one(&mut part.charts, &pool, |p| &p.charts, r, |c| c.name.as_deref()),
+                "scene" | "grid" => one(&mut part.scenes, &pool, |p| &p.scenes, r, |c| c.name.as_deref()),
+                // `| json:Body` names an example of that format
+                k if k == "example" || k == "ex" || k == "data" || EXAMPLE_LANGS.contains(&k) => {
+                    one(&mut part.examples, &pool, |p| &p.examples, r, |e| e.title.as_deref().filter(|_| !EXAMPLE_LANGS.contains(&k) || e.lang == k))
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Give a part's `times:` to its cues in order; a cue's own `[t]` wins.
@@ -657,7 +751,7 @@ fn close_fence(f: Option<(Fence, Option<String>, Vec<String>)>, part: &mut Part)
         Fence::Bytes => part.layouts.push(crate::bytes::parse(&lines.join("\n"), title.as_deref())),
         Fence::Md => {
             let text = dedent(&lines);
-            part.notes.push(Note { title, text });
+            part.notes.push(Note { title, text, ..Default::default() });
         }
         Fence::Chart => part.charts.push(crate::chart::parse(&dedent(&lines), title.as_deref())),
         Fence::Scene => part.scenes.push(crate::scene::parse(&dedent(&lines), title.as_deref())),
@@ -1014,6 +1108,13 @@ pub fn marks_at(part: &Part, cue: usize, frac: f64) -> Vec<&crate::chart::Mark> 
     out
 }
 
+/// The note `| md[:ref]` points at: by the title the script wrote, also when a translation
+/// changed the one shown.
+fn find_note<'a>(notes: &'a [Note], r: Option<&str>) -> Option<&'a Note> {
+    let name = r.map(str::trim).filter(|r| !r.is_empty() && r.parse::<usize>().is_err());
+    name.and_then(|r| notes.iter().find(|n| n.named(r))).or_else(|| find_by(notes, r, |n| n.title.as_deref()))
+}
+
 /// `@ <kind>[:ref]` / `| <kind>[:ref]` lookup: the first block, the n-th (`:2`), or by title.
 fn find_by<'a, T>(items: &'a [T], r: Option<&str>, title: impl Fn(&T) -> Option<&str>) -> Option<&'a T> {
     match r.map(str::trim).filter(|r| !r.is_empty()) {
@@ -1037,7 +1138,7 @@ pub enum Side {
 }
 
 impl Side {
-    /// The refs `!` may glow in it: field ids, node ids.
+    /// The refs `!` may glow in it: field ids, node ids, the headings, items and rows of a note.
     pub fn ids(&self) -> Vec<String> {
         match self {
             Side::Bytes(l) => l.ids().into_iter().map(String::from).collect(),
@@ -1045,7 +1146,7 @@ impl Side {
             Side::Example(e) => e.ids(),
             Side::Chart(c) => c.ids().into_iter().map(String::from).collect(),
             Side::Scene(s) => s.ids().into_iter().map(String::from).collect(),
-            Side::Note(_) => vec![],
+            Side::Note(n) => n.ids(),
         }
     }
 }
@@ -1061,12 +1162,12 @@ pub fn find_side(part: &Part, side: &str) -> Result<Option<Side>, String> {
         None => (side, None),
     };
     let missing = |what: &str, block: &str| match r {
-        Some(r) => format!("no {} `{}` in this part (`| {}:2`, or the block's title)", what, r, kind),
+        Some(r) => format!("no {} `{}` in this part, and none with that title in another (`| {}:2`, or the block's title)", what, r, kind),
         None => format!("`| {}` but this part has no {} block", kind, block),
     };
     match kind {
         "bytes" => find_by(&part.layouts, r, |l| l.title.as_deref()).map(|l| Some(Side::Bytes(l.clone()))).ok_or_else(|| missing("byte layout", "```bytes")),
-        "md" | "markdown" | "note" | "list" => find_by(&part.notes, r, |n| n.title.as_deref()).map(|n| Some(Side::Note(n.clone()))).ok_or_else(|| missing("```md block", "```md")),
+        "md" | "markdown" | "note" | "list" => find_note(&part.notes, r).map(|n| Some(Side::Note(n.clone()))).ok_or_else(|| missing("```md block", "```md")),
         "diagram" | "sketch" => find_by(&part.diagrams, r, |d| d.title.as_deref()).map(|d| Some(Side::Diagram(d.clone()))).ok_or_else(|| missing("diagram", "```mermaid")),
         "chart" | "graph" => find_chart(part, r).map(|c| Some(Side::Chart(c.clone()))).ok_or_else(|| missing("chart", "```chart")),
         "scene" | "grid" => find_scene(part, r).map(|s| Some(Side::Scene(s.clone()))).ok_or_else(|| missing("scene", "```scene")),
@@ -1431,7 +1532,9 @@ impl<'a> Track<'a> {
                 }
                 _ => {
                     if resolve(p, r).is_none() && resolve_dir(p, r).is_none() {
-                        bad.push(format!("{}: unresolved ref `{}` in `!`", at, r));
+                        // it may have been meant for the side panel: say what is there
+                        let panel = if self.side.is_empty() { String::new() } else { format!(" (in the side panel: {})", self.side.join(" ")) };
+                        bad.push(format!("{}: unresolved ref `{}` in `!`{}", at, r, panel));
                     }
                 }
             }
@@ -1793,6 +1896,21 @@ mod duration_tests {
 #[cfg(test)]
 mod note_tests {
     use super::{parse, to_text};
+
+    #[test]
+    fn blocks_are_lent_by_title() {
+        let src = "# T\n```md Rules\n- shared\n```\n## One\n```md Steps\n1. a\n2. b\n```\n```mermaid\n---\ntitle: Bus\n---\nflowchart LR\n  a --> b\n```\n| md:Steps\n! 2\nx\n## Two\n@ diagram:bus\n| md:Steps\ny\n| md:Rules\nz\n| md:Nope\nw\n";
+        let s = parse(src);
+        assert_eq!((s.parts[0].notes.len(), s.parts[0].diagrams.len()), (1, 1));
+        let two = &s.parts[1];
+        assert_eq!(two.notes.iter().map(|n| n.title.as_deref().unwrap()).collect::<Vec<_>>(), ["Steps", "Rules"]);
+        assert!(super::find_diagram(two, Some("Bus")).is_some());
+        assert!(super::find_side(two, "md:Nope").is_err());
+        let Ok(Some(side)) = super::find_side(two, "md:Steps") else { panic!() };
+        assert_eq!(side.ids(), ["1", "2"]);
+        // written back, it reads the same
+        assert_eq!(parse(&to_text(&s)), s);
+    }
 
     #[test]
     fn notes_keep_their_blank_lines() {

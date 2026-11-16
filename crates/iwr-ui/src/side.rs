@@ -1,7 +1,7 @@
 //! Side panel: what a codecast's `|` lines show next to the view — a byte layout (```` ```bytes ````),
 //! markdown (```` ```md ````: a list, a table, notes), a small diagram (```` ```mermaid ````) or an
 //! example (```` ```json ````, ```` ```csv ````…). `!` refs glow byte fields, diagram nodes, example
-//! keys and columns by id.
+//! keys and columns by id, and in markdown its headings, list items, table rows and tabs.
 
 use crate::i18n::t;
 use crate::md::Markdown;
@@ -48,7 +48,7 @@ pub fn SidePanel() -> Element {
             div { class: "side-body",
                 match side.as_ref() {
                     Side::Bytes(l) => rsx! { BytesCard { layout: l.clone() } },
-                    Side::Note(n) => rsx! { div { class: "side-note", Markdown { text: n.text.clone() } } },
+                    Side::Note(n) => rsx! { div { class: "side-note", Markdown { text: n.text.clone(), page: true, alias: n.alias.clone() } } },
                     Side::Diagram(d) => rsx! { MiniDiagram { diagram: d.clone() } },
                     Side::Example(e) => rsx! { ExampleCard { example: e.clone() } },
                     Side::Chart(c) => rsx! { crate::chart::ChartView { chart: c.clone() } },
@@ -226,13 +226,15 @@ fn size_word(s: &Size) -> String {
     }
 }
 
-/// A diagram drawn small and still (no camera, no moves): boxes, labels, straight edges.
+/// A diagram drawn small and still (no camera, no moves): boxes, labels, straight edges with
+/// their text. `!` glows a node by its id, an edge by its own (a message of a sequence: `m2`)
+/// or when both its ends glow.
 #[component]
-fn MiniDiagram(diagram: iwr_core::diagram::Diagram) -> Element {
+pub(crate) fn MiniDiagram(diagram: iwr_core::diagram::Diagram) -> Element {
     let state = use_context::<State>();
     let g = iwr_core::diagram::graph(&diagram, &[]);
     let hl = state.hl_ids.read().clone();
-    let any = g.nodes.iter().any(|n| hl.contains(&n.id));
+    let any = g.nodes.iter().any(|n| hl.contains(&n.id)) || g.edges.iter().any(|e| hl.contains(&e.id));
     let (w, h) = (g.width.max(10.0) + 20.0, g.height.max(10.0) + 20.0);
     let center = |id: &str| g.nodes.iter().find(|n| n.id == id).map(|n| (n.x + n.w / 2.0, n.y + n.h / 2.0));
     let mut groups: Vec<&iwr_core::views::VNode> = g.nodes.iter().filter(|n| n.container).collect();
@@ -245,8 +247,18 @@ fn MiniDiagram(diagram: iwr_core::diagram::Diagram) -> Element {
                 {
                     let pts: Vec<(f64, f64)> = if e.points.len() >= 2 { e.points.clone() } else { [center(&e.from), center(&e.to)].into_iter().flatten().collect() };
                     let d = pts.iter().map(|(x, y)| format!("{:.1},{:.1}", x, y)).collect::<Vec<_>>().join(" ");
-                    let on = hl.contains(&e.from) && hl.contains(&e.to);
-                    rsx! { polyline { key: "{e.id}", points: "{d}", fill: "none", stroke: if on { "var(--hi)" } else { "var(--muted)" }, stroke_width: "1.4" } }
+                    let on = hl.contains(&e.id) || (hl.contains(&e.from) && hl.contains(&e.to));
+                    // the text sits over the middle of the line
+                    let (a, b) = (pts.first().copied().unwrap_or_default(), pts.get(1).copied().unwrap_or_default());
+                    let label = e.label.clone().filter(|_| pts.len() >= 2);
+                    rsx! {
+                        g { key: "{e.id}", opacity: if any && !on { "0.45" } else { "1" },
+                            polyline { points: "{d}", fill: "none", stroke: if on { "var(--hi)" } else { "var(--muted)" }, stroke_width: if on { "2.4" } else { "1.4" } }
+                            if let Some(l) = label {
+                                text { x: "{(a.0 + b.0) / 2.0}", y: "{(a.1 + b.1) / 2.0 - 4.0}", text_anchor: "middle", font_size: "10", font_weight: if on { "700" } else { "400" }, fill: "var(--text)", "{l}" }
+                            }
+                        }
+                    }
                 }
             }
             for n in boxes.iter() { {mini_node(n, &hl, any)} }
