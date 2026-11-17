@@ -8,6 +8,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Spoken text: initials people say as a word are said that way out of the box — `JSON` "jay son",
+  `MAC` "mac", `YAML`, `RAM`, `GUI` "gooey", `ASCII`, `UART`, `OAuth`, `stdin`, `sudo`… — and more
+  initials are spelled (`UUID`, `LED`, `GPIO`, `MQTT`, `JWT`…). A `spell:` or `pronounce:` line
+  still wins.
 - Scenes: a ```` ```scene ```` block places objects on a grid (shapes, sizes, states such as `off`,
   lines between objects or cells), shown with `@ scene` or `| scene`. Markers in a cue's text move
   it on that word: `{>id 3,1}`, `{=id off}`, `{=id "text"}`, with the chart markers `+ - !` and

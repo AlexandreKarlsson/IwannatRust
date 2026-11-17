@@ -584,9 +584,11 @@ both over the built-in list (IwannatRust, iwr, TTS, usize, str, dyn, impl, enum,
 **Spelled words**: `spell: IP, CoAP, HTTP` (script header or `glossary.md`, commas or spaces) has
 those words read letter by letter — "I P", "C O A P" — plurals included (`IPs` → "I P's"). Use it
 for acronyms the voice would read as a word. Same as `pronounce: CoAP = C O A P`, shorter.
-Common initials are spelled out without any line: `ID`, `IP`, `UID`, `URL`, `API`, `CPU`, `JSON`,
-`HTTP`, `HTML`, `SQL`, `TCP`, `DNS`, `SSH`, `CLI`, `OTP`… (`speech::BUILTIN_SPELL`, upper case
-only: "the id" in prose stays a word).
+Common initials are spelled out without any line: `ID`, `IP`, `UID`, `URL`, `API`, `CPU`, `UUID`,
+`HTTP`, `HTML`, `SQL`, `TCP`, `DNS`, `SSH`, `CLI`, `OTP`, `LED`, `GPIO`… (`speech::BUILTIN_SPELL`, upper case
+only: "the id" in prose stays a word). The ones people say as a word are said that way: `JSON`
+"jay son", `MAC` "mac", `YAML`, `TOML`, `RAM`, `LAN`, `GUI` "gooey", `ASCII`, `UART`, `POSIX`,
+`OAuth`, `JPEG`, `stdin`, `sudo`… (`speech::BUILTIN_SAY`, plurals included).
 
 ```
 codecast speak codecast/            # the whole codecast as it will be spoken, to review the TTS text
