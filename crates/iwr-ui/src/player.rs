@@ -497,8 +497,25 @@ impl State {
         self.seek_audio();
     }
 
+    /// Play pressed: the current cue takes the stage again, whatever the viewer opened while it
+    /// was paused (the plan page, the cast map, another view): its part's last `@` line comes back.
+    pub fn take_stage(&mut self) {
+        if self.script.peek().is_none() {
+            return;
+        }
+        self.close_pages();
+        self.apply_cue_staged(true);
+    }
+
     /// Apply the current cue: view, root/scope, highlights, code mark, camera.
     pub fn apply_cue(&mut self) {
+        let plan = *self.mode.peek() == Mode::Plan;
+        self.apply_cue_staged(plan);
+    }
+
+    /// `apply_cue`; `restage`: a cue without its own `@` line brings back the view its part's last
+    /// `@` line set (the viewer is not on that stage: the plan page, a view opened while paused).
+    fn apply_cue_staged(&mut self, restage: bool) {
         if *self.ended.peek() {
             self.ended.set(false);
         }
@@ -544,7 +561,16 @@ impl State {
         if *self.spot.peek() != spot {
             self.spot.set(spot);
         }
-        self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
+        // the plan page is a menu, not a stage: a cue played over it (`?page=plan`, the plan
+        // button, a jump from the cast map) brings back the view its part's last `@` line set
+        let show = cue.show.clone().or_else(|| {
+            if !restage {
+                return None;
+            }
+            let s = self.script.read();
+            s.as_ref()?.parts.get(part)?.cues.iter().take(cue_idx + 1).rev().find_map(|c| c.show.clone())
+        });
+        self.apply_directives(&p, show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
     }
 
     /// Apply `@` / `!` / `=` directives (of a cue or of an answer), then move the camera.
@@ -1106,7 +1132,13 @@ pub fn PlayerBar() -> Element {
             ));
             loop {
                 match ev.recv::<f64>().await {
-                    Ok(t) if t == -1.0 => state.playing.set(true),
+                    Ok(t) if t == -1.0 => {
+                        let was = *state.playing.peek();
+                        state.playing.set(true);
+                        if !was {
+                            state.take_stage();
+                        }
+                    }
                     Ok(t) if t == -2.0 => state.playing.set(false),
                     Ok(t) if t == -3.0 => {
                         // end of a per-part recording: continue with the next part when touring
@@ -1212,6 +1244,9 @@ pub fn PlayerBar() -> Element {
                             document::eval(if p { "const a = document.getElementById('iwr-audio'); if (a) a.pause();" } else { "const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {});" });
                         } else {
                             state.playing.set(!p);
+                            if !p {
+                                state.take_stage();
+                            }
                         }
                     }, { if playing { t::player::pause() } else { t::player::play() } } }
                     button { onclick: move |_| { state.tts_gen += 1; state.step(1); }, disabled: cue_idx + 1 >= total, "▶|" }

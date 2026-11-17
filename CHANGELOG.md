@@ -6,6 +6,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A codecast played from the plan page (`?page=plan`, where a jump from the cast map or a topic
+  lands) stayed on the plan: the first cue's `@` view had been applied before the page took over,
+  and the next cues without an `@` line left it there. Starting to play, or a cue reached on the
+  plan page, now brings back the view the part's last `@` line set.
+- Play brings the codecast back on stage at once: pressed on the cast map, the settings, or a view
+  opened while paused, it showed the cue's view only from the next cue on. It now closes the page
+  and re-applies the current cue (with its part's last `@` view).
+
 ### Added
 
 - Spoken text: initials people say as a word are said that way out of the box — `JSON` "jay son",
