@@ -92,7 +92,7 @@ pub fn CastMapPage() -> Element {
                                     let (x1, y1, x2, y2) = (px + BOX_W, py + BOX_H / 2.0, x, y + BOX_H / 2.0);
                                     let mx = (x1 + x2) / 2.0;
                                     let d = format!("M{x1:.0} {y1:.0} C{mx:.0} {y1:.0} {mx:.0} {y2:.0} {x2:.0} {y2:.0}");
-                                    rsx! { path { class: if n.cast.is_some() || n.current { "cm-edge lit" } else { "cm-edge" }, d: "{d}", style: "animation-delay:{i as f64 * 0.04}s" } }
+                                    rsx! { path { class: if n.cast.is_some() || n.current { "cm-edge lit" } else { "cm-edge" }, d: "{d}", "pathLength": "1", style: "animation-delay:{i as f64 * 0.04}s" } }
                                 }
                             }
                         }
@@ -197,10 +197,10 @@ pub const CSS: &str = r#"
 .cm-scroll { overflow:auto; padding:26px 28px; background: radial-gradient(ellipse at 30% 30%, color-mix(in srgb, var(--accent) 7%, var(--panel2)), var(--panel2) 70%); }
 .cm-tree { position:relative; margin:0 auto; }
 .cm-tree svg { position:absolute; inset:0; pointer-events:none; }
-.cm-edge { fill:none; stroke:var(--border); stroke-width:1.5; stroke-dasharray:400; stroke-dashoffset:400; animation: cm-draw .5s ease-out forwards; }
+.cm-edge { fill:none; stroke:var(--border); stroke-width:1.5; stroke-dasharray:1; stroke-dashoffset:1; animation: cm-draw .5s ease-out forwards; }
 .cm-edge.lit { stroke:color-mix(in srgb, var(--accent) 60%, var(--border)); }
-.cm-node { position:absolute; box-sizing:border-box; width:206px; height:58px; display:flex; flex-direction:column; justify-content:center; gap:1px; padding:6px 12px; border-radius:11px; text-align:left; font:inherit; color:var(--text); overflow:hidden; opacity:0; animation: cm-in .3s ease-out forwards; }
-.cm-node span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cm-node { position:absolute; box-sizing:border-box; width:206px; height:58px; display:flex; flex-direction:column; justify-content:center; gap:1px; padding:4px 12px; border-radius:11px; text-align:left; font:inherit; color:var(--text); overflow:hidden; opacity:0; animation: cm-in .3s ease-out forwards; }
+.cm-node span { flex-shrink:0; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cm-node.way { background:transparent; border:1px dashed var(--border); color:var(--muted); }
 .cm-node.cast { background:color-mix(in srgb, var(--accent) 12%, var(--panel)); border:1px solid color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 0 18px -8px var(--accent); }
 .cm-node.cast.topic { border-radius:20px; background:color-mix(in srgb, var(--accent) 6%, var(--panel)); }

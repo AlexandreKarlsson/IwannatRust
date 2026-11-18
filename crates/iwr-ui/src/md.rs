@@ -71,12 +71,15 @@ struct Ctx {
     namer: RefCell<Namer>,
     /// Ids a translation changed, (as shown, as the codecast names them).
     alias: Vec<(String, String)>,
+    /// Where a relative picture is fetched from: the codecast directory URL.
+    base: String,
 }
 
 impl Ctx {
     fn new(state: &State, page: bool, namer: Namer, alias: Vec<(String, String)>) -> Ctx {
         let hl = if page { state.hl_ids.read().clone() } else { vec![] };
-        Ctx { pron: state.pronounce.read().clone(), parens: *state.speech_parens.read(), page, hl, namer: RefCell::new(namer), alias }
+        let base = state.audio_base.read().clone();
+        Ctx { pron: state.pronounce.read().clone(), parens: *state.speech_parens.read(), page, hl, namer: RefCell::new(namer), alias, base }
     }
 
     /// Whether the codecast highlights the thing with this id.
@@ -166,6 +169,8 @@ fn inlines(items: &[Inline], cx: &Ctx) -> Vec<Element> {
             Inline::Image { src, alt } => out.push(if src.is_empty() {
                 rsx! { span { "{alt}" } }
             } else {
+                // a file next to the codecast (`img/x.png`) comes from the codecast directory
+                let src = if src.contains("://") || src.starts_with('/') || src.starts_with('#') { src.clone() } else { format!("{}{}", cx.base, src) };
                 rsx! { img { class: "mdi", src: "{src}", alt: "{alt}", title: "{alt}" } }
             }),
             Inline::Break => out.push(rsx! { br {} }),
@@ -266,12 +271,21 @@ fn admonition(kind: Callout, title: &Option<Vec<Inline>>, fold: Option<bool>, bl
     }
 }
 
+/// Whether a `mermaid` block is a diagram [`crate::side::MiniDiagram`] draws: a flowchart or
+/// a sequence with something in it.
+fn drawable(text: &str) -> bool {
+    let d = iwr_core::diagram::parse(text);
+    d.seq.is_some() || !d.nodes.is_empty()
+}
+
 /// One block, with the blocks inside it.
 fn block(b: &Block, cx: &Ctx) -> Element {
     match b {
         Block::Para(p) => {
+            // a picture alone in its paragraph is a figure: it grows with the panel
+            let fig = matches!(p.as_slice(), [Inline::Image { src, .. }] if !src.is_empty());
             let k = inlines(p, cx);
-            rsx! { p { for x in k { {x} } } }
+            rsx! { p { class: if fig { "mdfig" } else { "" }, for x in k { {x} } } }
         }
         Block::Heading(level, h) => {
             let id = cx.namer.borrow_mut().heading(h);
@@ -280,7 +294,8 @@ fn block(b: &Block, cx: &Ctx) -> Element {
             rsx! { h4 { class: "{class}", for x in k { {x} } } }
         }
         // a diagram: its nodes glow by id
-        Block::Code { lang, text, .. } if lang == "mermaid" => rsx! { div { class: "mdmini", crate::side::MiniDiagram { diagram: iwr_core::diagram::parse(text) } } },
+        // (a kind of mermaid diagram the drawing does not know stays its code)
+        Block::Code { lang, text, .. } if lang == "mermaid" && drawable(text) => rsx! { div { class: "mdmini", crate::side::MiniDiagram { diagram: iwr_core::diagram::parse(text) } } },
         Block::Tabs(tabs) => {
             // the tabs are drawn by their own component: it starts where the page is, and the
             // page goes on after them

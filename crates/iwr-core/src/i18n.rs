@@ -259,7 +259,7 @@ pub fn map_markdown(text: &str, f: &mut dyn FnMut(&str) -> String) -> String {
             continue;
         }
         // an admonition's first line: its quoted title is the only text
-        if t.starts_with("!!!") || t.starts_with("???") || t.starts_with("> [!") || t.starts_with("=== \"") {
+        if t.starts_with("!!!") || t.starts_with("???") || t.starts_with("> [!") || t.starts_with("===") {
             out.push(match (line.find('"'), line.rfind('"')) {
                 (Some(a), Some(b)) if a < b && line[a + 1..b].chars().any(char::is_alphabetic) => format!("{}{}{}", &line[..=a], f(&line[a + 1..b]), &line[b..]),
                 _ => line.to_string(),

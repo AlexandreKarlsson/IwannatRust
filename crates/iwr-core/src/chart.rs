@@ -117,6 +117,9 @@ pub enum Mark {
     State(String, String),
     /// `=id "text"`: the label of a scene object or line
     Label(String, String),
+    /// `*id 250:#.` / `*id 400:#. x3`: a scene object blinks (a light); `*id` alone stops it.
+    /// The words after the id as written, read by [`crate::scene::Blink::parse`].
+    Blink(String, String),
 }
 
 /// Markers of one `{}` in a cue: they fire `at` characters into its `of` characters of text (the
@@ -313,6 +316,15 @@ pub fn parse_marks(inner: &str) -> Option<Vec<Mark>> {
             } else {
                 return None;
             }
+        } else if let Some(id) = t.strip_prefix('*') {
+            // its pattern: `<ms>:<#.…>` then `x<N>`, checked by `scene::Blink::parse`
+            let mut words = vec![];
+            // every word up to the next marker, so a typo is reported rather than spoken
+            while let Some(w) = toks.get(i).filter(|w| !w.starts_with(['+', '-', '=', '>', '!', '*', '~', '[', '"']) && !w.contains("\"@")) {
+                words.push(w.clone());
+                i += 1;
+            }
+            out.push(Mark::Blink(id.to_string(), words.join(" ")));
         } else if let Some(id) = t.strip_prefix('>') {
             // a cell (`3,1`, `2.5,1`) or an object id
             let to = toks.get(i).filter(|w| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || "_,.".contains(c)))?;
@@ -330,7 +342,7 @@ pub fn parse_marks(inner: &str) -> Option<Vec<Mark>> {
         } else {
             return None;
         }
-        if out.iter().any(|m| matches!(m, Mark::Show(s) | Mark::Hide(s) | Mark::Set(s, _) | Mark::Note(s, _) | Mark::Move(s, _) | Mark::State(s, _) | Mark::Label(s, _) if s.is_empty())) {
+        if out.iter().any(|m| matches!(m, Mark::Show(s) | Mark::Hide(s) | Mark::Set(s, _) | Mark::Note(s, _) | Mark::Move(s, _) | Mark::State(s, _) | Mark::Label(s, _) | Mark::Blink(s, _) if s.is_empty())) {
             return None;
         }
     }
@@ -423,6 +435,8 @@ pub fn marks_text(ms: &[Mark]) -> String {
             Mark::Move(id, to) => format!(">{id} {to}"),
             Mark::State(id, st) => format!("={id} {st}"),
             Mark::Label(id, t) => format!("={id} \"{t}\""),
+            Mark::Blink(id, p) if p.is_empty() => format!("*{id}"),
+            Mark::Blink(id, p) => format!("*{id} {p}"),
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -527,7 +541,7 @@ impl Chart {
                     }
                 }
                 // scene markers
-                Mark::Move(..) | Mark::State(..) | Mark::Label(..) => {}
+                Mark::Move(..) | Mark::State(..) | Mark::Label(..) | Mark::Blink(..) => {}
             }
         }
         s
@@ -537,7 +551,7 @@ impl Chart {
     pub fn unknown<'a>(&self, m: &'a Mark) -> Vec<&'a str> {
         let ids: Vec<&str> = match m {
             Mark::Show(i) | Mark::Hide(i) => return i.split("..").filter(|i| self.row(i).is_none()).collect(),
-            Mark::Set(i, _) | Mark::Note(i, _) | Mark::Move(i, _) | Mark::State(i, _) | Mark::Label(i, _) => vec![i],
+            Mark::Set(i, _) | Mark::Note(i, _) | Mark::Move(i, _) | Mark::State(i, _) | Mark::Label(i, _) | Mark::Blink(i, _) => vec![i],
             Mark::Glow(v) => v.iter().map(String::as_str).collect(),
             Mark::Delta(a, b) | Mark::Span(a, b, _) => vec![a, b],
             Mark::Series(n, _) => return if self.series.contains(n) { vec![] } else { vec![n] },

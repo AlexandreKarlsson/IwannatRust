@@ -279,7 +279,8 @@ When the listener needs the code *and* what it reads, put the second in the side
 switching views. `| bytes:<title>` shows a ```` ```bytes <title> ```` block: one field per line,
 `id size [format] description`, optional `sample:` line of hex bytes decoded into each field. `!`
 with field ids glows them in the strip and table, alongside code refs on the same line.
-`| md:<title>` shows a ```` ```md <title> ```` block (numbered steps, a field table, short notes);
+`| md:<title>` shows a ```` ```md <title> ```` block (numbered steps, a field table, short notes,
+a picture `![alt](img/flow.png)` kept in the codecast directory);
 `| diagram:<title>` a small, still mermaid block.
 
 **Point into the note** instead of rewriting it. `!` glows, and scrolls to, what a `| md` page
@@ -470,14 +471,25 @@ It steps {>head 2,1 =b on} to the next one, which wakes up.
 
 - Object: `id [shape] col,row [WxH] ["label"] [:::state]`. Cells start at `1,1` top left.
   Shapes: `box` (default) `round` `pill` `diamond` `store` `icon` (big emoji) `text` `zone` (area behind others).
+  A picture: `logo 1,1 2x2 ![Server](img/server.png)` (file in the codecast directory, caption under it;
+  `{=logo "![Down](img/down.png)"}` swaps it). Use one for what an emoji cannot show (a board, a
+  screen, a logo), never for text a box would hold.
   States: `off` (grey) `ok` `warn` `err` `hidden`.
+  An icon that lands on an object (`{>tok a}`) is drawn small under it (`:::under`, the default),
+  or in its place with `tok icon 1,3 "🟡" :::replace` (the object comes back when the icon leaves).
 - Line: `a --> b`, `---`, `-.->`, `==>`, `a -->|label| b`; ends are ids or cells (`1,2 --- 6,2`); ids `l1`, `l2`… in order.
   Lines are straight and may not cross a third object: bend through free cells (`a --- 1,3 --- 5,3 --> b`).
 - `grid: CxR [lines] [square]` is optional (max 16x16).
 - Markers in a cue: `{>id 3,1}` move (or `{>id other}` onto it) · `{=id off|on|ok|warn|err}` ·
   `{=id "text"}` relabel · `{+id}` `{-id}` · `{!id}` · `{"note"@id}`.
+- Lights: `{*id <ms>:<steps> [xN]}` blinks an object, one character per step, `#` lit and `.` dark,
+  in the colour of its state: `{*led 1000:#.}` (1 s on, 1 s off, for ever), `{*led 400:#. x3}`
+  (three blinks, then dark: after `xN` the last step stays, so `50:..### x1` ends lit), `{*led 100:#.#.......}` (a double blink every second). `{*id}` stops it.
+  Lights given a pattern by one marker start together: a pattern that travels over several lights
+  is one timeline per light, all of the same length (`{*a 90:#.#..... *b 90:....#.#.}`). When the
+  scene is a real panel, use its real timings: the listener learns to read it.
 - A box holds about 11 letters per cell: widen it (`2x1`) or break the label (`<br>`). Two objects
-  never start on the same cells unless one is `:::hidden` or a `zone`. Ids are unique in a part.
+  never start on the same cells unless one is `:::hidden`, a `zone`, or an icon. Ids are unique in a part.
 - One idea per scene, at most a dozen objects; change one or two things per cue.
 
 ## Example

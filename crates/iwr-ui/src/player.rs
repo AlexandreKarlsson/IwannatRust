@@ -278,6 +278,12 @@ impl State {
 
     /// A relative `audio:` name resolved against the codecast directory URL.
     fn audio_src(&self, name: &str) -> String {
+        self.cast_src(name)
+    }
+
+    /// A file of the codecast (a recording, a picture of a note or a scene) by its relative
+    /// name: the codecast directory URL in front; web and absolute addresses stay as they are.
+    pub fn cast_src(&self, name: &str) -> String {
         if name.contains("://") || name.starts_with("data:") || name.starts_with('/') {
             name.to_string()
         } else {

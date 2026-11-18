@@ -538,9 +538,29 @@ pub fn is_safe_audio_name(name: &str) -> bool {
     config::is_safe_path(name) && Path::new(name).extension().and_then(|e| e.to_str()).map(|e| AUDIO_EXTS.contains(&e.to_ascii_lowercase().as_str())).unwrap_or(false)
 }
 
-/// A file the player may fetch from the codecast directory: a recording or a font.
+/// Pictures a codecast may show (`![caption](img/x.png)` in notes and scenes).
+pub const IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif"];
+
+/// A safe relative path inside the codecast directory to a picture.
+pub fn is_safe_image_name(name: &str) -> bool {
+    config::is_safe_path(name) && Path::new(name).extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// The pictures a codecast shows from its directory: every relative `![…](file)` of the script
+/// and the glossary.
+pub fn image_files(loaded: &Loaded) -> Vec<String> {
+    let mut v = iwr_core::markdown::image_files(&loaded.text);
+    for f in loaded.glossary.as_deref().map(iwr_core::markdown::image_files).unwrap_or_default() {
+        if !v.contains(&f) {
+            v.push(f);
+        }
+    }
+    v
+}
+
+/// A file the player may fetch from the codecast directory: a recording, a font or a picture.
 pub fn is_safe_asset_name(name: &str) -> bool {
-    is_safe_audio_name(name) || (config::is_safe_path(name) && config::is_font_file(name))
+    is_safe_audio_name(name) || is_safe_image_name(name) || (config::is_safe_path(name) && config::is_font_file(name))
 }
 
 /// Problems in a project glossary: entries whose directives do not resolve.

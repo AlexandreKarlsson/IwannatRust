@@ -20,11 +20,11 @@ Right, and scenes speak the same language with three more words: move a thing, g
 @ code:iwr-core::scene::Scene::state
 ! iwr-core::scene::Scene::state/b1
 Nothing is ever changed in place. state starts again from the stage as written, every time.
-! iwr-core::scene::Scene::state/b14 m1
+! iwr-core::scene::Scene::state/b16 m1
 Then it replays each marker fired so far, in order. Watch the token on the right: a move {>tok 2,2} puts it on a new square.
-! iwr-core::scene::Scene::state/b25 m2
+! iwr-core::scene::Scene::state/b27 m2
 A state marker {>tok 3,2 =tok off} greys it, or colours it.
-! iwr-core::scene::Scene::state/b44 now
+! iwr-core::scene::Scene::state/b53 now
 And a marker about something else, a row of a chart for instance, is skipped. What comes out {>tok 4,2 =tok on} is what gets drawn.
 sp: So stepping back to an earlier sentence just replays fewer markers?
 Yes. No undo to write, and jumping anywhere in the part gives the right picture. Next, what happens when the block itself is wrong.

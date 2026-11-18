@@ -331,7 +331,7 @@ place, in the Code view and the plan page it docks on the right; on a narrow win
 | Line | Shows |
 |---|---|
 | `\| bytes` · `\| bytes:2` · `\| bytes:Frame` | a ```` ```bytes Frame ```` block of the part: a byte layout |
-| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown laid out as a page (headings, nested / numbered / task lists, tables, quotes, links, images, admonitions: `!!! tip "Title"` over a body indented by four spaces, `???` folded, `???+` folds but starts open, kinds note / abstract / info / tip / success / question / warning / failure / danger / bug / example / quote, or GitHub's `> [!NOTE]`; blank lines are kept; code blocks inside use `~~~yaml` fences, `~~~rust title="src/main.rs"` to give one a title, have a copy button and are coloured for Rust, C, C++, Go, shell, HCL, TOML, YAML, BitBake `bb`; a `~~~mermaid` block is drawn as a small diagram; tabs: `=== "Name"` over a body indented by four spaces, the ones that follow each other make one set) |
+| `\| md` · `\| md:Steps` | a ```` ```md Steps ```` block: markdown laid out as a page (headings, nested / numbered / task lists, tables, quotes, links, images (`![alt](img/flow.png)`: a file next to the codecast, see [Pictures](#pictures)), admonitions: `!!! tip "Title"` over a body indented by four spaces, `???` folded, `???+` folds but starts open, kinds note / abstract / info / tip / success / question / warning / failure / danger / bug / example / quote, or GitHub's `> [!NOTE]`; blank lines are kept; code blocks inside use `~~~yaml` fences, `~~~rust title="src/main.rs"` to give one a title, have a copy button and are coloured for Rust, C, C++, Go, shell, HCL, TOML, YAML, BitBake `bb`; a `~~~mermaid` block is drawn as a small diagram; tabs: `=== "Name"` over a body indented by four spaces, the ones that follow each other make one set) |
 | `\| diagram:2` | a ```` ```mermaid ```` block of the part, drawn small and still |
 | `\| example:Body` · `\| json:Body` · `\| csv` | a ```` ```json Body ```` block (also `csv` `tsv` `yaml` `toml` `xml` `http` `sql` `sh` `text`): sample data, csv as a table |
 | `\| chart:Build time` · `\| scene:Ring` | a ```` ```chart ```` or ```` ```scene ```` block, moved by the same `{}` markers as in the view |
@@ -417,7 +417,9 @@ rows no chart of the part has, and markers in a part without a chart.
 A ```` ```scene <title> ```` block places objects on a grid and joins them with lines: where a
 diagram lays things out itself, here position means something (slots of a buffer, machines on a
 network, cells of a matrix, pins of a board). `@ scene[:ref]` fills the view with it, `| scene[:ref]`
-puts it in the side panel (ref: the n-th scene of the part, or its title).
+puts it in the side panel (ref: the n-th scene of the part, or its title). A scene or a chart shown
+in the view is a picture, not code: the file tree steps aside and it takes the whole page (up to
+3× its drawn size), until the next view or a `+ files` / `+ items` line.
 
 ````
 ```scene Ring buffer
@@ -426,6 +428,7 @@ head  icon  1,1  "👉"           id [shape] col,row [WxH] ["label"] [:::hidden]
 a     1,2  "A"                  shape defaults to box; cells count from 1,1 at the top left
 b     2,2  "B"  :::off
 disk  store 7,2 2x1 "💾 Disk"   two cells wide, one high
+logo  4,1 2x1 ![Server](img/server.png)   a picture, its caption under it
 b -->|flush| disk               a line between two objects; its id is l1 (then l2…)
 1,3 --- 8,3                     or between two cells
 ```
@@ -442,7 +445,9 @@ It moves {>head 2,1 =b on} one slot on, and the slot wakes up.
 | cell | `col,row`, the object's top left cell; a half sits between two cells (`2.5,1`) |
 | size | `WxH` in cells, 1x1 when left out |
 | label | `"text"`, `<br>` breaks a line; the id when left out |
+| picture | `![caption](img/server.png)`: a file next to the codecast (or an `https://` address) drawn into the object's cells, the caption under it (`![](…)`: none). Without a shape it is an `image` (no outline); with one (`box ![Db](db.svg)`) the picture sits inside the shape, its label under it. png, jpg, gif, webp, svg, avif |
 | state | `:::off` grey and faded (an emoji too), `:::ok` green, `:::warn` yellow, `:::err` red; `:::hidden` waits for its `+id` |
+| landing | an icon only: `:::under` (default) drawn under the object it lands on, `:::replace` drawn in its place |
 | line | `a --> b`, `a --- b` (no head), `a -.-> b` (dotted), `a ==> b` (thick); `a -->|label| b`; a chain `a --> b --> c`; an end is an object or a cell; `:::hidden` at the end of the line |
 
 Markers in braces inside a cue's text change it on that word, like a chart's (same rules: never
@@ -452,19 +457,34 @@ spoken, a fraction of the text, folded from the part's first cue so stepping bac
 |---|---|
 | `>id 3,1` · `>id other` | glides an object to a cell, or onto another object (centred on it) |
 | `=id off` | its state: `on` (none) `off` `ok` `warn` `err` |
-| `=id "text"` | its label (an object's or a line's) |
+| `=id "text"` | its label (an object's or a line's); `=id "![Down](img/down.png)"` swaps a picture and its caption |
 | `+id` · `-id` | shows / hides an object or a line (`l2`) |
 | `!id` | glows objects and lines until the cue ends (`!` alone: nothing glows); a `!` line above a cue is sticky as usual |
 | `"text"@id` | a callout over an object |
+| `*id 250:#.` · `*id 400:#. x3` · `*id` | blinks an object like a light: one character per step of that many ms, `#` lit (glowing in its state's colour), `.` dark; loops for ever, or `xN` rounds then keeps its last step (`.` dark, `#` lit); `*id` alone stops it. Lights given a pattern by one marker start together, so a pattern over a panel is one timeline per light, of the same length; the same pattern asked again starts again |
 
 A line is drawn while both its ends are, follows them when they move, and glows when both glow.
 It is straight: to go around an object, bend it through free cells (`a --- 1,3 --- 5,3 --> b`).
-Zones are drawn behind, then the boxes in the order written, then icons and texts, so an icon
-moved onto a box stays visible. Labels (title, objects, lines) are translated
+Zones are drawn behind, then the boxes in the order written, then icons and texts. An icon
+whose centre lands on another object (written there, or moved by `{>tok a}`) never covers it: by
+default (`:::under`) the object shrinks to the top of its cells and the icon is drawn small in the
+strip under it; an icon written `:::replace` takes the object's place, the object is not drawn
+while it sits there (its lines end on the icon). One icon per object: a second one stays on top. Labels (title, objects, lines) are translated
 with the cues; ids, cells and markers are not. `codecast check` reports: lines it cannot read, an
-object or a move outside the grid, two objects on the same cells (unless one is hidden or a
-`zone`), a label wider than its box, a line to an unknown object or straight through a third one, markers and `!` refs naming
+object or a move outside the grid, two objects on the same cells (unless one is hidden, a
+`zone`, or an icon on another object), a label wider than its box, a caption wider than its picture, a picture address the page may not load, a blink pattern it cannot read, a line to an unknown object or straight through a third one, markers and `!` refs naming
 nothing of the scene, an object id used by two scenes of a part (a marker finds an object by its id). A `>` line is for diagrams: scene objects move with `{>id 3,1}`.
+
+## Pictures
+
+`![alt](img/flow.png)` shows a picture in a note (`| md`), an answer, the glossary, or a scene
+object. Alone in its paragraph it grows with the window: as wide as the panel (past the note's
+text width), never taller than the pane, so it is seen whole; in a scene it scales with the stage. A relative address is a file in the codecast's directory (a topic falls back on its
+codecast's): `codecast serve` serves it under `/api/codecast/`, `codecast export` copies it to
+`codecast/` beside the recordings, and `codecast check` reports a file that is missing or is not a
+picture (png, jpg, jpeg, gif, webp, svg, avif). `https://` addresses are loaded as they are;
+other schemes (`data:`, `javascript:`) are refused. Keep pictures in a folder (`codecast/img/`)
+and small: they are fetched when shown.
 
 ## Panels, spots and the file tree
 

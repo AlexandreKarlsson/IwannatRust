@@ -15,6 +15,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Play brings the codecast back on stage at once: pressed on the cast map, the settings, or a view
   opened while paused, it showed the cue's view only from the next cue on. It now closes the page
   and re-applies the current cue (with its part's last `@` view).
+- A scene or a chart in the view (`@ scene`, `@ chart`) takes the whole page during a codecast: the
+  file tree steps aside, a scene grows to 3× its drawn size (1.8× before).
 
 ### Added
 
@@ -22,11 +24,30 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `MAC` "mac", `YAML`, `RAM`, `GUI` "gooey", `ASCII`, `UART`, `OAuth`, `stdin`, `sudo`… — and more
   initials are spelled (`UUID`, `LED`, `GPIO`, `MQTT`, `JWT`…). A `spell:` or `pronounce:` line
   still wins.
+- Scenes: lights. `{*id 250:#.}` blinks an object (one character per step, `#` lit, `.` dark,
+  `x3` to stop after three rounds on the last step, `{*id}` alone to stop); lights started by one marker keep in
+  step, so a pattern travelling over a panel is one timeline per light. `codecast check` reports a
+  pattern it cannot read.
+- Scenes: an icon that lands on another object no longer covers it. It is drawn small in a strip
+  under the object (`:::under`, the default), or in its place with `:::replace` (the object comes
+  back when the icon moves on). An icon may now be written on an object's cells.
+
 - Scenes: a ```` ```scene ```` block places objects on a grid (shapes, sizes, states such as `off`,
   lines between objects or cells), shown with `@ scene` or `| scene`. Markers in a cue's text move
   it on that word: `{>id 3,1}`, `{=id off}`, `{=id "text"}`, with the chart markers `+ - !` and
   callouts. `codecast check` reports what would draw badly. The tour has a topic about them
   (`codecast/01-scenes/`).
+- A markdown file of the project (`README.md`, `docs/*.md`) opens in the Code view as a page, like
+  zensical draws it: content tabs (`=== "Name"`, `===+`, `'Name'`), admonitions, tables, coloured
+  code blocks, and its `mermaid` flowcharts and sequences drawn as diagrams (other kinds of mermaid
+  stay code). Its front matter is left out; the split button shows its source beside it, and a cue
+  that points at its lines opens the source.
+- Pictures: `![alt](img/flow.png)` in a note, an answer or the glossary shows a file kept next to
+  the codecast; a scene object written `![caption](img/server.png)` draws it into its cells (an
+  `image` shape, or inside a box) and `{=id "![Down](img/down.png)"}` swaps it. `codecast serve`
+  serves the pictures, `codecast export` copies them, `codecast check` reports missing ones.
+  A picture alone in its paragraph follows the window: as wide as the panel, never taller than
+  the pane.
 - Notes (`| md`) read like a documentation page: admonitions (`!!! tip "Title"` over an indented
   body, `???` folded, `???+` open, GitHub's `> [!NOTE]`) in twelve kinds with their colour and icon,
   code blocks with a `title="src/main.rs"` and a copy button, framed tables, round task boxes,

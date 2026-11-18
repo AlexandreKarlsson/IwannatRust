@@ -801,7 +801,10 @@ fn App() -> Element {
     let render = *state.render.read();
     // render mode without subtitles: no caption band, the stage fills the video
     let sub_lang_empty = state.sub_lang.read().is_empty();
-    let sidebar_open = (sidebar_open && !render) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
+    // a codecast's scene or chart is a picture, not code: it takes the whole page, the file tree
+    // comes back with the next view (or a `+ files` / `+ items` line)
+    let stage = has_guide && (scene.is_some() || chart.is_some());
+    let sidebar_open = (sidebar_open && !render && !stage) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
     let welcome_open = *state.welcome_open.read();
     let loaded = state.project.read().is_some();
     rsx! {

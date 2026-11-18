@@ -241,7 +241,8 @@ pub(crate) fn MiniDiagram(diagram: iwr_core::diagram::Diagram) -> Element {
     groups.sort_by_key(|n| n.depth);
     let boxes: Vec<&iwr_core::views::VNode> = g.nodes.iter().filter(|n| !n.container).collect();
     rsx! {
-        svg { class: "mini", view_box: "-10 -10 {w} {h}", preserve_aspect_ratio: "xMidYMin meet",
+        // `--w`: its drawn width, so a wide page can keep a small diagram from growing huge
+        svg { class: "mini", view_box: "-10 -10 {w} {h}", preserve_aspect_ratio: "xMidYMin meet", style: "--w:{w}px",
             for n in groups.iter() { {mini_node(n, &hl, any)} }
             for e in g.edges.iter() {
                 {

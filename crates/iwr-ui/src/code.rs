@@ -105,10 +105,13 @@ pub fn CodeView() -> Element {
     items.sort_by_key(|i| i.span.line_start);
     let files: Vec<(usize, String)> = p.files.iter().map(|f| (f.id, f.path.clone())).collect();
     let module_doc = p.modules.iter().find(|m| m.file == Some(file)).and_then(|m| m.doc.clone());
-    // a non-Rust text file has no blocks: its coloured source takes the whole view
-    let source_only = !sf.is_code() && sf.text;
-    // a cue that enlarges the source shows it
-    let show_source = show_source || source_only || *state.focus.read() == Some(iwr_core::script::Panel::Source);
+    // a markdown file is drawn as a page (tabs, admonitions, diagrams), its source beside it
+    let page = (!sf.is_code() && sf.text && is_markdown(&sf.path)).then(|| front_matter_off(&sf.content).to_string());
+    // another non-Rust text file has no blocks: its coloured source takes the whole view
+    let source_only = !sf.is_code() && sf.text && page.is_none();
+    // a cue that enlarges the source, or that points at lines of a page, shows it
+    let cue_lines = page.is_some() && (hl_refs.iter().any(|r| r.span.file == file) || code_mark.is_some_and(|m| m.file == file));
+    let show_source = show_source || source_only || cue_lines || *state.focus.read() == Some(iwr_core::script::Panel::Source);
 
     // scroll the source to the selection when it changes
     use_effect(move || {
@@ -151,7 +154,10 @@ pub fn CodeView() -> Element {
                     div { class: "zoom-box",
                         div { class: "file-bar",
                             FilePick { file, files: files.clone() }
-                            span { class: "status", {t::code::items(items.len())} }
+                            if page.is_none() { span { class: "status", {t::code::items(items.len())} } }
+                        }
+                        if let Some(text) = page {
+                            div { class: "side-note mdfile", crate::md::Markdown { text, page: true } }
                         }
                         if let Some(d) = module_doc {
                             div { class: "moddoc", "{d}" }
@@ -199,6 +205,26 @@ pub fn CodeView() -> Element {
             }
         }
     }
+}
+
+/// A markdown file, drawn as a page.
+fn is_markdown(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    p.ends_with(".md") || p.ends_with(".markdown")
+}
+
+/// The text after a page's front matter (`---` YAML `---` at the top, as zensical and MkDocs
+/// read it): the page does not show it.
+fn front_matter_off(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) else { return text };
+    let mut at = 0;
+    for line in rest.split_inclusive('\n') {
+        at += line.len();
+        if line.trim_end() == "---" {
+            return &rest[at..];
+        }
+    }
+    text
 }
 
 /// The file shown in the Code view: a picker when the project has several, else its path.

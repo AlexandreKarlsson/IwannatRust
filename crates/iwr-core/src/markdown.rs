@@ -212,9 +212,13 @@ fn admonition_head(line: &str) -> Option<(Callout, Option<String>, Option<bool>)
     kind.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).then(|| (Callout::of(kind), title, fold))
 }
 
-/// The first line of a tab: `=== "Name"`. Gives the name.
+/// The first line of a tab: `=== "Name"` (`===+` too, its mark of the tab open first is not
+/// followed; `'Name'` too). Gives the name.
 fn tab_head(line: &str) -> Option<String> {
-    let name = line.strip_prefix("=== \"")?.trim_end().strip_suffix('"')?.trim();
+    let rest = line.strip_prefix("===")?;
+    let rest = rest.strip_prefix('+').unwrap_or(rest).strip_prefix(' ')?.trim();
+    let q = rest.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let name = rest[1..].strip_suffix(q)?.trim();
     (!name.is_empty()).then(|| name.to_string())
 }
 
@@ -378,6 +382,35 @@ pub fn safe_url(url: &str) -> bool {
     // a `:` before the first `/`, `?` or `#` is a scheme
     let head = u.split(['/', '?', '#']).next().unwrap_or("");
     !u.is_empty() && !head.contains(':') && !u.chars().any(|c| c.is_control())
+}
+
+/// A whole `![alt](src)`, as a scene object or a marker writes an image: its alt and its
+/// address (`None` when `t` is something else). The address is not checked here ([`safe_url`]).
+pub fn image(t: &str) -> Option<(String, String)> {
+    let (alt, rest) = t.trim().strip_prefix("![")?.split_once("](")?;
+    let src = rest.strip_suffix(')')?.trim();
+    (!src.is_empty() && !src.contains(char::is_whitespace)).then(|| (alt.trim().to_string(), src.to_string()))
+}
+
+/// The relative addresses of every `![alt](src)` in a text (markdown notes, scene objects,
+/// anything): the image files a codecast needs next to it. Web addresses are left out.
+pub fn image_files(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("![") {
+        rest = &rest[i + 2..];
+        let Some((_, after)) = rest.split_once("](").filter(|(alt, _)| !alt.contains(['\n', ']'])) else { continue };
+        let Some(end) = after.find(')') else { continue };
+        // `(src "title")`: the address is the first word
+        let src = after[..end].split_whitespace().next().unwrap_or("");
+        let src = src.split(['#', '?']).next().unwrap_or("");
+        let local = safe_url(src) && !src.contains("://") && !src.starts_with("mailto:") && !src.starts_with('/') && !src.split('/').any(|p| p == "..");
+        if !src.is_empty() && local && !out.iter().any(|s| s == src) {
+            out.push(src.to_string());
+        }
+        rest = &after[end..];
+    }
+    out
 }
 
 /// What codecasts wrote before this parser, made standard: `•` bullets, tables right under a
@@ -692,6 +725,15 @@ mod tests {
     }
 
     #[test]
+    fn image_tokens_and_files() {
+        assert_eq!(image("![Disk](img/disk.png)"), Some(("Disk".into(), "img/disk.png".into())));
+        assert_eq!(image("![](a.svg)"), Some(("".into(), "a.svg".into())));
+        assert_eq!(image("[a](b)"), None);
+        let t = "see ![a](img/a.png) and ![b](https://x.org/b.png)\n![c](img/a.png) ![e](../up.png) [f](f.png) ![g](img/g.svg \"G\")";
+        assert_eq!(image_files(t), vec!["img/a.png".to_string(), "img/g.svg".to_string()]);
+    }
+
+    #[test]
     fn links_and_images() {
         let b = parse("[docs](https://example.org/a) [bad](javascript:alert(1)) ![logo](img/logo.png) <https://example.org>");
         let Block::Para(p) = &b[0] else { panic!() };
@@ -714,6 +756,9 @@ mod tests {
         assert!(matches!(&b[2], Block::Tabs(tabs) if tabs.len() == 1));
         // a setext heading is not a tab
         assert_eq!(b[3], Block::Heading(1, vec![t("Title")]));
+        // zensical's other spellings
+        let b = parse("===+ \"Open\"\n    x\n\n=== 'Single'\n    y\n");
+        assert!(matches!(&b[0], Block::Tabs(tabs) if tabs.iter().map(|t| t.title.as_str()).eq(["Open", "Single"])));
     }
 
     #[test]

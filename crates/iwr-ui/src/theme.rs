@@ -599,7 +599,15 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .md blockquote { margin:.7em 0; padding:0 0 0 .9em; border-left:.25em solid var(--border); color:var(--muted); }
 .md hr { border:0; border-top:1px solid var(--border); margin:1.2em 0; }
 .md a { color:var(--accent); text-decoration:none; } .md a:hover { text-decoration:underline; text-underline-offset:3px; }
-.md del { color:var(--muted); } .md img.mdi { max-width:100%; height:auto; vertical-align:middle; border-radius:.3em; }
+.md del { color:var(--muted); } .md img.mdi { max-width:100%; max-height:60vh; height:auto; vertical-align:middle; border-radius:.3em; }
+/* a picture alone in its paragraph fills the width it has and fits in the height of its pane (it
+   shrinks into the middle); a note's top-level one goes past the text's measure to the panel's edge */
+.md p.mdfig img.mdi { display:block; width:100%; max-height:min(60vh, 85cqh); object-fit:contain; }
+.side-body { container-type:size; } .blocks-pane { container-type:inline-size; }
+/* the floating panel of a small screen is as tall as what it holds: its width only */
+@media (max-width: 900px) { .side-body { container-type:inline-size; } }
+.side-note > .md > p.mdfig { width:max(100%, 100cqw); }
+.side-note.mdfile > .md > p.mdfig { width:max(100%, 100cqw - 20px); margin-left:calc(50% - max(50%, 50cqw - 10px)); }
 .md .mdcode { margin:.7em 0; border:1px solid var(--border); border-radius:.5em; background:var(--panel2); overflow:hidden; text-align:left; }
 .md .mdcode-title { padding:.45em 1em; font-size:.85em; font-weight:700; background:color-mix(in srgb, var(--text) 6%, transparent); border-bottom:1px solid var(--border); }
 .md .mdcode-body { position:relative; }
@@ -632,6 +640,9 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .md .adm-quote { --adm:#9e9e9e; --adm-icon:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2c0 4-1 5-3 6zM15 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2c0 4-1 5-3 6z'/></svg>"); }
 /* a note of the side panel is a page: room between its blocks, headings that step down */
 .side-note { font-size:14px; line-height:1.65; max-width:50em; }
+/* a markdown file of the project, read in the Code view: the same page, centred, larger diagrams */
+.side-note.mdfile { margin:18px auto 0; padding:0 10px; }
+.mdfile .md .mdmini svg.mini { max-height:36em; max-width:calc(var(--w) * 1.4); display:block; margin:0 auto; }
 .side-note .md > :first-child { margin-top:0; }
 .side-note .md p { margin:.8em 0; } .side-note .md li > p { margin:0; }
 .side-note .md ul, .side-note .md ol { margin:.8em 0 .8em 1.5em; } .side-note .md li { margin:.35em 0; }

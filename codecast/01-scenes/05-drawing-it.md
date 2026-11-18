@@ -19,7 +19,7 @@ sp: And the gliding, who computes all the steps in between?
 @ code:iwr-ui::scene::SceneView
 ! iwr-ui::scene::SceneView/b9
 Nobody. The view asks for the state at this point of the sentence, and draws that, nothing more.
-! iwr-ui::scene::SceneView/b55 iwr-ui::scene::SceneView/b74
+! iwr-ui::scene::SceneView/b55 iwr-ui::scene::SceneView/b81
 Each thing keeps its name as a key, so the browser sees the same element at a new place and glides it there. The lines follow, since their ends are computed from where the things are now.
 ! iwr-ui::scene::SceneView
 That is a scene: a few lines of text, a fold over markers, and a drawing with no memory. Try one the next time a place tells the story.

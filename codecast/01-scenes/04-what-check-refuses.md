@@ -11,8 +11,10 @@ line `l1` runs through `b`: move one of them
 A model writes most scenes, and it cannot see the result. So verify looks for everything that would draw badly, and codecast check prints it before anyone presses play.
 ! iwr-core::scene::Scene::verify/b11
 First, every thing must stand on the stage, with its whole width and height.
-! iwr-core::scene::Scene::verify/b27
+! iwr-core::scene::Scene::verify/b36
 Its label must fit its box. The width is estimated from the letters, with emoji counting double, and the message says how to fix it: shorten, break the line, or widen the box.
+! iwr-core::scene::Scene::verify/b15
+A picture has no box, so only its caption is measured, against the width of the picture.
 sp: What if I really want one thing on top of another?
 ! iwr-core::scene::Scene::verify/b29
 Two things may not start on the same squares, with two ways out: one of them is hidden and waits its turn, or the one behind is a zone, an area drawn under the others.

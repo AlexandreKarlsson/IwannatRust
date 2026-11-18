@@ -7,12 +7,15 @@
 //! head  icon  1,1  "👉"           `id [shape] col,row [WxH] ["label"] [:::hidden] [:::off]`
 //! a     1,2  "A"                  shape defaults to box; cells count from 1,1 at the top left
 //! disk  store 7,2 2x1 "💾 Disk"   two cells wide
+//! logo  3,1 2x2 ![Server](img/server.png)   an image (file next to the codecast), its caption under it
+//! tok   icon 1,3 "🟡" :::replace  on another object it takes its place (default `:::under`: drawn under it)
 //! a -->|flush| disk               a line between objects (or cells: `1,3 --- 8,3`), ids `l1`, `l2`…
 //! ```
 //!
 //! The markers of [`crate::chart`] move it while the voice speaks: `{>head 2,1}` glides an object
 //! to a cell (or onto another object), `{=a off}` greys it, `{=a "B"}` relabels it, `{+id}` /
-//! `{-id}` show and hide, `{!id}` glows. [`Scene::state`] folds the markers fired so far;
+//! `{-id}` show and hide, `{!id}` glows, `{=logo "![Down](img/down.png)"}` swaps an image, `{*led 250:#.}`
+//! blinks it like a light ([`Blink`]). [`Scene::state`] folds the markers fired so far;
 //! [`Scene::rect`] and [`Scene::segment`] say where things are drawn.
 
 use crate::chart::{quoted, tokens, Mark};
@@ -27,6 +30,9 @@ const MAX: (i32, i32) = (16, 16);
 const MAX_SQUARE: i32 = 25;
 /// Space left around an object inside its cells.
 const PAD: f64 = 8.0;
+/// Height of the strip an icon gets under the object it landed on, and the gap above it.
+const STRIP: f64 = 24.0;
+const GAP: f64 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +49,8 @@ pub enum Shape {
     Text,
     /// a dashed area behind other objects, titled at its top
     Zone,
+    /// no outline, a picture (`![caption](file)`) filling its cells, the caption under it
+    Image,
 }
 
 impl Shape {
@@ -56,6 +64,7 @@ impl Shape {
             "icon" => Shape::Icon,
             "text" => Shape::Text,
             "zone" => Shape::Zone,
+            "image" => Shape::Image,
             _ => return None,
         })
     }
@@ -70,12 +79,13 @@ impl Shape {
             Shape::Icon => "icon",
             Shape::Text => "text",
             Shape::Zone => "zone",
+            Shape::Image => "image",
         }
     }
 
     /// Drawn with an outline its label has to fit in.
     fn framed(self) -> bool {
-        !matches!(self, Shape::Icon | Shape::Text | Shape::Zone)
+        !matches!(self, Shape::Icon | Shape::Text | Shape::Zone | Shape::Image)
     }
 }
 
@@ -96,6 +106,80 @@ pub struct Obj {
     pub hidden: bool,
     /// one of [`STATES`]
     pub state: Option<String>,
+    /// `![caption](file)`: the address of its picture (`label` is the caption)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub img: Option<String>,
+    /// `:::replace` (an icon): landed on another object, it is drawn instead of it; else under it
+    #[serde(default)]
+    pub replace: bool,
+}
+
+/// How a light blinks: `{*id 250:#.}` (250 ms lit, 250 ms dark, for ever), `{*id 400:#. x3}`
+/// (three blinks, then dark: the last step stays), `{*id 100:#.#.......}` (a double blink every second). One character
+/// per step: `#` lit, `.` dark. Objects given a pattern by the same marker start together, so a
+/// pattern over several lights is one timeline each, of the same length.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Blink {
+    /// length of one step
+    pub step_ms: u32,
+    /// one entry per step: lit or dark
+    pub steps: Vec<bool>,
+    /// played this many times, then the last step stays (`#`: lit, `.`: dark); `None`: for ever
+    pub times: Option<u32>,
+}
+
+impl Blink {
+    /// Shortest step: faster reads as a flicker on a screen.
+    const MIN_STEP: u32 = 20;
+    /// Longest step, and longest timeline.
+    const MAX_STEP: u32 = 10_000;
+    const MAX_STEPS: usize = 400;
+
+    /// The words after `*id`: `<ms>:<#.…> [x<N>]`; empty is `None` (the light stops).
+    pub fn parse(words: &str) -> Result<Option<Blink>, String> {
+        let mut w = words.split_whitespace();
+        let Some(first) = w.next() else { return Ok(None) };
+        let form = "write `<ms>:<steps>` (`#` lit, `.` dark), then `x<N>` to stop after N times: `250:#.`, `400:#. x3`";
+        let (ms, tl) = first.split_once(':').ok_or_else(|| format!("`{first}`: {form}"))?;
+        let step_ms: u32 = ms.parse().map_err(|_| format!("`{ms}` is not a number of milliseconds: {form}"))?;
+        if !(Self::MIN_STEP..=Self::MAX_STEP).contains(&step_ms) {
+            return Err(format!("a step of {step_ms} ms: keep it between {} and {} ms", Self::MIN_STEP, Self::MAX_STEP));
+        }
+        if let Some(c) = tl.chars().find(|c| !matches!(c, '#' | '.')) {
+            return Err(format!("`{c}` in `{tl}`: a step is `#` (lit) or `.` (dark)"));
+        }
+        if tl.is_empty() || tl.len() > Self::MAX_STEPS {
+            return Err(format!("`{tl}`: between 1 and {} steps", Self::MAX_STEPS));
+        }
+        if !tl.contains('#') {
+            return Err(format!("`{tl}` never lights: stop the light with `*id` alone"));
+        }
+        let times = match w.next() {
+            None => None,
+            Some(x) => Some(x.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()).filter(|n| (1..=99).contains(n)).ok_or_else(|| format!("`{x}`: write `x3` to play it 3 times (1 to 99)"))?),
+        };
+        if let Some(x) = w.next() {
+            return Err(format!("`{x}` after the pattern: {form}"));
+        }
+        Ok(Some(Blink { step_ms, steps: tl.chars().map(|c| c == '#').collect(), times }))
+    }
+
+    /// One round, in milliseconds.
+    pub fn period_ms(&self) -> u32 {
+        self.step_ms * self.steps.len() as u32
+    }
+
+    /// The rounds as runs of one look: lit or not, and where each starts, 0 to 1 of a round.
+    pub fn runs(&self) -> Vec<(bool, f64)> {
+        let n = self.steps.len() as f64;
+        let mut out: Vec<(bool, f64)> = vec![];
+        for (k, on) in self.steps.iter().enumerate() {
+            if out.last().map(|r| r.0) != Some(*on) {
+                out.push((*on, k as f64 / n));
+            }
+        }
+        out
+    }
 }
 
 /// One end of a line.
@@ -151,6 +235,16 @@ pub struct Scene {
     pub source: String,
 }
 
+/// `![caption](file)` taken out of an object line: the line without it, the caption and the file.
+fn take_image(t: &str) -> (String, Option<(String, String)>) {
+    let Some(i) = t.find("![") else { return (t.to_string(), None) };
+    let Some(end) = t[i..].find("](").and_then(|j| t[i + j..].find(')').map(|k| i + j + k + 1)) else { return (t.to_string(), None) };
+    match crate::markdown::image(&t[i..end]) {
+        Some(im) => (format!("{} {}", &t[..i], &t[end..]), Some(im)),
+        None => (t.to_string(), None),
+    }
+}
+
 /// `3,2` (or `2.5,1`: between two cells).
 fn cell(t: &str) -> Option<(f64, f64)> {
     let (c, r) = t.split_once(',')?;
@@ -171,10 +265,14 @@ fn ident(t: &str) -> bool {
 
 /// The first arrow of a line outside quotes and `|labels|`: where it starts and which one.
 fn find_arrow(t: &str) -> Option<(usize, &'static str, Stroke)> {
-    let (mut q, mut bar) = (false, false);
+    let (mut q, mut bar, mut img) = (false, false, false);
     for (i, ch) in t.char_indices() {
         match ch {
             '"' => q = !q,
+            // `![caption](file)`: a `--` in a file name is no arrow
+            '!' if !q && !bar && t[i..].starts_with("![") => img = true,
+            ')' if img => img = false,
+            _ if img => {}
             '|' if !q => bar = !bar,
             _ if !q && !bar => {
                 if let Some((a, s)) = ARROWS.iter().find(|(a, _)| t[i..].starts_with(a)) {
@@ -220,41 +318,67 @@ pub fn parse(src: &str, title: Option<&str>) -> Scene {
             s.read_lines(t, n);
             continue;
         }
-        // Anything else is an object, its id first
-        let toks = tokens(t);
+        // Anything else is an object, its id first; `![caption](file)` makes it a picture
+        let (t, img) = take_image(t);
+        let toks = tokens(&t);
         let mut o = Obj { id: toks[0].clone(), w: 1, h: 1, ..Default::default() };
         if !ident(&o.id) {
             s.errors.push(format!("line {n}: `{}` is not an id (letters, digits, `_`); write `id [shape] col,row [WxH] \"label\"`", o.id));
             continue;
         }
-        let (mut placed, mut label) = (false, None);
+        let (mut placed, mut label, mut shaped, mut land) = (false, None, false, None);
         // Then its words in any order: state, label, shape, cell, size
         for tk in &toks[1..] {
             if let Some(c) = tk.strip_prefix(":::") {
                 match c {
                     "hidden" => o.hidden = true,
                     "on" => o.state = None,
+                    "replace" | "under" => {
+                        o.replace = c == "replace";
+                        land = Some(c);
+                    }
                     c if STATES.contains(&c) => o.state = Some(c.to_string()),
-                    _ => s.errors.push(format!("line {n}: unknown `:::{c}` (hidden, {})", STATES.join(", "))),
+                    _ => s.errors.push(format!("line {n}: unknown `:::{c}` (hidden, replace, under, {})", STATES.join(", "))),
                 }
             } else if let Some(l) = quoted(tk) {
                 label = Some(l.to_string());
             } else if let Some(sh) = Shape::of(tk) {
                 o.shape = sh;
+                shaped = true;
             } else if let Some((c, r)) = cell(tk) {
                 (o.col, o.row) = (c, r);
                 placed = true;
             } else if let Some((w, h)) = dims(tk) {
                 (o.w, o.h) = (w, h);
             } else {
-                s.errors.push(format!("line {n}: cannot read `{tk}` (shapes: box round pill diamond store icon text zone; a cell `3,2`; a size `2x1`; a \"label\")"));
+                s.errors.push(format!("line {n}: cannot read `{tk}` (shapes: box round pill diamond store icon text zone image; a cell `3,2`; a size `2x1`; a \"label\"; a picture `![caption](file)`)"));
             }
         }
         if !placed {
             s.errors.push(format!("line {n}: `{}` has no cell (`col,row`, from 1,1 at the top left)", o.id));
             continue;
         }
-        o.label = label.unwrap_or_else(|| o.id.clone());
+        if let Some(w) = land.filter(|_| o.shape != Shape::Icon) {
+            s.errors.push(format!("line {n}: `:::{w}` says how an icon lands on another object: `{}` is a {}", o.id, o.shape.name()));
+        }
+        match img {
+            Some((alt, src)) => {
+                if !shaped {
+                    o.shape = Shape::Image;
+                }
+                if !crate::markdown::safe_url(&src) {
+                    s.errors.push(format!("line {n}: `{src}` is not an image address the page may load (a file next to the codecast, or `https://…`)"));
+                }
+                o.img = Some(src);
+                // the caption: `![…]`, else a "label"
+                o.label = if alt.is_empty() { label.unwrap_or_default() } else { alt };
+            }
+            None if o.shape == Shape::Image => {
+                s.errors.push(format!("line {n}: `{}` is an `image` without a picture: write `![caption](file)`", o.id));
+                continue;
+            }
+            None => o.label = label.unwrap_or_else(|| o.id.clone()),
+        }
         if s.obj(&o.id).is_some() {
             s.errors.push(format!("line {n}: `{}` twice", o.id));
         }
@@ -343,6 +467,12 @@ impl Scene {
             if self.lines.iter().any(|l| l.id == o.id) {
                 errs.push(format!("`{}` is also the id of a line (lines are `l1`, `l2`… in order): rename the object", o.id));
             }
+            if o.shape == Shape::Image {
+                let (_, _, w, _) = self.rect(o.col, o.row, o.w, o.h, o.shape);
+                if crate::views::display_width(&o.label) * 6.8 > w + 16.0 {
+                    errs.push(format!("`{}`: the caption \"{}\" is wider than its picture: shorten it or widen the object (`{}x{}`)", o.id, o.label, o.w + 1, o.h));
+                }
+            }
             if !o.shape.framed() {
                 continue;
             }
@@ -350,7 +480,9 @@ impl Scene {
             let room = if o.shape == Shape::Diamond { w * 0.7 } else { w };
             let rows_of: Vec<&str> = o.label.split("<br>").collect();
             let need = rows_of.iter().map(|l| crate::views::display_width(l.trim())).fold(0.0, f64::max) * 7.6 + 16.0;
-            if need > room || rows_of.len() as f64 * 18.0 > h - 4.0 {
+            // a picture in a box leaves one line under it for the label
+            let tall = if o.img.is_some() { rows_of.len() > 1 || h < 52.0 } else { rows_of.len() as f64 * 18.0 > h - 4.0 };
+            if need > room || tall {
                 errs.push(format!("`{}`: the label \"{}\" does not fit its {}x{} cell(s): shorten it, break it with `<br>`, or widen the object (`{}x{}`)", o.id, o.label, o.w, o.h, o.w + 1, o.h));
             }
         }
@@ -358,7 +490,9 @@ impl Scene {
         for (i, a) in self.objs.iter().enumerate() {
             for b in &self.objs[i + 1..] {
                 let apart = a.col + a.w as f64 <= b.col || b.col + b.w as f64 <= a.col || a.row + a.h as f64 <= b.row || b.row + b.h as f64 <= a.row;
-                if !apart && !a.hidden && !b.hidden && a.shape != Shape::Zone && b.shape != Shape::Zone {
+                // an icon may start on an object: it sits under it, or replaces it
+                let lands = (a.shape == Shape::Icon) != (b.shape == Shape::Icon);
+                if !apart && !lands && !a.hidden && !b.hidden && a.shape != Shape::Zone && b.shape != Shape::Zone {
                     errs.push(format!("`{}` and `{}` overlap: move one, make one `:::hidden`, or make the one behind a `zone`", a.id, b.id));
                 }
             }
@@ -430,12 +564,14 @@ impl Scene {
             at: self.objs.iter().map(|o| (o.col, o.row)).collect(),
             state: self.objs.iter().map(|o| o.state.clone()).collect(),
             label: self.objs.iter().map(|o| o.label.clone()).collect(),
+            blink: vec![None; self.objs.len()],
+            img: self.objs.iter().map(|o| o.img.clone()).collect(),
             line_shown: self.lines.iter().map(|l| !l.hidden).collect(),
             line_label: self.lines.iter().map(|l| l.label.clone()).collect(),
             ..Default::default()
         };
         // Each marker fired so far changes it, in order
-        for m in marks {
+        for (n, m) in marks.into_iter().enumerate() {
             match m {
                 Mark::Show(id) | Mark::Hide(id) => {
                     let on = matches!(m, Mark::Show(_));
@@ -457,13 +593,26 @@ impl Scene {
                 }
                 Mark::Label(id, text) => {
                     if let Some(i) = self.obj(id) {
-                        s.label[i] = text.clone();
+                        // `{=id "![caption](file)"}` swaps the picture of a picture
+                        match crate::markdown::image(text).filter(|_| s.img[i].is_some()) {
+                            Some((alt, src)) => {
+                                s.img[i] = Some(src).filter(|u| crate::markdown::safe_url(u));
+                                s.label[i] = alt;
+                            }
+                            None => s.label[i] = text.clone(),
+                        }
                     } else if let Some(i) = self.line(id) {
                         s.line_label[i] = Some(text.clone());
                     }
                 }
                 Mark::Glow(ids) if ids.is_empty() || ids.iter().any(|i| self.has(i)) => {
                     s.glow = Some(ids.iter().filter(|i| self.has(i)).cloned().collect());
+                }
+                Mark::Blink(id, p) => {
+                    if let (Some(i), Ok(b)) = (self.obj(id), Blink::parse(p)) {
+                        // which marker set it: the same pattern asked again starts again
+                        s.blink[i] = b.map(|b| (b, n));
+                    }
                 }
                 Mark::Note(id, t) if self.obj(id).is_some() => {
                     s.notes.retain(|(i, _)| i != id);
@@ -472,7 +621,51 @@ impl Scene {
                 _ => {}
             }
         }
+        s.landed = self.landings(&s);
         s
+    }
+
+    /// Per object: for an icon whose centre sits on another object (not an icon, not a zone),
+    /// that object. One icon per object: a second one stays where it is, on top.
+    fn landings(&self, s: &State) -> Vec<Option<usize>> {
+        let mut landed = vec![None; self.objs.len()];
+        for (j, ic) in self.objs.iter().enumerate().filter(|(j, o)| o.shape == Shape::Icon && s.shown[*j]) {
+            let (cx, cy) = (s.at[j].0 + ic.w as f64 / 2.0, s.at[j].1 + ic.h as f64 / 2.0);
+            landed[j] = (0..self.objs.len()).find(|&i| {
+                let (o, (c, r)) = (&self.objs[i], s.at[i]);
+                let under = matches!(o.shape, Shape::Icon | Shape::Zone) || !s.shown[i] || landed.contains(&Some(i));
+                !under && cx > c && cx < c + o.w as f64 && cy > r && cy < r + o.h as f64
+            });
+        }
+        landed
+    }
+
+    /// The icon that landed on object `i`.
+    pub fn holder(&self, s: &State, i: usize) -> Option<usize> {
+        s.landed.iter().position(|l| *l == Some(i))
+    }
+
+    /// Is object `i` drawn: shown, and not replaced by an icon (`:::replace`) that landed on it.
+    pub fn drawn(&self, s: &State, i: usize) -> bool {
+        s.shown[i] && !self.holder(s, i).is_some_and(|j| self.objs[j].replace)
+    }
+
+    /// Where object `i` is drawn now: x, y, width, height. An icon that landed on an object takes
+    /// its place (`:::replace`) or a strip under it, and the object gives that strip up.
+    pub fn place(&self, s: &State, i: usize) -> (f64, f64, f64, f64) {
+        let at = |i: usize| {
+            let o = &self.objs[i];
+            self.rect(s.at[i].0, s.at[i].1, o.w, o.h, o.shape)
+        };
+        if let Some(t) = s.landed[i] {
+            let (x, y, w, h) = at(t);
+            return if self.objs[i].replace { (x, y, w, h) } else { (x, y + h - STRIP, w, STRIP) };
+        }
+        let (x, y, w, h) = at(i);
+        match self.holder(s, i) {
+            Some(j) if !self.objs[j].replace => (x, y, w, h - STRIP - GAP),
+            _ => (x, y, w, h),
+        }
     }
 
     /// Where `{>id to}` puts `id`: a cell, or centred on the object `to` where it is now.
@@ -490,7 +683,7 @@ impl Scene {
         let (any, objs): (Vec<&str>, Vec<&str>) = match m {
             Mark::Show(i) | Mark::Hide(i) | Mark::Label(i, _) => (vec![i], vec![]),
             Mark::Glow(v) => (v.iter().map(String::as_str).collect(), vec![]),
-            Mark::Note(i, _) | Mark::State(i, _) => (vec![], vec![i]),
+            Mark::Note(i, _) | Mark::State(i, _) | Mark::Blink(i, _) => (vec![], vec![i]),
             Mark::Move(i, to) => (vec![], if cell(to).is_some() { vec![i] } else { vec![i, to] }),
             // chart markers
             Mark::Set(i, _) => (vec![], vec![i]),
@@ -503,6 +696,18 @@ impl Scene {
 
     /// What is wrong with a marker on an object of this scene: a move off the grid.
     pub fn mark_error(&self, m: &Mark) -> Option<String> {
+        if let Mark::Blink(id, p) = m {
+            self.obj(id)?;
+            return Blink::parse(p).err().map(|e| format!("`{{*{id} {p}}}`: {e}"));
+        }
+        if let Mark::Label(id, text) = m {
+            let (o, (_, src)) = (&self.objs[self.obj(id)?], crate::markdown::image(text)?);
+            return if o.img.is_none() {
+                Some(format!("`{{={id} \"{text}\"}}`: `{id}` has no picture to swap (write it `![caption](file)` in the scene)"))
+            } else {
+                (!crate::markdown::safe_url(&src)).then(|| format!("`{{={id} \"{text}\"}}`: `{src}` is not an image address the page may load"))
+            };
+        }
         let Mark::Move(id, to) = m else { return None };
         let (o, (c, r)) = (&self.objs[self.obj(id)?], cell(to)?);
         let inside = c >= 1.0 && r >= 1.0 && c + o.w as f64 - 1.0 <= self.cols as f64 && r + o.h as f64 - 1.0 <= self.rows as f64;
@@ -522,9 +727,9 @@ impl Scene {
                 End::Obj(id) => {
                     let i = self.obj(id).filter(|i| s.shown[*i])?;
                     let o = &self.objs[i];
-                    let (x, y, w, h) = self.rect(s.at[i].0, s.at[i].1, o.w, o.h, o.shape);
-                    // a glyph is smaller than its cell
-                    let k = if o.shape == Shape::Icon { 0.3 } else { 0.5 };
+                    let (x, y, w, h) = self.place(s, i);
+                    // a glyph is smaller than its cell (an icon in place of the object too)
+                    let k = if o.shape == Shape::Icon || !self.drawn(s, i) { 0.3 } else { 0.5 };
                     Some(((x + w / 2.0, y + h / 2.0), w * k + 4.0, h * k + 4.0, o.shape == Shape::Diamond))
                 }
             }
@@ -578,9 +783,15 @@ pub struct State {
     /// per object: one of [`STATES`]
     pub state: Vec<Option<String>>,
     pub label: Vec<String>,
+    /// per object: its blinking, and the index of the marker that set it
+    pub blink: Vec<Option<(Blink, usize)>>,
+    /// per object: its picture's address, for a picture
+    pub img: Vec<Option<String>>,
     /// per line; a line is drawn when its two ends are too
     pub line_shown: Vec<bool>,
     pub line_label: Vec<Option<String>>,
+    /// per object: for an icon, the object it landed on ([`Scene::place`])
+    pub landed: Vec<Option<usize>>,
     /// set by the last `!` marker; `None` until one fired (the cue's `!` refs glow then)
     pub glow: Option<Vec<String>>,
     /// callouts: object id, text
@@ -593,6 +804,22 @@ mod tests {
     use crate::chart::split_say;
 
     const RING: &str = "grid: 8x3 lines\nhead icon 1,1 \"👉\"\na 1,2 \"A\"\nb 2,2 \"B\" :::off\nspare 3,2 :::hidden\ndisk store 7,2 2x1 \"💾 Disk\"\nb -->|flush| disk\n1,3 --- 8,3\n";
+
+    #[test]
+    fn pictures() {
+        let s = parse("grid: 6x3\nlogo 1,1 2x2 ![Server](img/a--b.png)\nbox round 4,1 2x2 ![](img/db.svg) \"Db\"\nlogo --> box\n", None);
+        assert!(s.errors.is_empty(), "{:?}", s.errors);
+        assert_eq!((s.objs[0].shape, s.objs[0].label.as_str(), s.objs[0].img.as_deref()), (Shape::Image, "Server", Some("img/a--b.png")));
+        assert_eq!((s.objs[1].shape, s.objs[1].label.as_str(), s.objs[1].img.as_deref()), (Shape::Round, "Db", Some("img/db.svg")));
+        assert_eq!(s.lines.len(), 1);
+        let swap = Mark::Label("logo".into(), "![Down](img/down.png)".into());
+        let st = s.state([&swap]);
+        assert_eq!((st.label[0].as_str(), st.img[0].as_deref()), ("Down", Some("img/down.png")));
+        assert_eq!(s.mark_error(&swap), None);
+        assert!(s.mark_error(&Mark::Label("logo".into(), "![x](javascript:alert(1))".into())).is_some());
+        let bad = parse("a image 1,1\nb 2,1 ![x](javascript:x)\n", None);
+        assert_eq!(bad.errors.len(), 2, "{:?}", bad.errors);
+    }
 
     #[test]
     fn block() {
@@ -648,6 +875,63 @@ mod tests {
         assert!(s.unknown(ms[0]).is_empty() && s.unknown(&Mark::Move("head".into(), "zz".into())) == vec!["zz"]);
         assert_eq!(s.unknown(&Mark::Note("l1".into(), "x".into())), vec!["l1"]);
         assert!(s.mark_error(&Mark::Move("disk".into(), "8,2".into())).is_some() && s.mark_error(ms[0]).is_none());
+    }
+
+    #[test]
+    fn blinking() {
+        let s = parse(RING, None);
+        let (text, m) = split_say("It blinks {*a 250:#. *b 100:#.#....... x3} twice, {*a} then stops.");
+        assert_eq!(text, "It blinks twice, then stops.");
+        let ms: Vec<&Mark> = m.iter().flat_map(|m| &m.marks).collect();
+        assert_eq!(crate::chart::marks_text(&m[0].marks), "*a 250:#. *b 100:#.#....... x3");
+        let st = s.state(ms[..2].iter().copied());
+        let (a, b) = (st.blink[1].clone().unwrap(), st.blink[2].clone().unwrap());
+        assert_eq!((a.0.step_ms, a.0.period_ms(), a.0.times, a.1), (250, 500, None, 0));
+        assert_eq!((b.0.period_ms(), b.0.times, b.0.runs()), (1000, Some(3), vec![(true, 0.0), (false, 0.1), (true, 0.2), (false, 0.3)]));
+        // `*a` alone stops it; the other keeps blinking
+        let st = s.state(ms.iter().copied());
+        assert!(st.blink[1].is_none() && st.blink[2].is_some());
+        // a bad pattern is reported, and does not blink
+        for bad in ["fast", "5:#.", "250:#o", "250:...", "250:#. x0", "250:#. x2 y"] {
+            let mk = Mark::Blink("a".into(), bad.into());
+            assert!(s.mark_error(&mk).is_some(), "{bad}");
+            assert!(s.state([&mk]).blink[1].is_none());
+        }
+        assert!(s.mark_error(ms[0]).is_none() && s.unknown(&Mark::Blink("zz".into(), String::new())) == vec!["zz"]);
+        // a typo after the id is kept for the check, not spoken
+        let (text, m) = split_say("Look {*a quick} here.");
+        assert_eq!((text.as_str(), m[0].marks[0].clone()), ("Look here.", Mark::Blink("a".into(), "quick".into())));
+    }
+
+    #[test]
+    fn landing() {
+        let s = parse("grid: 4x2\na 1,1 \"A\"\nb 2,1 2x1 \"B\"\ntok icon 1,2 \"🟡\"\nme icon 4,2 \"👉\" :::replace\nz zone 1,2 2x1\nme --- 4,1", None);
+        assert!(s.errors.is_empty(), "{:?}", s.errors);
+        // in a zone, on no object: drawn in its own cell
+        let st = s.state([]);
+        assert_eq!((st.landed[2], st.landed[3]), (None, None));
+        assert_eq!(s.place(&st, 2), s.rect(1.0, 2.0, 1, 1, Shape::Icon));
+        // `under` (the default): the box gives up a strip at its bottom, the icon is drawn there
+        let (onto_a, onto_b) = (Mark::Move("tok".into(), "a".into()), Mark::Move("me".into(), "b".into()));
+        let st = s.state([&onto_a, &onto_b]);
+        assert_eq!((st.landed[2], st.landed[3]), (Some(0), Some(1)));
+        let (x, y, w, h) = s.rect(1.0, 1.0, 1, 1, Shape::Box);
+        assert_eq!(s.place(&st, 0), (x, y, w, h - STRIP - GAP));
+        assert_eq!(s.place(&st, 2), (x, y + h - STRIP, w, STRIP));
+        assert!(s.drawn(&st, 0));
+        // `replace`: the object is not drawn, the icon takes its whole place, its lines end on it
+        assert!(!s.drawn(&st, 1) && st.shown[1]);
+        assert_eq!(s.place(&st, 3), s.rect(2.0, 1.0, 2, 1, Shape::Box));
+        let ((x1, _), _) = s.segment(&st, &s.lines[0]).unwrap();
+        let (bx, _, bw, _) = s.rect(2.0, 1.0, 2, 1, Shape::Box);
+        assert!(x1 < bx + bw - 20.0, "ends on the glyph, inside the box it replaced");
+        // a second icon on the same object stays on top
+        let st = s.state([&onto_a, &Mark::Move("me".into(), "a".into())]);
+        assert_eq!((st.landed[2], st.landed[3]), (Some(0), None));
+        // only an icon says how it lands; it may start on an object
+        assert!(parse("a 1,1\nb 2,1 :::replace", None).errors[0].contains("`:::replace` says how an icon lands"));
+        assert!(parse("a 1,1\nt icon 1,1 \"x\"", None).errors.is_empty());
+        assert!(parse("t icon 1,1\nu icon 1,1", None).errors[0].contains("overlap"));
     }
 
     #[test]

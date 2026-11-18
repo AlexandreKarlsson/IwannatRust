@@ -386,6 +386,13 @@ fn check_cast(p: &iwr_core::Project, script: &std::path::Path) -> Result<bool> {
             bad.push(format!("audio file not found: {}", loaded.dir.join(&a).display()));
         }
     }
+    for f in codecast::image_files(&loaded) {
+        if !codecast::is_safe_image_name(&f) {
+            bad.push(format!("image `{}`: not a picture the player can show ({})", f, codecast::IMAGE_EXTS.join(" ")));
+        } else if !codecast::asset_path(script, &f).is_file() {
+            bad.push(format!("image file not found: {}", codecast::asset_path(script, &f).display()));
+        }
+    }
     bad.extend(codecast::check_config(script));
     for stem in &loaded.stale {
         println!("  note: {}: text changed since its recording, TTS speaks it until `codecast voice {}{}`", stem, script.display(), codecast::lang_arg(stem));

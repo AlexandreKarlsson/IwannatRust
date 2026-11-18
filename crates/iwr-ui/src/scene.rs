@@ -1,10 +1,34 @@
 //! Scenes of a codecast (`@ scene`, `| scene`): an SVG drawn from [`iwr_core::scene::State`], the
 //! scene as the markers fired so far left it. Objects are keyed by id: a new one fades in, a
-//! moved one glides to its cell through a CSS transition, and the lines follow their ends.
+//! moved one glides to its cell through a CSS transition, and the lines follow their ends. A
+//! blinking object (`{*id 250:#.}`) runs a CSS animation of its own, named after the marker that
+//! set it: asked again, it starts again; asked by one marker, several lights keep in step.
 
 use crate::State;
 use dioxus::prelude::*;
-use iwr_core::scene::{Scene, Shape, Stroke};
+use iwr_core::scene::{Blink, Scene, Shape, Stroke};
+
+/// A blinking object, lit: its colour glows around it.
+const LIT: &str = "opacity:1;filter:drop-shadow(0 0 7px var(--led)) drop-shadow(0 0 2px var(--led))";
+/// Dark: greyed, as `off`. Also the look before it starts (`xN`: after its last round it keeps its last step).
+const DARK: &str = "opacity:.25;filter:grayscale(1)";
+
+/// The CSS animation of a blink: one keyframe per run of lit or dark steps, held until the next.
+fn keyframes(name: &str, b: &Blink) -> String {
+    let runs = b.runs();
+    let mut k = format!("@keyframes {name}{{");
+    for (on, at) in &runs {
+        k.push_str(&format!("{:.4}%{{{}}}", at * 100.0, if *on { LIT } else { DARK }));
+    }
+    let last = runs.last().is_some_and(|r| r.0);
+    k.push_str(&format!("100%{{{}}}}}", if last { LIT } else { DARK }));
+    k
+}
+
+/// Name of the animation `{*id …}` marker `n` started (ids are letters, digits and `_`).
+fn anim(id: &str, n: usize) -> String {
+    format!("bl-{id}-{n}")
+}
 
 /// Colour of a shape: the ones of a diagram's nodes, so both read as one system.
 fn color(shape: Shape, state: Option<&str>) -> &'static str {
@@ -33,32 +57,48 @@ pub fn SceneView(scene: Scene, #[props(default)] full: bool) -> Element {
     let lit: Vec<String> = st.glow.clone().filter(|_| fired).unwrap_or_else(|| state.hl_ids.read().clone());
     let on = |id: &str| lit.iter().any(|g| g == id);
     let sc = &scene;
+    // the keyframes of every blinking object
+    let frames: String = st.blink.iter().zip(&sc.objs).filter_map(|(b, o)| b.as_ref().map(|(b, n)| keyframes(&anim(&o.id, *n), b))).collect();
     let (w, h) = sc.size();
     let (cw, ch) = sc.cell();
     let title = if full { sc.title.clone() } else { None };
+    // the view fills the page; the side panel keeps a small scene from blowing up
+    let grow = if full { 3.0 } else { 1.8 };
 
-    // zones behind, then the boxes, then icons and texts (what moves onto a box stays visible)
+    // zones behind, then the boxes, then icons and texts; an icon landed on a box sits under it
+    // or in its place (`Scene::place`), a box it replaced is not drawn
     let layer = |s: Shape| match s {
         Shape::Zone => 0,
-        Shape::Icon | Shape::Text => 2,
+        Shape::Icon | Shape::Text | Shape::Image => 2,
         _ => 1,
     };
-    let order: Vec<usize> = (0..3).flat_map(|k| (0..sc.objs.len()).filter(move |i| layer(sc.objs[*i].shape) == k)).filter(|i| st.shown[*i]).collect();
+    let order: Vec<usize> = (0..3).flat_map(|k| (0..sc.objs.len()).filter(move |i| layer(sc.objs[*i].shape) == k)).filter(|i| sc.drawn(&st, *i)).collect();
     let objs = order.into_iter().map(|i| {
         let o = &sc.objs[i];
-        let (x, y, ow, oh) = sc.rect(st.at[i].0, st.at[i].1, o.w, o.h, o.shape);
+        let (x, y, ow, oh) = sc.place(&st, i);
         let s = st.state[i].as_deref();
         let col = color(o.shape, s);
         // the colour mixed into the background: a line behind a box does not show through
         let fill = if o.shape == Shape::Zone { col.to_string() } else { format!("color-mix(in srgb, {col} calc(var(--fill-op) * 100%), var(--bg))") };
+        // a blinking object: lit and dark in turn, never greyed by `off` on top
+        let blink = st.blink[i].as_ref().map(|(b, n)| format!("--led:{col};animation:{} {}ms step-end {}", anim(&o.id, *n), b.period_ms(), b.times.map_or("infinite".to_string(), |t| format!("{t} forwards"))));
+        let s = s.filter(|s| blink.is_none() || *s != "off");
         let cls = format!("obj {}{}{}", o.shape.name(), s.map(|s| format!(" s-{s}")).unwrap_or_default(), if on(&o.id) { " glow" } else { "" });
         let rows: Vec<String> = st.label[i].split("<br>").map(|l| l.trim().to_string()).collect();
         let n = rows.len() as f64;
-        let big = (ow.min(oh) * 0.62).round();
+        // an icon in the strip under a box fills its height
+        let big = if st.landed[i].is_some() && !o.replace { (oh * 0.85).round() } else { (ow.min(oh) * 0.62).round() };
         let ry = 7.0;
+        // a picture fills its object, with one line kept under it for the caption
+        let img = st.img[i].as_ref().map(|u| state.cast_src(u));
+        let cap = !st.label[i].trim().is_empty();
+        let (ip, cap_h) = (if o.shape == Shape::Image { 0.0 } else { 6.0 }, if cap { 20.0 } else { 0.0 });
+        let (iw, ih) = ((ow - 2.0 * ip).max(1.0), (oh - 2.0 * ip - cap_h).max(1.0));
+        let label = st.label[i].clone();
         rsx! {
             g { key: "{o.id}", class: "{cls}", style: "transform:translate({x}px,{y}px)",
                 g { class: "in",
+                  g { class: if blink.is_some() { "bl" } else { "" }, style: blink.clone().unwrap_or_default(),
                     match o.shape {
                         Shape::Box => rsx! { rect { width: "{ow}", height: "{oh}", rx: "6", style: "fill:{fill}", stroke: col } },
                         Shape::Round => rsx! { rect { width: "{ow}", height: "{oh}", rx: "16", style: "fill:{fill}", stroke: col } },
@@ -69,9 +109,14 @@ pub fn SceneView(scene: Scene, #[props(default)] full: bool) -> Element {
                             path { d: "M0 {ry} A{ow / 2.0} {ry} 0 0 1 {ow} {ry} V{oh - ry} A{ow / 2.0} {ry} 0 0 1 0 {oh - ry} Z", style: "fill:{fill}", stroke: col }
                             path { class: "lid", d: "M0 {ry} A{ow / 2.0} {ry} 0 0 0 {ow} {ry}", stroke: col }
                         },
-                        Shape::Icon | Shape::Text => rsx! {},
+                        Shape::Icon | Shape::Text | Shape::Image => rsx! {},
                     }
-                    if o.shape == Shape::Zone {
+                    if let Some(u) = img {
+                        image { "href": "{u}", x: "{ip}", y: "{ip}", width: "{iw}", height: "{ih}", "preserveAspectRatio": "xMidYMid meet" }
+                        if cap {
+                            text { class: "cap", x: "{ow / 2.0}", y: "{oh - ip - 5.0}", "text-anchor": "middle", "{label}" }
+                        }
+                    } else if o.shape == Shape::Zone {
                         text { x: "12", y: "4", "{st.label[i]}" }
                     } else if o.shape == Shape::Icon {
                         text { x: "{ow / 2.0}", y: "{oh / 2.0 + big * 0.36}", "text-anchor": "middle", style: "font-size:{big}px", "{st.label[i]}" }
@@ -80,6 +125,7 @@ pub fn SceneView(scene: Scene, #[props(default)] full: bool) -> Element {
                             text { x: "{ow / 2.0}", y: "{oh / 2.0 + 5.0 + (k as f64 - (n - 1.0) / 2.0) * 18.0}", "text-anchor": "middle", "{l}" }
                         }
                     }
+                  }
                 }
             }
         }
@@ -113,8 +159,7 @@ pub fn SceneView(scene: Scene, #[props(default)] full: bool) -> Element {
 
     let notes = st.notes.iter().filter_map(|(id, t)| {
         let i = sc.obj(id).filter(|i| st.shown[*i])?;
-        let o = &sc.objs[i];
-        let (x, y, ow, oh) = sc.rect(st.at[i].0, st.at[i].1, o.w, o.h, o.shape);
+        let (x, y, ow, oh) = sc.place(&st, i);
         // above the object, below it on the first row
         let ty = if y > 20.0 { y - 8.0 } else { y + oh + 18.0 };
         Some(rsx! {
@@ -130,7 +175,10 @@ pub fn SceneView(scene: Scene, #[props(default)] full: bool) -> Element {
                 div { class: "chart-title", "{t}" }
             }
             div { class: "scene-fit",
-                svg { view_box: "0 0 {w} {h}", preserve_aspect_ratio: "xMidYMid meet", style: "max-width:{w * 1.8}px; max-height:{h * 1.8}px",
+                svg { view_box: "0 0 {w} {h}", preserve_aspect_ratio: "xMidYMid meet", style: "max-width:{w * grow}px; max-height:{h * grow}px",
+                    if !frames.is_empty() {
+                        style { "{frames}" }
+                    }
                     if sc.ruled {
                         for c in 0..=sc.cols {
                             line { class: "cell", x1: "{c as f64 * cw}", x2: "{c as f64 * cw}", y1: "0", y2: "{h}" }
@@ -163,7 +211,12 @@ pub const CSS: &str = r#"
 .scene .obj.zone rect { stroke-dasharray:6 5; stroke-width:1.2; }
 .scene .obj.zone text { fill:var(--muted); font-size:11px; font-weight:600; paint-order:stroke; stroke:var(--bg); stroke-width:6px; stroke-linejoin:round; }
 .scene .obj.text text { font-size:15px; }
+.scene .obj image { transition:opacity .4s; }
+.scene .obj text.cap { font-size:13px; }
+.scene .obj.image.glow image { filter:drop-shadow(0 0 6px var(--hi)) drop-shadow(0 0 2px var(--hi)); }
+.scene .obj.image.glow text.cap { fill:var(--hi); }
 .scene .obj.s-off { filter:grayscale(1); opacity:.4; }
+.scene .obj .bl { opacity:.25; filter:grayscale(1); }
 .scene .obj.glow rect, .scene .obj.glow polygon, .scene .obj.glow path, .scene .obj.icon.glow text { filter:drop-shadow(0 0 6px var(--hi)) drop-shadow(0 0 2px var(--hi)); }
 .scene .obj.glow rect, .scene .obj.glow polygon, .scene .obj.glow path { stroke:var(--hi); stroke-width:2.4; }
 .scene .obj.text.glow text { fill:var(--hi); }
