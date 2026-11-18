@@ -318,6 +318,9 @@ pub const CSS: &str = r#"
 /* syntax colours: one set for dark themes, one for light ones */
 :root, .theme-dark, .theme-midnight, .theme-forest, .theme-nord, .theme-dusk { --t-kw:#c678dd; --t-bi:#d19a66; --t-ty:#e5c07b; --t-fn:#61afef; --t-mac:#56b6c2; --t-str:#98c379; --t-num:#d19a66; --t-lt:#e06c75; --t-com:#7f848e; --t-doc:#9bb38a; --t-attr:#a0a8b8; --t-var:#e06c75; }
 .theme-light, .theme-paper, .theme-solar { --t-kw:#a626a4; --t-bi:#986801; --t-ty:#b07600; --t-fn:#4078f2; --t-mac:#0184bc; --t-str:#50a14f; --t-num:#986801; --t-lt:#e45649; --t-com:#8b8c92; --t-doc:#5f7f4f; --t-attr:#696c77; --t-var:#e45649; }
+/* native widgets (file picker button, checkboxes, number spinners, scrollbars, dropdown lists) follow the theme */
+:root, .app, .tcard { color-scheme:dark; }
+.theme-light, .theme-paper, .theme-solar, .theme-gruvbox-light, .theme-latte, .theme-github, .theme-dawn, .theme-ayu, .theme-sakura, .theme-mint, .theme-desert { color-scheme:light; }
 .app { color:var(--text); background:var(--bg); }
 * { box-sizing: border-box; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font: 13px/1.45 system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; overflow:hidden; }
@@ -325,6 +328,8 @@ button { background:var(--panel3); color:var(--text); border:1px solid var(--bor
 button:hover { filter:brightness(1.15); }
 button.active { background:var(--accent); color:var(--panel); border-color:var(--accent); font-weight:600; }
 button.small { padding:2px 6px; font-size:11px; }
+input[type=file]::file-selector-button { background:var(--panel3); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:3px 9px; margin-right:8px; cursor:pointer; font:inherit; }
+input[type=file]::file-selector-button:hover { filter:brightness(1.15); }
 input[type=text], select { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-size:12px; }
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", monospace; }
 code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:12px; }
@@ -1174,3 +1179,19 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .lang-pick.compact { background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:12px; height:26px; padding:0 4px; margin:0 4px; cursor:pointer; max-width:92px; }
 .lang-pick.compact:hover { border-color:var(--accent); }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `color-scheme:light` rule of `CSS` names exactly the light themes of `THEMES`.
+    #[test]
+    fn light_color_scheme_matches_themes() {
+        let rule = CSS.lines().find(|l| l.ends_with("{ color-scheme:light; }")).expect("light color-scheme rule");
+        let mut listed: Vec<&str> = rule.split('{').next().unwrap().split(',').map(|s| s.trim().trim_start_matches(".theme-")).collect();
+        let mut light: Vec<&str> = THEMES.iter().filter(|(_, _, dark)| !dark).map(|(id, _, _)| *id).collect();
+        listed.sort();
+        light.sort();
+        assert_eq!(listed, light);
+    }
+}

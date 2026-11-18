@@ -17,6 +17,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   and re-applies the current cue (with its part's last `@` view).
 - A scene or a chart in the view (`@ scene`, `@ chart`) takes the whole page during a codecast: the
   file tree steps aside, a scene grows to 3× its drawn size (1.8× before).
+- Dark themes drew the browser's own widgets light: the file picker button of the script loader
+  showed light-grey text on a light-grey button. Every theme now sets its `color-scheme`, so file
+  buttons, checkboxes, number spinners, scrollbars and dropdown lists follow it, and the file
+  picker button looks like the other buttons.
 
 ### Added
 
