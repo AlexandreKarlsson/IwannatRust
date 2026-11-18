@@ -1,5 +1,6 @@
-//! Syntax highlighting for the source panes: small lexers (Rust, C, shell, Terraform/HCL,
-//! TOML/YAML-like config) that cut a file into coloured tokens, line by line.
+//! Syntax highlighting for the source panes and the code blocks of markdown text: small lexers
+//! (Rust, C, shell, Terraform/HCL, TOML/YAML-like config, BitBake recipes) that cut a file into
+//! coloured tokens, line by line.
 //! Syntactic only, tolerant of broken code.
 
 /// What a piece of source text is, for colouring.
@@ -63,6 +64,8 @@ pub enum Lang {
     Hcl,
     /// TOML, YAML, INI, `.env`: `#` comments, keys, strings.
     Conf,
+    /// BitBake recipes and classes (`.bb`, `.bbappend`, `.bbclass`).
+    BitBake,
     Plain,
 }
 
@@ -83,6 +86,7 @@ impl Lang {
             "sh" | "bash" | "zsh" | "ksh" | "bats" | "bashrc" | "zshrc" | "profile" | "envrc" => Lang::Shell,
             "tf" | "tfvars" | "hcl" | "nomad" => Lang::Hcl,
             "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" => Lang::Conf,
+            "bb" | "bbappend" | "bbclass" => Lang::BitBake,
             _ => {
                 // `#!/bin/bash`, `#!/usr/bin/env -S bash -e`
                 let prog = crate::model::shebang_program(src);
@@ -90,11 +94,34 @@ impl Lang {
             }
         }
     }
+
+    /// The language a markdown code fence names: the first word after the backticks
+    /// (` ```yaml `, ` ```rust,ignore `, ` ```{.toml} `). A language name, or a file extension.
+    pub fn of_fence(info: &str) -> Lang {
+        let word = info.trim().trim_start_matches(['{', '.']);
+        let word = word.split(|c: char| !(c.is_alphanumeric() || matches!(c, '+' | '#' | '-' | '_'))).next().unwrap_or("");
+        match word.to_ascii_lowercase().as_str() {
+            "rust" | "rs" => Lang::Rust,
+            "c" | "h" => Lang::C,
+            "cpp" | "c++" | "cc" | "cxx" | "hpp" => Lang::Cpp,
+            "go" | "golang" => Lang::Go,
+            "sh" | "bash" | "zsh" | "ksh" | "shell" | "console" => Lang::Shell,
+            "hcl" | "tf" | "terraform" => Lang::Hcl,
+            "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "env" | "dotenv" => Lang::Conf,
+            "bb" | "bbappend" | "bbclass" | "bitbake" => Lang::BitBake,
+            _ => Lang::Plain,
+        }
+    }
 }
 
 /// Highlight a file in the language its path (or `#!` line) tells. One entry per line of `src.lines()`.
 pub fn file(path: &str, src: &str) -> Vec<Line> {
-    match Lang::detect(path, src) {
+    code(Lang::detect(path, src), src)
+}
+
+/// Highlight `src` as `lang`. One entry per line of `src.lines()`.
+pub fn code(lang: Lang, src: &str) -> Vec<Line> {
+    match lang {
         Lang::Rust => rust(src),
         Lang::C => c(src),
         Lang::Cpp => cpp(src),
@@ -102,6 +129,7 @@ pub fn file(path: &str, src: &str) -> Vec<Line> {
         Lang::Shell => shell(src),
         Lang::Hcl => hcl(src),
         Lang::Conf => conf(src),
+        Lang::BitBake => bitbake(src),
         Lang::Plain => src.lines().map(|l| vec![(Tok::Plain, l.to_string())]).collect(),
     }
 }
@@ -733,6 +761,79 @@ pub fn conf(src: &str) -> Vec<Line> {
     out.finish(src)
 }
 
+/// Words that open a BitBake statement, when they start a line.
+const BB_DIRECTIVES: &[&str] = &["inherit", "inherit_defer", "include", "include_all", "require", "export", "addtask", "deltask", "addhandler", "addpylib", "EXPORT_FUNCTIONS", "python", "fakeroot", "def", "unset"];
+/// Keywords of the shell and Python bodies of tasks, and of `addtask`.
+const BB_KEYWORDS: &[&str] = &["after", "before", "if", "then", "else", "elif", "fi", "for", "in", "do", "done", "while", "case", "esac", "return", "import", "from", "not", "and", "or", "try", "except", "finally", "with", "as", "pass", "raise", "break", "continue", "local", "exit"];
+
+/// Highlight a BitBake recipe, class or append: comments, directives (`inherit`, `require`,
+/// `addtask`), the variable an assignment sets (`SRC_URI:append = `, `FILES:${PN} += `,
+/// `do_install[depends] = `), task and function names, strings with their `${VAR}` pieces.
+/// Task bodies (shell or Python) get keywords, calls, strings and variables only.
+pub fn bitbake(src: &str) -> Vec<Line> {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = Out { lines: vec![Vec::new()] };
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        let start = i;
+        let tok = if ch == '#' && (i == 0 || c[i - 1].is_whitespace()) {
+            i = line_end(&c, i);
+            Tok::Comment
+        } else if ch == '"' {
+            i = interp_string(&c, i, &mut out, '$');
+            continue;
+        } else if ch == '\'' {
+            i = quote_end(&c, i, ch, true);
+            Tok::Str
+        } else if ch == '$' && c.get(i + 1) == Some(&'{') {
+            i = brace_end(&c, i + 1);
+            Tok::Var
+        } else if ch.is_ascii_digit() {
+            while i < c.len() && (c[i].is_ascii_alphanumeric() || c[i] == '.') {
+                i += 1;
+            }
+            Tok::Num
+        } else if is_ident_start(ch) {
+            while i < c.len() && is_ident(c[i]) {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            // first word of its statement: starts the line, or follows `export` / `python` / `fakeroot`
+            let before: String = c[..start].iter().rev().take_while(|&&x| x != '\n').collect::<Vec<_>>().into_iter().rev().collect();
+            let first = before.split_whitespace().all(|p| matches!(p, "export" | "python" | "fakeroot"));
+            // past the overrides and flag of the name: `:append`, `:${PN}-dev`, `[depends]`
+            let mut k = i;
+            while k < c.len() && (is_ident(c[k]) || matches!(c[k], ':' | '-' | '$' | '{' | '}' | '[' | ']' | '@' | '/' | '.' | '+')) {
+                k += 1;
+            }
+            // the operator's own first character may have been taken as part of the name: `:=`, `.=`, `+=`
+            while k > i && matches!(c[k - 1], ':' | '.' | '+') {
+                k -= 1;
+            }
+            let k = skip_blanks(&c, k);
+            let rest: String = c[k..(k + 3).min(c.len())].iter().collect();
+            let assigns = ["??=", "?=", ":=", "+=", ".=", "=+", "=."].iter().any(|op| rest.starts_with(op)) || (rest.starts_with('=') && !rest.starts_with("=="));
+            if first && BB_DIRECTIVES.contains(&w.as_str()) && !assigns {
+                Tok::Keyword
+            } else if first && (assigns || rest.starts_with('(')) || c.get(i) == Some(&'(') {
+                Tok::Fn
+            } else if BB_KEYWORDS.contains(&w.as_str()) {
+                Tok::Keyword
+            } else if matches!(w.as_str(), "True" | "False" | "None" | "true" | "false") {
+                Tok::Builtin
+            } else {
+                Tok::Plain
+            }
+        } else {
+            i += 1;
+            Tok::Plain
+        };
+        out.push(tok, &c[start..i]);
+    }
+    out.finish(src)
+}
+
 struct Out {
     lines: Vec<Line>,
 }
@@ -961,6 +1062,51 @@ mod tests {
         assert!(has(Tok::Num, "2"));
         assert!(has(Tok::Fn, "key"));
         assert!(has(Tok::Builtin, "yes"));
+    }
+
+    #[test]
+    fn bitbake_tokens() {
+        let src = "# recipe\nSUMMARY = \"Demo\"\ninherit cmake pkgconfig\nSRC_URI:append = \" file://a.patch \\\n    ${BPN}.cfg\"\nFILES:${PN}-dev += \"${libdir}/x\"\ndo_install[depends] = \"a:do_b\"\nexport CFLAGS ?= \"-O2\"\ndo_install:append() {\n    install -d ${D}${bindir}\n    if true; then oe_runmake; fi\n}\npython do_check() {\n    v = d.getVar('PV')\n}\naddtask check after do_compile before do_build\n";
+        let lines = bitbake(src);
+        assert_eq!(lines.len(), src.lines().count());
+        let k = kinds_of(lines);
+        let has = |t: Tok, s: &str| k.iter().any(|(a, b)| *a == t && b == s);
+        assert!(has(Tok::Comment, "# recipe"));
+        assert!(has(Tok::Fn, "SUMMARY"));
+        assert!(has(Tok::Str, "\"Demo\""));
+        assert!(has(Tok::Keyword, "inherit"));
+        assert!(has(Tok::Fn, "SRC_URI"));
+        assert!(has(Tok::Var, "${BPN}"));
+        assert!(has(Tok::Fn, "FILES"));
+        assert!(has(Tok::Var, "${PN}"));
+        assert!(has(Tok::Fn, "do_install"));
+        assert!(has(Tok::Keyword, "export"));
+        assert!(has(Tok::Fn, "CFLAGS"));
+        assert!(has(Tok::Var, "${D}${bindir}"));
+        assert!(has(Tok::Keyword, "if"));
+        assert!(has(Tok::Keyword, "python"));
+        assert!(has(Tok::Fn, "do_check"));
+        assert!(has(Tok::Fn, "getVar"));
+        assert!(has(Tok::Str, "'PV'"));
+        assert!(has(Tok::Keyword, "addtask"));
+        assert!(has(Tok::Keyword, "after"));
+        assert!(!has(Tok::Fn, "cmake"));
+    }
+
+    #[test]
+    fn fences() {
+        assert_eq!(Lang::of_fence("yaml"), Lang::Conf);
+        assert_eq!(Lang::of_fence("yml title=x"), Lang::Conf);
+        assert_eq!(Lang::of_fence("toml"), Lang::Conf);
+        assert_eq!(Lang::of_fence("bb"), Lang::BitBake);
+        assert_eq!(Lang::of_fence("bitbake"), Lang::BitBake);
+        assert_eq!(Lang::of_fence("rust,ignore"), Lang::Rust);
+        assert_eq!(Lang::of_fence("{.sh}"), Lang::Shell);
+        assert_eq!(Lang::of_fence("c++"), Lang::Cpp);
+        assert_eq!(Lang::of_fence(""), Lang::Plain);
+        assert_eq!(Lang::of_fence("mermaid"), Lang::Plain);
+        assert_eq!(Lang::detect("meta/recipes/x_1.0.bb", ""), Lang::BitBake);
+        assert_eq!(code(Lang::Conf, "a: 1\nb: 2\n").len(), 2);
     }
 
     #[test]

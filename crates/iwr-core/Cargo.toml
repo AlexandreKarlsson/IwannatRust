@@ -15,6 +15,7 @@ fs = ["parse", "dep:walkdir", "dep:toml"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+pulldown-cmark = { version = "0.13", default-features = false }
 syn = { version = "2", features = ["full", "extra-traits", "visit"], optional = true }
 proc-macro2 = { version = "1", default-features = false, features = ["span-locations"], optional = true }
 quote = { version = "1", optional = true }

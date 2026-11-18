@@ -6,6 +6,7 @@
 mod canvas;
 mod castmap;
 mod chart;
+mod scene;
 mod code;
 mod design;
 mod fonts;
@@ -125,6 +126,8 @@ pub struct State {
     pub diagram: Signal<Option<Rc<iwr_core::diagram::Diagram>>>,
     /// the chart shown by `@ chart` (from the current part)
     pub chart: Signal<Option<Rc<iwr_core::chart::Chart>>>,
+    /// the scene shown by `@ scene` (from the current part)
+    pub scene: Signal<Option<Rc<iwr_core::scene::Scene>>>,
     /// how far the voice is into the current cue, 0 to 1: chart markers up to there have fired
     pub cue_frac: Signal<f64>,
     /// `>` ops of the current part up to the current cue, replayed on the diagram
@@ -204,6 +207,8 @@ pub struct State {
     /// full tour: continue with the next part when one ends
     pub tour: Signal<bool>,
     pub tts_rate: Signal<f64>,
+    /// how fast a recording plays (1 = as recorded); the cues follow its time
+    pub speed: Signal<f64>,
     /// what browser TTS is doing (voices, events), shown in the player
     pub tts_info: Signal<String>,
     /// seconds per cue in silent reading mode
@@ -466,6 +471,7 @@ fn App() -> Element {
         diagram: Signal::new(None),
         diagram_ops: Signal::new(vec![]),
         chart: Signal::new(None),
+        scene: Signal::new(None),
         cue_frac: Signal::new(1.0),
         side: Signal::new(None),
         code_mark: Signal::new(None),
@@ -505,6 +511,7 @@ fn App() -> Element {
         voice_job: Signal::new(None),
         tour: Signal::new(true),
         tts_rate: Signal::new(1.0),
+        speed: Signal::new(1.0),
         live: Signal::new(false),
         lang: Signal::new("en".into()),
         script_src: Signal::new(None),
@@ -775,7 +782,8 @@ fn App() -> Element {
     let is_code = *state.mode.read() == Mode::Code;
     let is_plan = *state.mode.read() == Mode::Plan;
     let chart = (*state.mode.read() == Mode::Chart).then(|| state.chart.read().clone());
-    let is_graph = !is_code && !is_plan && chart.is_none();
+    let scene = (*state.mode.read() == Mode::Scene).then(|| state.scene.read().clone());
+    let is_graph = !is_code && !is_plan && chart.is_none() && scene.is_none();
     let is_diagram = *state.mode.read() == Mode::Diagram;
     let sidebar_open = *state.sidebar_open.read();
     let dragging = state.drag.read().is_some();
@@ -793,13 +801,17 @@ fn App() -> Element {
     let render = *state.render.read();
     // render mode without subtitles: no caption band, the stage fills the video
     let sub_lang_empty = state.sub_lang.read().is_empty();
-    let sidebar_open = (sidebar_open && !render) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
+    // a codecast's scene or chart is a picture, not code: it takes the whole page, the file tree
+    // comes back with the next view (or a `+ files` / `+ items` line)
+    let stage = has_guide && (scene.is_some() || chart.is_some());
+    let sidebar_open = (sidebar_open && !render && !stage) || matches!(focus, Some(iwr_core::script::Panel::Files | iwr_core::script::Panel::Items)) || spot == Some("sidebar-tabs");
     let welcome_open = *state.welcome_open.read();
     let loaded = state.project.read().is_some();
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: icons::uri("favicon") }
         style { {theme::CSS} }
         style { {chart::CSS} }
+        style { {scene::CSS} }
         style { {castmap::CSS} }
         style { {topics::CSS} }
         style { {fonts::faces()} }
@@ -843,6 +855,11 @@ fn App() -> Element {
                         Some(c) => rsx! { chart::ChartView { chart: (*c).clone(), full: true } },
                         None => rsx! { div { class: "chart full", {t::app::no_chart()} } },
                     }
+                } else if let Some(s) = scene.clone() {
+                    match s {
+                        Some(s) => rsx! { scene::SceneView { scene: (*s).clone(), full: true } },
+                        None => rsx! { div { class: "scene full", {t::app::no_scene()} } },
+                    }
                 } else {
                     canvas::Canvas {}
                     // the side panel takes the details' place; a codecast's own diagram has no
@@ -853,7 +870,7 @@ fn App() -> Element {
                     }
                     if has_side { side::SidePanel {} } else if !is_diagram && !details_empty { panels::Details {} }
                 }
-                if has_side && (is_code || is_plan || chart.is_some()) {
+                if has_side && (is_code || is_plan || chart.is_some() || scene.is_some()) {
                     div { class: "resizer", onmousedown: move |e| { e.prevent_default(); state.drag.set(Some((1, e.data().client_coordinates().x, *state.details_w.read()))); } }
                     side::SidePanel {}
                 }

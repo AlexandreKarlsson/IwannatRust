@@ -27,6 +27,9 @@ pub struct Saved {
     pub depth: usize,
     pub voice: String,
     pub rate: f64,
+    /// playback speed of a recording
+    #[serde(default = "one")]
+    pub speed: f64,
     pub read_delay: f64,
     pub tour: bool,
     pub show_source: bool,
@@ -74,6 +77,10 @@ fn en() -> String {
     "en".into()
 }
 
+fn one() -> f64 {
+    1.0
+}
+
 fn yes() -> bool {
     true
 }
@@ -89,6 +96,7 @@ impl State {
             depth: *self.depth.read(),
             voice: match *self.voice.read() { Voice::Read => "read".into(), _ => "tts".into() },
             rate: *self.tts_rate.read(),
+            speed: *self.speed.read(),
             read_delay: *self.read_delay.read(),
             tour: *self.tour.read(),
             show_source: *self.show_source.read(),
@@ -115,6 +123,7 @@ impl State {
             self.voice.set(Voice::Read);
         }
         self.tts_rate.set(s.rate.clamp(0.5, 2.0));
+        self.speed.set(s.speed.clamp(0.5, 2.0));
         self.read_delay.set(s.read_delay.clamp(1.0, 15.0));
         self.tour.set(s.tour);
         self.show_source.set(s.show_source);

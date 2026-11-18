@@ -1139,6 +1139,35 @@ fn chart_blocks_and_markers() {
     assert_eq!(errs.len(), 3, "{errs:?}");
 }
 
+#[test]
+fn scene_blocks_and_markers() {
+    use iwr_core::script::{self, Side};
+    let p = project();
+    let text = "# T\n\n## Ring\n```scene Ring buffer\ngrid: 6x2\nhead icon 1,1 \"👉\"\na 1,2 \"A\"\nb 2,2 \"B\" :::off\ndisk store 5,2 2x1 \"Disk\"\nb -->|flush| disk\n```\n@ scene:Ring buffer\n! a\nThe head points at the first slot.\nIt moves {>head 2,1 =b on !b} one slot on, then the slot {=b \"Z\" !l1} is flushed.\n| scene\nSame {-head} beside.\n";
+    let s = script::parse(text);
+    let part = &s.parts[0];
+    assert_eq!(part.scenes.len(), 1);
+    assert_eq!(part.cues[1].say, "It moves one slot on, then the slot is flushed.");
+    assert!(script::check(&p, &s).is_empty(), "{:?}", script::check(&p, &s));
+    assert_eq!(script::parse(&script::to_text(&s)), s);
+    assert!(matches!(script::side_at(part, 2), Some(Side::Scene(_))));
+    // half way into the cue the head has moved, the label has not changed yet
+    let sc = &part.scenes[0];
+    let st = sc.state(script::marks_at(part, 1, 0.5));
+    assert_eq!((st.at[0], st.state[2].clone(), st.label[2].as_str()), ((2.0, 1.0), None, "B"));
+    let st = sc.state(script::marks_at(part, 2, 1.0));
+    assert_eq!((st.label[2].as_str(), st.shown[0], st.glow.clone()), ("Z", false, Some(vec!["l1".to_string()])));
+    // labels are translated, ids and emoji are not
+    let texts = iwr_core::i18n::texts(&s, &[], &Default::default());
+    assert!(texts.iter().any(|t| t == "Ring buffer") && texts.iter().any(|t| t == "flush") && !texts.iter().any(|t| t == "👉"), "{texts:?}");
+    // a broken block, an unknown object, a move off the grid, a `>` line, a marker without a block
+    let bad = script::parse("# T\n## A\n```scene\ngrid: 2x1\na 1,1\nb 3,1\n```\n@ scene\n! zz\nGo {>a 5,1} and {+nope}.\n> a b\nMove.\n## B\n@ arch\nNo {>a 1,1} scene.\n");
+    let errs = script::check(&p, &bad);
+    assert_eq!(errs.len(), 6, "{errs:#?}");
+    let twice = script::parse("# T\n## A\n```scene\na 1,1\n```\n```scene\na 1,1\n```\n@ scene\nGo.\n");
+    assert!(script::check(&p, &twice)[0].contains("earlier scene"));
+}
+
 /// English template words that must never reach a Japanese tour: a sentence iwr-core forgot
 /// to translate shows up as one of these outside author text.
 fn english_template_left(text: &str) -> Option<&'static str> {

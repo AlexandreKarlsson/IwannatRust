@@ -13,6 +13,7 @@ error_flow = "Error flow"
 diagram = "Diagram"
 sequence = "Sequence"
 chart = "Chart"
+scene = "Scene"
 plan = "Plan"
 
 [desc]
@@ -27,6 +28,7 @@ error_flow = "Where errors are created, propagated with ?, handled, or turned in
 sequence = "The calls made from the root function, in time order: one column per type or module, loops and branches as frames."
 diagram = "A sketch drawn by the codecast: a metaphor, a schema, a story in boxes and arrows."
 chart = "A chart drawn by the codecast: a number that changed, a share of a whole."
+scene = "Objects on a grid drawn by the codecast: where things sit, and how they move."
 plan = "The plan of the codecast: its parts in order, one line each. Click one to jump there."
 
 [note]

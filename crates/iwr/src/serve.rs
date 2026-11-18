@@ -609,7 +609,8 @@ async fn api_codecast_file(State(s): State<AppState>, AxPath(name): AxPath<Strin
     match std::fs::read(crate::codecast::asset_path(&script, &name)) {
         Ok(b) => {
             let mime = mime_guess::from_path(&name).first_or_octet_stream();
-            ([(header::CONTENT_TYPE, mime.as_ref().to_string())], b).into_response()
+            // an SVG opened on its own runs no script of the codecast's under this origin
+            ([(header::CONTENT_TYPE, mime.as_ref().to_string()), (header::CONTENT_SECURITY_POLICY, "script-src 'none'".to_string())], b).into_response()
         }
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
@@ -955,6 +956,17 @@ fn export_cast(s: &Path, out: &Path, project: &Project, langs: &[String]) -> Res
             std::fs::copy(&src, out.join("codecast").join(&a))?;
         } else {
             eprintln!("script: audio file not found or not allowed: {}", src.display());
+        }
+    }
+    // pictures of notes and scenes go there too, in their folders
+    for f in crate::codecast::image_files(&loaded) {
+        let src = crate::codecast::asset_path(s, &f);
+        if src.is_file() && crate::codecast::is_safe_image_name(&f) {
+            let dest = out.join("codecast").join(&f);
+            std::fs::create_dir_all(dest.parent().unwrap())?;
+            std::fs::copy(&src, dest)?;
+        } else {
+            eprintln!("script: image file not found or not allowed: {}", src.display());
         }
     }
     // the look and defaults: out/codecast.json, fonts beside the recordings in out/codecast/

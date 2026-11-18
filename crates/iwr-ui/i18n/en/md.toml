@@ -1,2 +1,20 @@
 # hover tip of a code token: how it is spoken
 spoken = "spoken: {say}"
+
+# button over a code block
+copy = "Copy the code"
+copied = "Copied"
+
+# title of an admonition (`!!! note`) written without one
+adm_note = "Note"
+adm_abstract = "Summary"
+adm_info = "Info"
+adm_tip = "Tip"
+adm_success = "Success"
+adm_question = "Question"
+adm_warning = "Warning"
+adm_failure = "Failure"
+adm_danger = "Danger"
+adm_bug = "Bug"
+adm_example = "Example"
+adm_quote = "Quote"

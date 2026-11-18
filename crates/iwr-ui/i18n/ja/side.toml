@@ -5,6 +5,7 @@ bytes = "バイト"
 notes = "メモ"
 diagram = "図"
 chart = "チャート"
+scene = "シーン"
 
 [bytes]
 field = "フィールド"

@@ -30,6 +30,7 @@ subtitle = "字幕（設定 › コードキャスト › 字幕）"
 back = "コードキャストに戻る（space / Esc）"
 own_question = "スクリプトの質問"
 glossary_question = "Rust 用語集から"
+speed = "録音の再生速度（表示される長さも変わります）"
 length = "コードキャスト全体の長さ：録音済みのパートは録音から、その他は文章量から推定（≈ は推定）"
 
 [voice]

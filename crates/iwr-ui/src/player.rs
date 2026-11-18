@@ -278,6 +278,12 @@ impl State {
 
     /// A relative `audio:` name resolved against the codecast directory URL.
     fn audio_src(&self, name: &str) -> String {
+        self.cast_src(name)
+    }
+
+    /// A file of the codecast (a recording, a picture of a note or a scene) by its relative
+    /// name: the codecast directory URL in front; web and absolute addresses stay as they are.
+    pub fn cast_src(&self, name: &str) -> String {
         if name.contains("://") || name.starts_with("data:") || name.starts_with('/') {
             name.to_string()
         } else {
@@ -318,6 +324,17 @@ impl State {
             Voice::Audio => self.effective_audio().is_none(),
             Voice::Read => false,
         }
+    }
+
+    /// How fast the voice goes compared with its recording: the playback speed while a recording
+    /// plays, 1 otherwise (TTS has its own rate, a video is rendered as recorded).
+    pub fn pace(&self) -> f64 {
+        if *self.voice.read() == Voice::Audio && !*self.render.read() { *self.speed.read() } else { 1.0 }
+    }
+
+    /// A length as shown: a recording played faster lasts less.
+    pub fn paced(&self, (secs, measured): (f64, bool)) -> (f64, bool) {
+        (if measured { secs / self.pace() } else { secs }, measured)
     }
 
     /// In recording mode, move the player head to the current cue's `[t]`.
@@ -396,11 +413,12 @@ impl State {
         self.focus.set(None);
         self.spot.set(None);
         self.zoom.set(None);
-        if matches!(*self.mode.read(), Mode::Diagram | Mode::Chart | Mode::Plan) {
+        if matches!(*self.mode.read(), Mode::Diagram | Mode::Chart | Mode::Scene | Mode::Plan) {
             self.set_mode(Mode::Code);
         }
         self.diagram.set(None);
         self.chart.set(None);
+        self.scene.set(None);
         self.diagram_ops.set(vec![]);
         self.side.set(None);
         self.code_mark.set(None);
@@ -485,8 +503,25 @@ impl State {
         self.seek_audio();
     }
 
+    /// Play pressed: the current cue takes the stage again, whatever the viewer opened while it
+    /// was paused (the plan page, the cast map, another view): its part's last `@` line comes back.
+    pub fn take_stage(&mut self) {
+        if self.script.peek().is_none() {
+            return;
+        }
+        self.close_pages();
+        self.apply_cue_staged(true);
+    }
+
     /// Apply the current cue: view, root/scope, highlights, code mark, camera.
     pub fn apply_cue(&mut self) {
+        let plan = *self.mode.peek() == Mode::Plan;
+        self.apply_cue_staged(plan);
+    }
+
+    /// `apply_cue`; `restage`: a cue without its own `@` line brings back the view its part's last
+    /// `@` line set (the viewer is not on that stage: the plan page, a view opened while paused).
+    fn apply_cue_staged(&mut self, restage: bool) {
         if *self.ended.peek() {
             self.ended.set(false);
         }
@@ -532,7 +567,16 @@ impl State {
         if *self.spot.peek() != spot {
             self.spot.set(spot);
         }
-        self.apply_directives(&p, cue.show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
+        // the plan page is a menu, not a stage: a cue played over it (`?page=plan`, the plan
+        // button, a jump from the cast map) brings back the view its part's last `@` line set
+        let show = cue.show.clone().or_else(|| {
+            if !restage {
+                return None;
+            }
+            let s = self.script.read();
+            s.as_ref()?.parts.get(part)?.cues.iter().take(cue_idx + 1).rev().find_map(|c| c.show.clone())
+        });
+        self.apply_directives(&p, show.as_deref(), cue.hl.as_ref(), cue.code.as_deref());
     }
 
     /// Apply `@` / `!` / `=` directives (of a cue or of an answer), then move the camera.
@@ -545,7 +589,7 @@ impl State {
             if let Some(m) = mode {
                 if m != *self.mode.read() {
                     self.mode.set(m);
-                    if !matches!(m, Mode::Code | Mode::Chart | Mode::Plan) {
+                    if !matches!(m, Mode::Code | Mode::Chart | Mode::Scene | Mode::Plan) {
                         self.views_open.set(true);
                     }
                 }
@@ -555,6 +599,9 @@ impl State {
                 } else if m == Mode::Chart {
                     let c = self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).and_then(|part| script::find_chart(part, r)).cloned();
                     self.chart.set(c.map(Rc::new));
+                } else if m == Mode::Scene {
+                    let s = self.script.read().as_ref().and_then(|s| s.parts.get(*self.part_idx.read())).and_then(|part| script::find_scene(part, r)).cloned();
+                    self.scene.set(s.map(Rc::new));
                 } else if let Some(r) = r {
                     if let Some(res) = script::resolve(p, r) {
                         if let Some(mid) = res.module {
@@ -584,7 +631,7 @@ impl State {
             self.hl_ids.set(refs.clone());
             // in a diagram the refs are node ids, and the side panel's fields or nodes are its
             // own: don't select project items that share a name
-            let in_diagram = matches!(*self.mode.read(), Mode::Diagram | Mode::Chart);
+            let in_diagram = matches!(*self.mode.read(), Mode::Diagram | Mode::Chart | Mode::Scene);
             let side_ids = self.side.read().as_ref().map(|s| s.ids()).unwrap_or_default();
             let resolved: Vec<Resolved> = if in_diagram { vec![] } else { refs.iter().filter(|r| !side_ids.contains(r)).filter_map(|r| script::resolve(p, r)).collect() };
             // folders: refs that are not a file, an item or a module
@@ -655,7 +702,7 @@ impl State {
     pub fn camera(&mut self) {
         let req = *self.fit_request.peek();
         self.fit_done.set(req);
-        if !matches!(*self.mode.read(), Mode::Code | Mode::Chart | Mode::Plan) {
+        if !matches!(*self.mode.read(), Mode::Code | Mode::Chart | Mode::Scene | Mode::Plan) {
             let graph = self.build_graph();
             let hl = self.hl.read().clone();
             let ids = self.hl_ids.read().clone();
@@ -845,6 +892,9 @@ pub async fn fetch_script(live: bool) -> Option<(String, Option<String>, String,
     }
 }
 
+/// Playback speeds offered for a recording.
+const SPEEDS: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+
 #[component]
 pub fn PlayerBar() -> Element {
     let mut state = use_context::<State>();
@@ -862,7 +912,7 @@ pub fn PlayerBar() -> Element {
     let title = s.title.clone();
     // recordings play with 🎧, otherwise a voice reads at the TTS rate
     let (recorded, rate) = (voice == Voice::Audio, *state.tts_rate.read());
-    let length = crate::generate::length(s.duration(recorded, rate));
+    let length = crate::generate::length(state.paced(s.duration(recorded, rate)));
     let say = cue.say.clone();
     // a `sp:` line: the second voice says it, the caption sits apart
     let second = cue.second();
@@ -1088,7 +1138,13 @@ pub fn PlayerBar() -> Element {
             ));
             loop {
                 match ev.recv::<f64>().await {
-                    Ok(t) if t == -1.0 => state.playing.set(true),
+                    Ok(t) if t == -1.0 => {
+                        let was = *state.playing.peek();
+                        state.playing.set(true);
+                        if !was {
+                            state.take_stage();
+                        }
+                    }
                     Ok(t) if t == -2.0 => state.playing.set(false),
                     Ok(t) if t == -3.0 => {
                         // end of a per-part recording: continue with the next part when touring
@@ -1150,6 +1206,24 @@ pub fn PlayerBar() -> Element {
         });
     });
 
+    // ---- Audio: play at the chosen speed. The cues follow the recording's time, so they keep up.
+    // `defaultPlaybackRate` too: the element falls back to it when the next part's file loads.
+    let speed = *state.speed.read();
+    use_effect(move || {
+        let (voice, url, speed) = (*state.voice.read(), state.effective_audio(), state.pace());
+        if voice != Voice::Audio || url.is_none() {
+            return;
+        }
+        document::eval(&format!(
+            r#"let tries = 0;
+               const f = () => {{
+                 const a = document.getElementById('iwr-audio');
+                 if (a) {{ a.defaultPlaybackRate = {speed:.2}; a.playbackRate = {speed:.2}; }} else if (tries++ < 50) setTimeout(f, 100);
+               }};
+               f();"#
+        ));
+    });
+
     // a video with subtitles in another language shows them alone, in place of the caption
     let sub_only = *state.render.read() && subtitle.is_some();
     rsx! {
@@ -1176,6 +1250,9 @@ pub fn PlayerBar() -> Element {
                             document::eval(if p { "const a = document.getElementById('iwr-audio'); if (a) a.pause();" } else { "const a = document.getElementById('iwr-audio'); if (a) a.play().catch(() => {});" });
                         } else {
                             state.playing.set(!p);
+                            if !p {
+                                state.take_stage();
+                            }
                         }
                     }, { if playing { t::player::pause() } else { t::player::play() } } }
                     button { onclick: move |_| { state.tts_gen += 1; state.step(1); }, disabled: cue_idx + 1 >= total, "▶|" }
@@ -1227,7 +1304,7 @@ pub fn PlayerBar() -> Element {
                 div { class: "parts",
                     span { class: "status cast-title", "{title} · " span { title: t::player::tip_length(), "{length}" } " · " }
                     for (i, p) in s.parts.iter().enumerate() {
-                        { let name = p.name.clone(); let tip = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate))); rsx! {
+                        { let name = p.name.clone(); let tip = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(state.paced(p.duration(recorded, rate)))); rsx! {
                             button { class: if i == part_idx { "small active" } else { "small" }, title: "{tip}", onclick: move |_| state.goto_part(i), "{name}" }
                         } }
                     }
@@ -1237,7 +1314,15 @@ pub fn PlayerBar() -> Element {
                 }
                 if voice == Voice::Audio {
                     if let Some(u) = &audio_url {
-                        audio { id: "iwr-audio", controls: true, src: "{u}", style: "width:100%; height:32px; margin:4px 0" }
+                        div { class: "audio-row",
+                            audio { id: "iwr-audio", controls: true, src: "{u}" }
+                            select { class: "theme-select", title: t::player::tip_speed(), value: "{speed}",
+                                onchange: move |e| { if let Ok(v) = e.value().parse::<f64>() { state.speed.set(v.clamp(0.5, 2.0)); state.save_settings(); } },
+                                for v in SPEEDS {
+                                    option { value: "{v}", selected: v == speed, "{v}×" }
+                                }
+                            }
+                        }
                     }
                 }
                 div { class: if second { "say second" } else { "say" }, Markdown { text: say } }
@@ -1333,7 +1418,7 @@ pub fn PlanPage() -> Element {
     let n_parts = s.parts.len();
     let total = s.cue_count();
     let (recorded, rate) = (*state.voice.read() == Voice::Audio, *state.tts_rate.read());
-    let length = crate::generate::length(s.duration(recorded, rate));
+    let length = crate::generate::length(state.paced(s.duration(recorded, rate)));
     // `! 2-9` on the plan page: those parts glow, the others step back
     let lit: Vec<usize> = state.hl_ids.read().iter().filter_map(|r| script::plan_parts(r, n_parts)).flatten().collect();
     use_effect(move || {
@@ -1359,7 +1444,7 @@ pub fn PlanPage() -> Element {
                             let first = p.cues.first().map(|c| c.say.clone()).unwrap_or_default();
                             let summary = p.summary.clone().unwrap_or_else(|| iwr_core::shorten(&script::plain(&first), 140));
                             let nq: usize = p.cues.iter().map(|c| c.questions.len()).sum();
-                            let mut meta = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(p.duration(recorded, rate)));
+                            let mut meta = format!("{} · {}", t::player::cues(p.cues.len()), crate::generate::length(state.paced(p.duration(recorded, rate))));
                             if nq > 0 {
                                 meta.push_str(&format!(" · {}", t::player::questions(nq)));
                             }

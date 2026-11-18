@@ -6,6 +6,70 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A codecast played from the plan page (`?page=plan`, where a jump from the cast map or a topic
+  lands) stayed on the plan: the first cue's `@` view had been applied before the page took over,
+  and the next cues without an `@` line left it there. Starting to play, or a cue reached on the
+  plan page, now brings back the view the part's last `@` line set.
+- Play brings the codecast back on stage at once: pressed on the cast map, the settings, or a view
+  opened while paused, it showed the cue's view only from the next cue on. It now closes the page
+  and re-applies the current cue (with its part's last `@` view).
+- A scene or a chart in the view (`@ scene`, `@ chart`) takes the whole page during a codecast: the
+  file tree steps aside, a scene grows to 3× its drawn size (1.8× before).
+- Dark themes drew the browser's own widgets light: the file picker button of the script loader
+  showed light-grey text on a light-grey button. Every theme now sets its `color-scheme`, so file
+  buttons, checkboxes, number spinners, scrollbars and dropdown lists follow it, and the file
+  picker button looks like the other buttons.
+
+### Added
+
+- Spoken text: initials people say as a word are said that way out of the box — `JSON` "jay son",
+  `MAC` "mac", `YAML`, `RAM`, `GUI` "gooey", `ASCII`, `UART`, `OAuth`, `stdin`, `sudo`… — and more
+  initials are spelled (`UUID`, `LED`, `GPIO`, `MQTT`, `JWT`…). A `spell:` or `pronounce:` line
+  still wins.
+- Scenes: lights. `{*id 250:#.}` blinks an object (one character per step, `#` lit, `.` dark,
+  `x3` to stop after three rounds on the last step, `{*id}` alone to stop); lights started by one marker keep in
+  step, so a pattern travelling over a panel is one timeline per light. `codecast check` reports a
+  pattern it cannot read.
+- Scenes: an icon that lands on another object no longer covers it. It is drawn small in a strip
+  under the object (`:::under`, the default), or in its place with `:::replace` (the object comes
+  back when the icon moves on). An icon may now be written on an object's cells.
+
+- Scenes: a ```` ```scene ```` block places objects on a grid (shapes, sizes, states such as `off`,
+  lines between objects or cells), shown with `@ scene` or `| scene`. Markers in a cue's text move
+  it on that word: `{>id 3,1}`, `{=id off}`, `{=id "text"}`, with the chart markers `+ - !` and
+  callouts. `codecast check` reports what would draw badly. The tour has a topic about them
+  (`codecast/01-scenes/`).
+- A markdown file of the project (`README.md`, `docs/*.md`) opens in the Code view as a page, like
+  zensical draws it: content tabs (`=== "Name"`, `===+`, `'Name'`), admonitions, tables, coloured
+  code blocks, and its `mermaid` flowcharts and sequences drawn as diagrams (other kinds of mermaid
+  stay code). Its front matter is left out; the split button shows its source beside it, and a cue
+  that points at its lines opens the source.
+- Pictures: `![alt](img/flow.png)` in a note, an answer or the glossary shows a file kept next to
+  the codecast; a scene object written `![caption](img/server.png)` draws it into its cells (an
+  `image` shape, or inside a box) and `{=id "![Down](img/down.png)"}` swaps it. `codecast serve`
+  serves the pictures, `codecast export` copies them, `codecast check` reports missing ones.
+  A picture alone in its paragraph follows the window: as wide as the panel, never taller than
+  the pane.
+- Notes (`| md`) read like a documentation page: admonitions (`!!! tip "Title"` over an indented
+  body, `???` folded, `???+` open, GitHub's `> [!NOTE]`) in twelve kinds with their colour and icon,
+  code blocks with a `title="src/main.rs"` and a copy button, framed tables, round task boxes,
+  larger headings and framed `code` spans.
+- A codecast points into a note: `!` glows and scrolls to a heading (`! the-steps`), a list item
+  (`! the-steps/2`), a table row or column, a titled admonition. Notes have tabs (`=== "Name"`
+  over an indented body; `!` on a tab or on anything inside opens it) and draw a `~~~mermaid`
+  block as a small diagram whose nodes and sequence messages glow by id. Small diagrams show the
+  text of their edges.
+- Blocks are written once: a part that names by title a block it does not have (`| md:Steps`,
+  `@ diagram:Bus`, `| bytes:Frame`, charts, scenes, examples) is lent the one written in another
+  part or before the first part. The tour has a topic about both (`codecast/02-notes/`, with its
+  Japanese translation). A translated note keeps the names the script uses: its title for
+  `| md:<title>`, its ids for `!`; tab lines and `~~~` code blocks are no longer sent to translation
+  as prose.
+- Playback speed for recordings: a menu beside the audio bar (0.75× to 2×, remembered). The cues,
+  chart markers and the length shown follow it; videos are still rendered at the recorded speed.
+
 ### Changed
 
 - Recordings and videos are named with underscores only: `01-welcome_en_am-michael.ogg` + `.times`,

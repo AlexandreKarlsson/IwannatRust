@@ -24,9 +24,11 @@ plan: <one line about it>    optional: its line on the plan page (or write it af
 ^ <exact text>               popup card with a path, endpoint, command or name (this cue only, never spoken)
 > <node> [<group|node>]      diagrams only: move a node from this cue on (sticky in the part)
 > +<node> -<node>            diagrams only: show a `:::hidden` node / hide one
-| bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes)
+| bytes|md|diagram[:<name>]  side panel next to the view (sticky in the part; `|` alone closes);
+                             a <name> may be a block of another part: write each block once
 | chart:<name>               a chart beside the view (`@ chart:<name>` fills the view instead)
-{+id !id =id 18 …}           chart markers inside a spoken sentence, fired on that word (see Charts)
+| scene:<name>               objects on a grid beside the view (`@ scene:<name>` fills the view)
+{+id !id =id 18 >id 3,1 …}   chart / scene markers inside a spoken sentence, fired on that word (see Charts, Scenes)
 <name>_tour[:<ref>]          generated cues (see Tours): architecture types errors entry flow todo files
 <One or two spoken sentences.>
 sp: <A line said by the second voice>      optional: a question, a doubt, a guess (see Two voices)
@@ -277,8 +279,45 @@ When the listener needs the code *and* what it reads, put the second in the side
 switching views. `| bytes:<title>` shows a ```` ```bytes <title> ```` block: one field per line,
 `id size [format] description`, optional `sample:` line of hex bytes decoded into each field. `!`
 with field ids glows them in the strip and table, alongside code refs on the same line.
-`| md:<title>` shows a ```` ```md <title> ```` block (numbered steps, a field table, short notes);
+`| md:<title>` shows a ```` ```md <title> ```` block (numbered steps, a field table, short notes,
+a picture `![alt](img/flow.png)` kept in the codecast directory);
 `| diagram:<title>` a small, still mermaid block.
+
+**Point into the note** instead of rewriting it. `!` glows, and scrolls to, what a `| md` page
+holds: a heading by its title in lower case with `-` for spaces (`! the-steps`), an item of the
+first list under it (`! the-steps/2`; `! 2` before any heading), a table row by its first cell or
+a column by its header (`! len`), a titled admonition, a tab (`=== "Wire format"` over an indented
+body → `! wire-format` opens it; so does a ref to anything inside), and the nodes of a
+`~~~mermaid` block inside the note (`! m3` for the third message of a `sequenceDiagram`). One page
+with three tabs and a `!` per cue beats three notes.
+
+````
+```md Formats
+=== "Request"
+    | field | size |
+    |---|---|
+    | len | 2 |
+    | body | len |
+
+=== "Exchange"
+    ~~~mermaid
+    sequenceDiagram
+    c->>s: request
+    s-->>c: reply
+    ~~~
+```
+| md:Formats
+! len
+First the length, two bytes.
+! m2
+Then the server answers.
+````
+
+**One block, many cues, many parts.** Never copy a block. Inside a part, keep it open and move
+the `!`. In another part, name it by title (`| md:Formats`, `@ diagram:Bus`, `| bytes:Frame`,
+`@ chart:…`, `| json:…`): a part without a block of that title is lent the one another part wrote.
+Blocks that belong to no part in particular go before the first part (top of `codecast.md`, or
+`index.md`). Give every block you will come back to a title.
 
 ````
 ## Reading a frame
@@ -409,6 +448,50 @@ time if none), recordings by how far the cue's audio has played.
   its markers at the same fraction of the sentence.
 - Come back to the code afterwards: a chart backs up a point, it is not the point.
 
+## Scenes (where things sit, and how they move)
+
+When position is the point (slots of a buffer, hosts on a network, a queue, a matrix, a board),
+place objects on a grid: a ```` ```scene <title> ```` block, `@ scene:<title>` (or `| scene:<title>`
+beside the code). Use a diagram instead when only the links matter.
+
+````
+```scene Ring
+grid: 6x2
+head icon 1,1 "👉"
+a 1,2 "A"
+b 2,2 "B" :::off
+disk store 5,2 2x1 "💾 Disk"
+b -->|flush| disk
+```
+@ scene:Ring
+! a
+The head points at the first slot.
+It steps {>head 2,1 =b on} to the next one, which wakes up.
+````
+
+- Object: `id [shape] col,row [WxH] ["label"] [:::state]`. Cells start at `1,1` top left.
+  Shapes: `box` (default) `round` `pill` `diamond` `store` `icon` (big emoji) `text` `zone` (area behind others).
+  A picture: `logo 1,1 2x2 ![Server](img/server.png)` (file in the codecast directory, caption under it;
+  `{=logo "![Down](img/down.png)"}` swaps it). Use one for what an emoji cannot show (a board, a
+  screen, a logo), never for text a box would hold.
+  States: `off` (grey) `ok` `warn` `err` `hidden`.
+  An icon that lands on an object (`{>tok a}`) is drawn small under it (`:::under`, the default),
+  or in its place with `tok icon 1,3 "🟡" :::replace` (the object comes back when the icon leaves).
+- Line: `a --> b`, `---`, `-.->`, `==>`, `a -->|label| b`; ends are ids or cells (`1,2 --- 6,2`); ids `l1`, `l2`… in order.
+  Lines are straight and may not cross a third object: bend through free cells (`a --- 1,3 --- 5,3 --> b`).
+- `grid: CxR [lines] [square]` is optional (max 16x16).
+- Markers in a cue: `{>id 3,1}` move (or `{>id other}` onto it) · `{=id off|on|ok|warn|err}` ·
+  `{=id "text"}` relabel · `{+id}` `{-id}` · `{!id}` · `{"note"@id}`.
+- Lights: `{*id <ms>:<steps> [xN]}` blinks an object, one character per step, `#` lit and `.` dark,
+  in the colour of its state: `{*led 1000:#.}` (1 s on, 1 s off, for ever), `{*led 400:#. x3}`
+  (three blinks, then dark: after `xN` the last step stays, so `50:..### x1` ends lit), `{*led 100:#.#.......}` (a double blink every second). `{*id}` stops it.
+  Lights given a pattern by one marker start together: a pattern that travels over several lights
+  is one timeline per light, all of the same length (`{*a 90:#.#..... *b 90:....#.#.}`). When the
+  scene is a real panel, use its real timings: the listener learns to read it.
+- A box holds about 11 letters per cell: widen it (`2x1`) or break the label (`<br>`). Two objects
+  never start on the same cells unless one is `:::hidden`, a `zone`, or an icon. Ids are unique in a part.
+- One idea per scene, at most a dozen objects; change one or two things per cue.
+
 ## Example
 
 ```
@@ -448,6 +531,7 @@ Then each task is copied into storage, because storage wants to own it and the l
   twelve cues.
 - Data the code sends, reads or stores is shown in an example block, not described.
 - A number that changed or a share of a whole is a chart revealed with `{+id}` markers, not a list.
+- Things whose place matters (slots, hosts, a queue) are a scene moved with `{>id 3,1}` markers.
 - Each big idea has one metaphor; jargon comes after the plain words.
 - Cues are full spoken sentences, not "label: definition" notes.
 - Every module has a `//!`, loops and key `if`s a short `//` (if you may edit the code).

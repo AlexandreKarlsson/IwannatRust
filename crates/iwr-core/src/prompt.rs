@@ -83,6 +83,7 @@ pub const PAGES: &[(&str, &str)] = &[
     ("diagram", "mermaid flowchart (`@ diagram`)"),
     ("seqdiagram", "mermaid sequenceDiagram"),
     ("chart", "chart block"),
+    ("scene", "scene block (`@ scene`: objects on a grid)"),
     ("bytes", "bytes block"),
     ("example", "data example block"),
     ("tours", "generated tours (`*_tour`)"),

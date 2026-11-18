@@ -1,4 +1,4 @@
-# The app shell (`main.rs`): load status, empty diagram and chart views.
+# The app shell (`main.rs`): load status, empty diagram, chart and scene views.
 
 loading = "loading…"
 ready = "ready"
@@ -7,3 +7,4 @@ load_failed = "load failed: {error}"
 server_returned = "server returned {status}"
 no_diagram = "No diagram here: a codecast draws one with a ```mermaid block and `@ diagram`."
 no_chart = "No chart here: a codecast draws one with a ```chart block and `@ chart`."
+no_scene = "No scene here: a codecast draws one with a ```scene block and `@ scene`."

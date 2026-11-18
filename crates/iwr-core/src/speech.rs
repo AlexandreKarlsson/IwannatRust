@@ -20,18 +20,43 @@ pub type Pronounce = [(String, String)];
 
 /// Initials read letter by letter out of the box (`ID` → "I D", `IDs` → "I D's"). A script's
 /// `spell:` or `pronounce:` line overrides any of them.
-pub const BUILTIN_SPELL: [&str; 44] = [
-    "ID", "IP", "UID", "GID", "PID", "URL", "URI", "API", "CPU", "GPU", "RAM", "SSD", "USB", "JSON", "XML", "YAML", "CSV",
-    "HTTP", "HTTPS", "HTML", "CSS", "SQL", "TCP", "UDP", "DNS", "TLS", "SSL", "SSH", "LAN", "WAN", "VPN", "CLI", "GUI",
-    "OTP", "JQL", "PDF", "RPC", "FTP", "SDK", "IDE", "OS", "UI", "UX", "AI",
+pub const BUILTIN_SPELL: [&str; 68] = [
+    "ID", "IP", "UID", "GID", "PID", "URL", "URI", "API", "CPU", "GPU", "SSD", "HDD", "USB", "XML", "CSV", "HTTP", "HTTPS",
+    "HTML", "CSS", "SQL", "TCP", "UDP", "DNS", "TLS", "SSL", "SSH", "VPN", "CLI", "OTP", "JQL", "PDF", "RPC", "FTP", "SDK",
+    "IDE", "OS", "UI", "UX", "AI", "UUID", "UTF", "JWT", "SVG", "MQTT", "BLE", "LED", "GPIO", "SPI", "PCB", "SoC", "MCU",
+    "DHCP", "SMTP", "NFS", "LTE", "VM", "CI", "PR", "TTY", "EOF", "IoT", "LLM", "MCP", "AWS", "GCP", "DB", "QA", "OCR",
 ];
 
-/// Built-in pronunciations: a few Rust words TTS mangles, then [`BUILTIN_SPELL`] and its plurals.
+/// Initials and short names said as a word, not spelled (`JSON` → "jay son", `MACs` → "macs").
+/// A script's `spell:` or `pronounce:` line overrides any of them.
+pub const BUILTIN_SAY: [(&str, &str); 34] = [
+    ("JSON", "jay son"), ("json", "jay son"), ("YAML", "yammel"), ("yaml", "yammel"), ("TOML", "tommel"), ("MAC", "mac"),
+    ("RAM", "ram"), ("ROM", "rom"), ("LAN", "lan"), ("WAN", "wan"), ("NAT", "nat"), ("NIC", "nick"), ("SIM", "sim"),
+    ("GUI", "gooey"), ("GUID", "goo id"), ("ASCII", "ask ee"), ("POSIX", "pozz ix"), ("UART", "you art"), ("I2C", "I squared C"),
+    ("FIFO", "fife oh"), ("CRUD", "crud"), ("REST", "rest"), ("CORS", "cors"), ("DOM", "dom"), ("MIME", "mime"), ("IMAP", "eye map"),
+    ("OAuth", "oh auth"), ("JPEG", "jay peg"), ("PNG", "ping"), ("WASI", "wazzy"), ("stdin", "standard in"), ("stdout", "standard out"),
+    ("stderr", "standard error"), ("sudo", "soo doo"),
+];
+
+/// Built-in pronunciations: a few Rust and tool names TTS mangles, then [`BUILTIN_SAY`] and
+/// [`BUILTIN_SPELL`] with their plurals.
 pub fn builtin_pronounce() -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = [("IwannatRust", "I wanna Rust"), ("iwr", "I W R"), ("TTS", "text to speech"), ("rs", "R S"), ("md", "markdown"), ("toml", "tommel"), ("wasm", "wazm"), ("usize", "u size"), ("isize", "i size"), ("str", "stir"), ("dyn", "dine"), ("impl", "impul"), ("enum", "ee num"), ("println", "print line"), ("eprintln", "e print line"), ("cfg", "config"), ("Vec", "veck"), ("HashMap", "hash map"), ("ok_or", "ok or"), ("ok_or_else", "ok or else"), ("map_err", "map err"), ("Deserialize", "deserialize")]
-        .iter()
-        .map(|(a, b)| (a.to_string(), b.to_string()))
-        .collect();
+    let mut v: Vec<(String, String)> = [
+        ("IwannatRust", "I wanna Rust"), ("iwr", "I W R"), ("TTS", "text to speech"), ("rs", "R S"), ("md", "markdown"),
+        ("toml", "tommel"), ("wasm", "wazm"), ("usize", "u size"), ("isize", "i size"), ("str", "stir"), ("dyn", "dine"),
+        ("impl", "impul"), ("enum", "ee num"), ("println", "print line"), ("eprintln", "e print line"), ("cfg", "config"),
+        ("Vec", "veck"), ("HashMap", "hash map"), ("ok_or", "ok or"), ("ok_or_else", "ok or else"), ("map_err", "map err"),
+        ("Deserialize", "deserialize"), ("serde", "sir dee"), ("tokio", "toe kee oh"), ("async", "ay sink"), ("regex", "rej ex"),
+        ("nginx", "engine x"), ("kubectl", "cube control"), ("SQLite", "S Q lite"), ("PostgreSQL", "postgres Q L"),
+        ("UTF-8", "U T F 8"), ("x86", "x 86"), ("x86_64", "x 86 64"),
+    ]
+    .iter()
+    .map(|(a, b)| (a.to_string(), b.to_string()))
+    .collect();
+    for (w, say) in BUILTIN_SAY {
+        v.push((w.to_string(), say.to_string()));
+        v.push((format!("{w}s"), format!("{say}s")));
+    }
     for w in BUILTIN_SPELL {
         v.push((w.to_string(), spell(w)));
         v.push((format!("{w}s"), format!("{}'s", spell(w))));
@@ -645,6 +670,18 @@ mod tests {
         let mut p = pron.clone();
         p.extend(parse_pronounce("pronounce: ID = identity"));
         assert_eq!(spoken("the ID", &p), "the identity");
+    }
+
+    #[test]
+    fn builtin_words_are_said() {
+        let pron = builtin_pronounce();
+        assert_eq!(spoken("the MAC in the JSON, two MACs.", &pron), "the mac in the jay son, two macs.");
+        assert_eq!(spoken("reads `config.json` from RAM", &pron), "reads config dot jay son from ram");
+        assert_eq!(spoken("over UART, in ASCII", &pron), "over you art, in ask ee");
+        // a script line still wins
+        let mut p = pron.clone();
+        p.extend(parse_pronounce("spell: JSON"));
+        assert_eq!(spoken("the JSON", &p), "the J S O N");
     }
 
     #[test]
