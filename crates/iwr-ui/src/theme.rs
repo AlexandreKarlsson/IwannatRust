@@ -576,7 +576,7 @@ code { background:var(--panel3); padding:1px 4px; border-radius:4px; font-size:1
 .settings .sub-help code { font-size:11px; background:var(--panel2); padding:1px 4px; border-radius:4px; }
 .guide .say.second { margin-left:24px; padding-left:10px; border-left:3px solid var(--accent); color:var(--text); font-style:italic; }
 /* video render mode (`?render=N`, `codecast video`): the stage, and the caption as a subtitle band when subtitles are asked for */
-.app.render .topbar, .app.render .resizer, .app.render .hud, .app.render .guide .ctl, .app.render .guide .parts, .app.render .guide audio, .app.render .guide .qs, .app.render .guide .pop .x, .app.render .guide .answer button { display:none !important; }
+.app.render .topbar, .app.render .resizer, .app.render .hud, .app.render .guide .ctl, .app.render .guide .parts, .app.render .guide audio, .app.render .guide .audio-row, .app.render .guide .qs, .app.render .guide .pop .x, .app.render .guide .answer button { display:none !important; }
 .app.render .guide { justify-content:center; align-items:center; padding:12px 6vw; height:17vh; max-height:none; box-sizing:border-box; overflow:hidden; flex:none; }
 .app.render .guide .body { max-height:none; overflow:visible; text-align:center; font-size:22px; line-height:1.4; }
 .app.render .guide .say.second { margin-left:0; border-left:none; padding-left:0; }

@@ -19,21 +19,39 @@
 
 </div>
 
-## Why
+<div align="center">
 
-Reading a project you did not write is slow. The docs are thin or out of date, and the person who
-knows it is busy. IwannatRust reads the code and gives every project:
+**▶ IwannatRust in 90 seconds** (sound on), filmed by `codecast video` from
+[`codecast/00-in_90_seconds/`](codecast/00-in_90_seconds/01-at-a-glance.md)
 
-- 🗺️ **Drawings built from the code**: files, modules, calls, control flow, types, error paths.
-  They are redrawn on every save, so they never go out of date.
-- 🎙️ **A virtual presentation (a *codecast*)**: a guided talk that switches to the right view,
-  lights up what it is talking about, underlines code, zooms in, and answers questions. It is
-  spoken by a recorded voice or the browser, or you read it.
-- 👥 **The same explanation for everyone**: newcomers, reviewers, a handover, someone learning
-  Rust or C. The authors write it once, or have an AI write it from `codecast brief`, and `codecast check` keeps
-  every reference in sync with the code.
+</div>
 
-A project without a codecast still gets one: the built-in tour, written from its code.
+https://github.com/user-attachments/assets/REPLACE-WITH-NEW-VIDEO
+
+## What you can do
+
+- 🗺️ **See any codebase as pictures**: architecture, call tree, control flow, sequence diagrams,
+  types & traits, error paths, branch tree. Built from the code, redrawn on every save.
+- 🧱 **Read code as nested blocks**, one per item and per step, next to the source: hover either
+  side and both light up.
+- 🎙️ **Play a *codecast***: a guided talk that switches views, lights up boxes, underlines the
+  exact words in the code and zooms in, while a voice explains.
+- ✏️ **Draw what the code does not show**: mermaid flowcharts and sequences that reveal themselves,
+  scenes where things move and blink on the spoken word, charts that grow, byte layouts, notes the
+  voice points into.
+- ❓ **Ask while it talks**: click a question, the talk pauses, answers, and goes on.
+- 🤖 **Let an AI write it**: `codecast brief` hands an agent your code as compact text, and
+  `codecast check` holds every reference against the code, so the talk never goes out of date.
+- 🔊 **Give it a voice**: natural voices recorded offline (Kokoro), two speakers, or the browser's;
+  play at 0.75× to 2×.
+- 🇯🇵 **English and 日本語**: interface, built-in tours and tutorial, plus subtitles in a second language.
+- 🌐 **Share it**: a static site (`codecast export`) or one MP4 per part (`codecast video`), in
+  32 themes and 31 fonts.
+- 🦀 **Rust, C, C++, Go and shell scripts**, mixed in one project if you like.
+
+No codecast yet? The built-in tour explains any project from its code.
+
+<img src="images/shot-code.png" alt="Code view: nested blocks next to the source" width="100%">
 
 ## Quick start
 
@@ -42,53 +60,23 @@ rustup target add wasm32-unknown-unknown
 cargo install dioxus-cli --version 0.7.10 --locked
 scripts/iwr build                  # web UI + CLI, one binary: target/release/codecast
 scripts/iwr self                   # IwannatRust explaining itself, http://127.0.0.1:4321
+codecast serve path/to/your/project
 ```
 
-On first start the app asks whether you have used it before. Answer *no* and the **integrated
-tutorial** plays. It is itself a codecast, recorded and shipped with the app, and runs on the
-project you opened (about five minutes). The **?** button in the top bar brings it back.
-
-Example: [codecast/](codecast/), IwannatRust's own tour (`scripts/iwr self`).
-Scripts put one directive per line. GitHub's markdown view joins those lines into paragraphs, so
-read them raw (the *Code* button) or in the player.
-
-<img src="images/shot-tour.png" alt="A codecast explaining the ? operator on the control-flow graph" width="100%">
-
-**▶ Watch a part (46 s, with sound):** *The pipeline*, part 2 of IwannatRust's own tour, filmed
-by `codecast video`.
-
-https://github.com/user-attachments/assets/2b99506f-5d02-4b04-b611-26e007f69902
+First start offers the **tutorial** (a five-minute codecast on the project you opened); the
+**?** button brings it back. Example script: [codecast/](codecast/), IwannatRust's own tour (read
+the files raw: GitHub joins their one-directive-per-line into paragraphs).
 
 ## Make a codecast for your project
 
-You need the `codecast` binary (see *Quick start*) and an AI coding agent (Claude Code, Codex,
-Cursor…). Three steps:
+1. `codecast serve path/to/your/project`, then click **generate** in the top bar.
+2. *Write the script with an AI*: answer a few questions (audience, humour, a metaphor…, or leave
+   them empty) and **Copy the prompt**.
+3. Paste it into your agent (Claude Code, Codex, Cursor…) opened in your project. It reads the code
+   and the writing guide, writes `codecast/` and checks it. The app reloads: click **codecast**.
 
-1. **Open your project in the app:** `codecast serve path/to/your/project`, then click
-   **generate** in the top bar.
-2. **Make the prompt:** the first card, *Write the script with an AI*, asks a few questions
-   (subject, audience, humour, a metaphor, which pages to use…). Leave any of them empty and the
-   AI decides. Click **Copy the prompt**.
-3. **Paste it into your agent**, opened in your project folder. It reads your code and the writing
-   guide by itself, shows you the plan, writes `codecast/` and checks it. The app reloads on its
-   own: click **codecast** in the top bar to play it.
-
-Optional: on the same page, record a natural voice for it (Kokoro, offline), then share it with
-`codecast export path/to/your/project -o site/`.
-
-## What is in it
-
-| | |
-|---|---|
-| **Code view** | The file as nested blocks (one per item, one per step), next to the source; hover either side and both light up. |
-| **Seven views** | Call tree, control flow, architecture, branch tree, structure, types & traits, error flow. |
-| **Codecasts** | Markdown scripts: `@` view, `!` highlight (items, steps, files, folders), `=` underline, `+` enlarge a panel, light up a control or zoom, `?` questions, mermaid sketches, side notes, popups. |
-| **Voice** | Kokoro recordings (`codecast voice`, or the *Generate* page), browser TTS, or silent reading; offline translation. |
-| **Look** | 32 themes, 31 fonts; a `codecast.toml` sets the author's defaults. |
-| **Interface** | English and 日本語: switch in the top bar. The built-in tour, generated tours and the tutorial are told natively in Japanese too ([docs/i18n.md](docs/i18n.md)). |
-| **Sharing** | `codecast export` writes a static site that works from any host or sub-path. |
-
-<img src="images/shot-code.png" alt="Code view: nested blocks next to the source" width="100%">
+Then, on the same page, record a voice; share with `codecast export path/to/your/project -o site/`
+or `codecast video codecast/`.
 
 ## Supported languages
 
@@ -100,13 +88,9 @@ Optional: on the same page, record a natural voice for it (Kokoro, offline), the
 | Go | ✅ Supported (tree-sitter; a package is a module, methods under their receiver's type, interfaces with the types that implement them) |
 | Shell (sh, bash) | ✅ Supported (tree-sitter; a script is a module, its functions and its own commands; scripts without an extension are told by their `#!` line) |
 
-Point `codecast serve` at any directory of `.c` / `.h` files: every file is a module, functions get
-their flow graph, `struct`s and `typedef`s their types view, `#define`s are constants. The same goes
-for C++ (`.cpp`, `.cc`, `.hpp`; a `.h` next to C++ sources is read as C++), Go (`.go`, with `go.mod`
-telling which imports are the project's own) and shell scripts (a command is a call when it names a
-function or another script of the project). A project may mix them (a Rust crate with C sources and
-its scripts). More languages (Python, PHP, TypeScript, ...) can be added.
-If you want one, say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues): languages people ask for come first.
+A project may mix them (a Rust crate with C sources and its scripts). Want Python, PHP,
+TypeScript…? Say so in an [issue](https://github.com/AlexandreKarlsson/IwannatRust/issues):
+languages people ask for come first.
 
 ## Commands
 
@@ -116,6 +100,7 @@ codecast export PATH -o DIR   static site
 codecast brief  PATH          the code as compact text, for an AI (or you) to write a codecast
 codecast check  codecast.md   every reference must resolve
 codecast voice  codecast/     record the codecast with Kokoro
+codecast video  codecast/     film each recorded part as an MP4
 ```
 
 `scripts/iwr` with no argument lists everything. Full list: [docs/cli.md](docs/cli.md).

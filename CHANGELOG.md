@@ -8,6 +8,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `codecast video` filmed the playback speed menu (`1×`) above the caption; render mode now hides
+  it with the audio bar.
 - A codecast played from the plan page (`?page=plan`, where a jump from the cast map or a topic
   lands) stayed on the plan: the first cue's `@` view had been applied before the page took over,
   and the next cues without an `@` line left it there. Starting to play, or a cue reached on the
@@ -24,6 +26,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A showcase topic, *IwannatRust in 90 seconds* (`codecast/00-in_90_seconds/`): every feature
+  once on the tool's own code, filmed for the README.
 - Spoken text: initials people say as a word are said that way out of the box — `JSON` "jay son",
   `MAC` "mac", `YAML`, `RAM`, `GUI` "gooey", `ASCII`, `UART`, `OAuth`, `stdin`, `sudo`… — and more
   initials are spelled (`UUID`, `LED`, `GPIO`, `MQTT`, `JWT`…). A `spell:` or `pronounce:` line
